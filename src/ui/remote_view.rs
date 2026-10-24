@@ -1,4 +1,4 @@
-//! Fenêtre des télécommandes : entrée MIDI et correspondances vers les actions.
+//! Fenêtre des télécommandes : entrée MIDI, console Yamaha et correspondances vers les actions.
 
 use egui::{RichText, Ui};
 
@@ -6,12 +6,15 @@ use super::theme::*;
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 use crate::controller::Controller;
 use crate::i18n::tr;
+use crate::project::ConsoleSettings;
 use crate::remote::{ActionKind, Mapping};
 
 #[derive(Default)]
 pub struct RemoteWindow {
     pub open: bool,
     midi_ports: Vec<String>,
+    /// Adresse de la console en cours de saisie, appliquée avec « Connecter ».
+    console: Option<ConsoleSettings>,
 }
 
 impl RemoteWindow {
@@ -36,6 +39,8 @@ impl RemoteWindow {
             .collapsible(false)
             .show(ctx, |ui| {
                 self.midi_section(ui, ctrl);
+                ui.separator();
+                self.console_section(ui, ctrl);
                 ui.separator();
                 mappings(ui, ctrl);
             });
@@ -75,6 +80,60 @@ impl RemoteWindow {
                     ui.label(RichText::new(e).small().color(STOP));
                 }
                 (None, None) => {}
+            }
+        }
+    }
+}
+
+impl RemoteWindow {
+    fn console_section(&mut self, ui: &mut Ui, ctrl: &mut Controller) {
+        ui.heading(tr("Console Yamaha (réseau)", "Yamaha console (network)"));
+        let current = ctrl.project.preferences.console.clone();
+        let draft = self.console.get_or_insert_with(|| current.clone());
+        let mut enabled = current.enabled;
+        let mut apply = false;
+        ui.horizontal(|ui| {
+            if ui.checkbox(&mut enabled, tr("Écouter la console", "Listen to the console")).changed() {
+                apply = true;
+            }
+            ui.label(tr("IP", "IP"));
+            let r = ui.add(egui::TextEdit::singleline(&mut draft.host).desired_width(130.0));
+            apply |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            ui.label(tr("port", "port"));
+            ui.add(egui::DragValue::new(&mut draft.port).range(1..=65535));
+            let changed = draft.host != current.host || draft.port != current.port;
+            if ui.add_enabled(changed || ctrl.console.is_some(), egui::Button::new(tr("Connecter", "Connect"))).clicked() {
+                apply = true;
+                enabled = true;
+            }
+        });
+        if apply {
+            draft.enabled = enabled;
+            let settings = draft.clone();
+            if settings == current {
+                ctrl.restart_console();
+            } else {
+                ctrl.set_console_settings(settings);
+            }
+        }
+        ui.label(RichText::new(tr(
+            "QL, CL, TF, DM7, Rivage : port 49280. JingleStar ne fait qu'écouter les changements \
+             (ON de canal, fader, rappel de scène) ; il ne modifie rien sur la console.",
+            "QL, CL, TF, DM7, Rivage: port 49280. JingleStar only listens to changes \
+             (channel ON, fader, scene recall); it never changes anything on the console.",
+        )).small().color(TEXT_DIM));
+        if let Some(c) = ctrl.console.as_ref() {
+            let st = c.status();
+            if st.connected {
+                let model = st.model.unwrap_or_else(|| tr("console", "console").into());
+                ui.label(RichText::new(format!("{} {model} ({})", tr("Connecté à", "Connected to"), current.host)).small().color(GO));
+            } else if let Some(e) = st.error {
+                ui.label(RichText::new(format!("{e} · {}", tr("nouvel essai en cours", "retrying"))).small().color(STOP));
+            } else {
+                ui.label(RichText::new(tr("Connexion…", "Connecting…")).small().color(TEXT_DIM));
+            }
+            if let Some(line) = st.last_line {
+                ui.label(RichText::new(format!("{} : {line}", tr("Reçu", "Received"))).small().monospace().color(TEXT_DIM));
             }
         }
     }

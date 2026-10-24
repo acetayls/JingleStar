@@ -43,6 +43,8 @@ audio cpal, décodage symphonia).
 - **Pilotage OSC** avec description **OSCQuery** et annonce mDNS (voir plus bas).
 - **Pilotage MIDI** : notes, CC et program change affectés aux actions, avec mode apprendre
   (bouton **Télécommandes**, voir l'aide intégrée).
+- **Pilotage depuis une console Yamaha** (QL, CL, TF…) par le réseau, sans matériel en plus :
+  touches ON, faders et rappels de scène affectés aux actions (protocole TCP 49280).
 - **Langue** : français ou anglais (Préférences → Système).
 - **Aide intégrée** (bouton « ? Aide » ou **F1**), dans la langue choisie. Le manuel est aussi dans
   [`docs/aide.md`](docs/aide.md) (français) et [`docs/help.md`](docs/help.md) (anglais).

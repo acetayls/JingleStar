@@ -16,11 +16,12 @@ use crate::audio::engine::{AudioEngine, DeviceInfo};
 use crate::audio::eq::{EqCoeffs, EqSettings};
 use crate::audio::mixer::{is_playlist_slot, Command, Event, Queued, Region, MAX_MODULES, PLAYLIST_SLOTS};
 use crate::i18n::{set_lang, tr, Lang};
+use crate::console::ConsoleClient;
 use crate::midi::MidiListener;
 use crate::remote::{Flag, InputEvent, Mapping};
 use crate::osc::{self, OscCommand, OscServer};
 use crate::project::{
-    autosave_path, loudness_cache_path, AudioSettings, JingleSlot, MidiSettings, ModuleConfig, ModuleMode, OscSettings, Project, Transition, DEFAULT_COLORS,
+    autosave_path, loudness_cache_path, AudioSettings, ConsoleSettings, JingleSlot, MidiSettings, ModuleConfig, ModuleMode, OscSettings, Project, Transition, DEFAULT_COLORS,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -137,6 +138,8 @@ pub struct Controller {
     pub midi: Option<MidiListener>,
     pub midi_error: Option<String>,
     midi_retry: Instant,
+    /// Écoute de la console Yamaha.
+    pub console: Option<ConsoleClient>,
     /// Correspondance en attente d'apprentissage.
     pub learn: Option<usize>,
     /// Dernier message reçu d'une télécommande, pour les préférences.
@@ -189,6 +192,7 @@ impl Controller {
             midi: None,
             midi_error: None,
             midi_retry: Instant::now(),
+            console: None,
             learn: None,
             last_input: None,
             last_trigger: HashMap::new(),
@@ -200,6 +204,7 @@ impl Controller {
         c.open_device();
         c.restart_osc();
         c.restart_midi();
+        c.restart_console();
         c.analyze_playlists();
         c
     }
@@ -1100,6 +1105,23 @@ impl Controller {
         }
     }
 
+    pub fn set_console_settings(&mut self, settings: ConsoleSettings) {
+        if self.project.preferences.console != settings {
+            self.project.preferences.console = settings;
+            self.mark_dirty();
+            self.restart_console();
+        }
+    }
+
+    /// (Re)lance l'écoute de la console selon les préférences.
+    pub fn restart_console(&mut self) {
+        self.console = None;
+        let settings = self.project.preferences.console.clone();
+        if settings.enabled {
+            self.console = Some(ConsoleClient::start(settings, self.repaint.clone()));
+        }
+    }
+
     pub fn add_mapping(&mut self, mapping: Mapping) {
         self.project.preferences.mappings.push(mapping);
         self.mark_dirty();
@@ -1131,6 +1153,9 @@ impl Controller {
         if let Some(l) = self.midi.as_ref() {
             events.extend(l.events.try_iter().map(|e| ("MIDI", e)));
         }
+        if let Some(c) = self.console.as_ref() {
+            events.extend(c.events.try_iter().map(|e| ("QL", e)));
+        }
         // Port débranché puis rebranché : on retente régulièrement.
         if self.project.preferences.midi.enabled && self.midi_retry.elapsed() > Duration::from_secs(3) {
             self.midi_retry = Instant::now();
@@ -1150,7 +1175,8 @@ impl Controller {
     }
 
     fn on_input(&mut self, source: &str, ev: InputEvent) {
-        self.last_input = Some(format!("{source} · {}", ev.label()));
+        // Les déclencheurs de la console portent déjà leur source (« QL · … »).
+        self.last_input = Some(if source == "QL" { ev.label() } else { format!("{source} · {}", ev.label()) });
         if let Some(i) = self.learn {
             if ev.learnable() {
                 if let Some(m) = self.project.preferences.mappings.get(i) {
@@ -1228,6 +1254,7 @@ impl Controller {
                 let audio_changed = p.audio != self.project.audio;
                 let osc_changed = p.preferences.osc != self.project.preferences.osc;
                 let midi_changed = p.preferences.midi != self.project.preferences.midi;
+                let console_changed = p.preferences.console != self.project.preferences.console;
                 self.project = p;
                 set_lang(self.project.preferences.language);
                 if osc_changed {
@@ -1235,6 +1262,9 @@ impl Controller {
                 }
                 if midi_changed {
                     self.restart_midi();
+                }
+                if console_changed {
+                    self.restart_console();
                 }
                 self.learn = None;
                 self.project_path = Some(path);

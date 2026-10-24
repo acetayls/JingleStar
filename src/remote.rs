@@ -144,10 +144,6 @@ impl Trigger {
         }
     }
 
-    pub fn is_console(&self) -> bool {
-        matches!(self, Trigger::Console { .. } | Trigger::Scene { .. })
-    }
-
     pub fn label(&self) -> String {
         let ch = |c: &u8| format!("{} {}", tr("can.", "ch."), c + 1);
         match self {

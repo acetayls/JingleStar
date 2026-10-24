@@ -143,7 +143,7 @@ impl JingleStarApp {
                 }
                 if ui
                     .selectable_label(self.remote.open, tr("Télécommandes", "Remote"))
-                    .on_hover_text(tr("Pilotage MIDI : correspondances et mode apprendre", "MIDI control: mappings and learn mode"))
+                    .on_hover_text(tr("Pilotage MIDI et console Yamaha : correspondances et mode apprendre", "MIDI and Yamaha console control: mappings and learn mode"))
                     .clicked()
                 {
                     self.remote.toggle();

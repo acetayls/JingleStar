@@ -194,6 +194,7 @@ pub struct Preferences {
     pub module_width: Option<f32>,
     pub osc: OscSettings,
     pub midi: MidiSettings,
+    pub console: ConsoleSettings,
     /// Correspondances des télécommandes (MIDI, console) vers les actions.
     pub mappings: Vec<Mapping>,
     /// Échap arrête aussi les playlists (sinon seulement les jingles).
@@ -210,6 +211,7 @@ impl Default for Preferences {
             module_width: None,
             osc: OscSettings::default(),
             midi: MidiSettings::default(),
+            console: ConsoleSettings::default(),
             mappings: Vec::new(),
             escape_stops_playlist: false,
             double_go_ms: 300,
@@ -224,6 +226,22 @@ pub struct MidiSettings {
     pub enabled: bool,
     /// Nom du port ; `None` = le premier disponible.
     pub port: Option<String>,
+}
+
+/// Écoute d'une console Yamaha sur le réseau (protocole texte, TCP 49280).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct ConsoleSettings {
+    pub enabled: bool,
+    /// Adresse IP de la console.
+    pub host: String,
+    pub port: u16,
+}
+
+impl Default for ConsoleSettings {
+    fn default() -> Self {
+        Self { enabled: false, host: "192.168.0.128".into(), port: 49280 }
+    }
 }
 
 /// Pilotage à distance : commandes OSC (UDP) et description OSCQuery (HTTP).
