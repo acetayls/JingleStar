@@ -210,7 +210,7 @@ module header.
 ## Preferences
 
 **⚙ Preferences** opens the settings window. **Audio** and **OSC** settings take effect with
-**Apply**; language and sleep prevention apply right away.
+**Apply**, which also closes the window; language and sleep prevention apply right away.
 
 ### Audio
 
