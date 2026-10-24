@@ -38,6 +38,8 @@ audio cpal, décodage symphonia).
 - **Échap** : tout arrêter.
 - **Pilotage OSC** avec description **OSCQuery** et annonce mDNS (voir plus bas).
 - **Langue** : français ou anglais (Préférences → Système).
+- **Aide intégrée** (bouton « ? Aide » ou **F1**), dans la langue choisie. Le manuel est aussi dans
+  [`docs/aide.md`](docs/aide.md) (français) et [`docs/help.md`](docs/help.md) (anglais).
 - Session sauvegardée automatiquement ; projets enregistrables (`.jinglestar`).
 
 Formats lus : WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
@@ -135,6 +137,7 @@ src/
     mod.rs           interface (modules, éditeur de jingle, préférences)
     widgets.rs       boutons, vumètres, éditeur de forme d'onde
     eq_view.rs       courbe d'égaliseur éditable
+    help.rs          fenêtre d'aide (affiche docs/aide.md ou docs/help.md)
     theme.rs         thème sombre façon QLab
 ```
 

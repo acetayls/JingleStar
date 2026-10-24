@@ -2,6 +2,7 @@
 
 mod theme;
 mod eq_view;
+mod help;
 mod widgets;
 
 use std::path::PathBuf;
@@ -41,6 +42,7 @@ pub struct JingleStarApp {
     /// Module dont l'égaliseur est ouvert.
     module_eq: Option<usize>,
     settings: Option<SettingsDraft>,
+    help: help::HelpWindow,
     /// Niveaux affichés (dB), avec retombée progressive.
     meters: [[f32; 2]; MAX_MODULES],
     last_frame: Instant,
@@ -58,6 +60,7 @@ impl JingleStarApp {
             confirm_delete: None,
             module_eq: None,
             settings: None,
+            help: help::HelpWindow::default(),
             meters: [[-120.0; 2]; MAX_MODULES],
             last_frame: Instant::now(),
             drop_targets: Vec::new(),
@@ -126,6 +129,9 @@ impl JingleStarApp {
                     self.ctrl.stop_all();
                 }
                 ui.add_space(8.0);
+                if ui.selectable_label(self.help.open, tr("? Aide", "? Help")).on_hover_text("F1").clicked() {
+                    self.help.toggle();
+                }
                 if ui.button(tr("⚙ Préférences", "⚙ Preferences")).clicked() {
                     self.open_settings();
                 }
@@ -1074,6 +1080,9 @@ impl eframe::App for JingleStarApp {
         if !typing && ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.ctrl.stop_all();
         }
+        if ctx.input(|i| i.key_pressed(Key::F1)) {
+            self.help.toggle();
+        }
 
         egui::Panel::top("toolbar")
             .exact_size(48.0)
@@ -1090,6 +1099,7 @@ impl eframe::App for JingleStarApp {
         self.jingle_editor(&ctx);
         self.module_eq_window(&ctx);
         self.settings_window(&ctx);
+        self.help.show(&ctx);
         self.handle_drops(&ctx);
 
         let busy = self.ctrl.anything_playing() || self.meters.iter().flatten().any(|d| *d > -100.0);
