@@ -37,7 +37,6 @@ pub enum OscCommand {
     PlaylistStep(usize, isize),
     PlaylistShuffle(usize, bool),
     PlaylistLoop(usize, bool),
-    PlaylistAutoAdvance(usize, bool),
 }
 
 // ------------------------------------------------------------------ état publié
@@ -71,7 +70,6 @@ pub struct PlaylistState {
     pub playing: bool,
     pub shuffle: bool,
     pub looping: bool,
-    pub auto_advance: bool,
 }
 
 // ------------------------------------------------------------------ adresses
@@ -194,7 +192,6 @@ pub fn parse(prefix: &str, msg: &OscMessage) -> Result<Option<OscCommand>, Strin
                     "previous" => trigger(OscCommand::PlaylistStep(m, -1)),
                     "shuffle" => Ok(Some(OscCommand::PlaylistShuffle(m, flag()?))),
                     "loop" => Ok(Some(OscCommand::PlaylistLoop(m, flag()?))),
-                    "auto_advance" => Ok(Some(OscCommand::PlaylistAutoAdvance(m, flag()?))),
                     _ => Err(format!("{} : {}", tr("adresse inconnue", "unknown address"), msg.addr)),
                 },
                 _ => Err(format!("{} : {}", tr("adresse inconnue", "unknown address"), msg.addr)),
@@ -323,10 +320,6 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
                 add(format!("{pb}/playing"), leaf(bool_type(pl.playing), ACCESS_READ, "La playlist joue", Some(json!(pl.playing)), None));
                 add(format!("{pb}/shuffle"), leaf(bool_type(pl.shuffle), ACCESS_RW, "Lecture aléatoire", Some(json!(pl.shuffle)), None));
                 add(format!("{pb}/loop"), leaf(bool_type(pl.looping), ACCESS_RW, "Boucle sur la liste", Some(json!(pl.looping)), None));
-                add(
-                    format!("{pb}/auto_advance"),
-                    leaf(bool_type(pl.auto_advance), ACCESS_RW, "Enchaînement automatique", Some(json!(pl.auto_advance)), None),
-                );
             }
         }
     }

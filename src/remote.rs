@@ -181,12 +181,11 @@ pub enum ActionKind {
     PlaylistTrack,
     PlaylistShuffle,
     PlaylistLoop,
-    PlaylistAutoAdvance,
     StopAll,
 }
 
 impl ActionKind {
-    pub const ALL: [ActionKind; 15] = [
+    pub const ALL: [ActionKind; 14] = [
         ActionKind::JingleToggle,
         ActionKind::JinglePlay,
         ActionKind::JingleStop,
@@ -200,7 +199,6 @@ impl ActionKind {
         ActionKind::PlaylistTrack,
         ActionKind::PlaylistShuffle,
         ActionKind::PlaylistLoop,
-        ActionKind::PlaylistAutoAdvance,
         ActionKind::StopAll,
     ];
 
@@ -219,7 +217,6 @@ impl ActionKind {
             ActionKind::PlaylistTrack => tr("Playlist : morceau n° (valeur)", "Playlist: track no. (value)"),
             ActionKind::PlaylistShuffle => tr("Playlist : aléatoire", "Playlist: shuffle"),
             ActionKind::PlaylistLoop => tr("Playlist : boucle", "Playlist: loop"),
-            ActionKind::PlaylistAutoAdvance => tr("Playlist : enchaînement", "Playlist: auto-advance"),
             ActionKind::StopAll => tr("Tout arrêter", "Stop everything"),
         }
     }
@@ -238,7 +235,6 @@ impl ActionKind {
 pub enum Flag {
     Shuffle,
     Loop,
-    AutoAdvance,
 }
 
 /// Une correspondance ; module et jingle comptés à partir de 0.
@@ -277,9 +273,6 @@ impl Mapping {
             ActionKind::PlaylistTrack => ev.track().map(|n| OscCommand::PlaylistPlay(m, Some(n - 1))),
             ActionKind::PlaylistShuffle if ev.state().is_some() || ev.press() => set(Flag::Shuffle, OscCommand::PlaylistShuffle),
             ActionKind::PlaylistLoop if ev.state().is_some() || ev.press() => set(Flag::Loop, OscCommand::PlaylistLoop),
-            ActionKind::PlaylistAutoAdvance if ev.state().is_some() || ev.press() => {
-                set(Flag::AutoAdvance, OscCommand::PlaylistAutoAdvance)
-            }
             _ => None,
         }
     }

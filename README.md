@@ -111,7 +111,6 @@ ci-dessous sont données avec le préfixe par défaut.
 | `/jinglestar/module/<m>/playlist/previous` | — | Morceau précédent |
 | `/jinglestar/module/<m>/playlist/shuffle` | bool | Aléatoire |
 | `/jinglestar/module/<m>/playlist/loop` | bool | Boucle sur la liste |
-| `/jinglestar/module/<m>/playlist/auto_advance` | bool | Enchaînement automatique |
 
 - Les déclencheurs (`play`, `stop`, `toggle`, `next`…) partent sans argument ou avec une valeur
   non nulle : un bouton qui envoie 1 à l'appui puis 0 au relâché ne déclenche qu'une fois.

@@ -129,15 +129,16 @@ Un module en mode **Playlist** lit les fichiers audio d'un dossier, triés par n
 ### Transport
 
 - **⏮** / **⏭** : morceau précédent / suivant (la lecture continue si elle était en cours).
-- **▶** : lance la lecture au morceau sélectionné, ou au premier.
+- **▶ GO** : lance la lecture au morceau sélectionné, ou au premier.
 - **■** : arrête la playlist.
 - **Clic** sur un morceau : le sélectionne (à l'arrêt). **Double-clic** : le lance immédiatement.
 
 ### Options
 
-- **🔀 Aléatoire** : ordre de lecture au hasard, sans répéter un morceau avant d'avoir joué toute la liste.
-- **🔁 Boucle** : reprend au début à la fin de la liste.
-- **⏩ Enchaîner** : passe automatiquement au morceau suivant (activé par défaut). Désactivé, la playlist s'arrête à la fin de chaque morceau.
+Les morceaux s'enchaînent toujours automatiquement. Un voyant ambre indique les options actives.
+
+- **Aléatoire** : ordre de lecture au hasard, sans répéter un morceau avant d'avoir joué toute la liste.
+- **Boucle** : reprend au début à la fin de la liste.
 
 ### Transition
 
@@ -286,7 +287,6 @@ données avec le préfixe par défaut.
 | `/jinglestar/module/<m>/playlist/previous` | — | Morceau précédent |
 | `/jinglestar/module/<m>/playlist/shuffle` | bool | Aléatoire |
 | `/jinglestar/module/<m>/playlist/loop` | bool | Boucle sur la liste |
-| `/jinglestar/module/<m>/playlist/auto_advance` | bool | Enchaînement automatique |
 
 - Les déclencheurs (`play`, `stop`, `toggle`, `next`…) partent sans argument ou avec une valeur non nulle : un bouton qui envoie 1 à l'appui puis 0 au relâché ne déclenche qu'une fois.
 - Les booléens acceptent `T`/`F`, un entier ou un float (≥ 0,5 = vrai), ou `true`/`false`/`on`/`off`.
@@ -338,7 +338,7 @@ branchement.
 
 ### Comment les messages agissent
 
-| Message | Boutons (lancer, arrêter, suivant…) | Volumes | Aléatoire, boucle, enchaînement | Morceau n° |
+| Message | Boutons (lancer, arrêter, suivant…) | Volumes | Aléatoire, boucle | Morceau n° |
 |---|---|---|---|---|
 | Note | à l'appui (le relâché est ignoré) | vélocité | bascule | — |
 | CC | quand la valeur passe à 64 ou plus | 0 → minimum, 127 → maximum | 64 ou plus = activé | valeur |
@@ -375,7 +375,7 @@ est éteinte ou débranchée, JingleStar retente seul toutes les quelques second
 - **Rappel de scène** : déclenche l'action de la scène apprise. Avec **Playlist : morceau n°**,
   toute scène rappelée lance le morceau du même numéro.
 
-Pour les options de playlist (aléatoire, boucle, enchaînement), le ON d'un canal impose l'état :
+Pour les options de playlist (aléatoire, boucle), le ON d'un canal impose l'état :
 ON allumé = option activée.
 
 ### Apprendre

@@ -857,7 +857,7 @@ impl Controller {
 
     fn next_index(&mut self, m: usize, index: usize) -> Option<usize> {
         let pl = &self.project.modules[m].playlist;
-        if !pl.auto_advance || pl.tracks.is_empty() {
+        if pl.tracks.is_empty() {
             return None;
         }
         let (len, looping) = (pl.tracks.len(), pl.looping);
@@ -1075,7 +1075,6 @@ impl Controller {
             OscCommand::PlaylistStep(m, d) if m < n && mode(self, m) == ModuleMode::Playlist => self.playlist_step(m, d),
             OscCommand::PlaylistShuffle(m, on) if m < n => self.update_playlist(m, |p| p.shuffle = on),
             OscCommand::PlaylistLoop(m, on) if m < n => self.update_playlist(m, |p| p.looping = on),
-            OscCommand::PlaylistAutoAdvance(m, on) if m < n => self.update_playlist(m, |p| p.auto_advance = on),
             other => self.status = Some(format!("{source} : {} ({other:?})", tr("commande ignorée", "command ignored"))),
         }
     }
@@ -1199,7 +1198,6 @@ impl Controller {
                     match flag {
                         Flag::Shuffle => pl.shuffle,
                         Flag::Loop => pl.looping,
-                        Flag::AutoAdvance => pl.auto_advance,
                     }
                 })
             })
@@ -1237,7 +1235,6 @@ impl Controller {
                         playing: rt.playing,
                         shuffle: cfg.playlist.shuffle,
                         looping: cfg.playlist.looping,
-                        auto_advance: cfg.playlist.auto_advance,
                     },
                 }
             })

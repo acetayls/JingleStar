@@ -100,8 +100,6 @@ pub enum Transition {
 pub struct PlaylistConfig {
     pub folder: Option<PathBuf>,
     pub tracks: Vec<PathBuf>,
-    /// Enchaîne automatiquement le morceau suivant.
-    pub auto_advance: bool,
     /// Reprend au début à la fin de la liste.
     pub looping: bool,
     /// Ordre de lecture aléatoire.
@@ -117,7 +115,6 @@ impl Default for PlaylistConfig {
         Self {
             folder: None,
             tracks: Vec::new(),
-            auto_advance: true,
             looping: false,
             shuffle: false,
             transition: Transition::Gapless,

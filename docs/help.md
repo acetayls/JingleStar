@@ -128,15 +128,16 @@ A module in **Playlist** mode plays the audio files of a folder, sorted by name.
 ### Transport
 
 - **⏮** / **⏭**: previous / next track (playback continues if it was running).
-- **▶**: starts playback at the selected track, or the first one.
+- **▶ GO**: starts playback at the selected track, or the first one.
 - **■**: stops the playlist.
 - **Click** a track: selects it (when stopped). **Double-click**: plays it right away.
 
 ### Options
 
-- **🔀 Shuffle**: random order, without repeating a track before the whole list has played.
-- **🔁 Loop**: starts over at the end of the list.
-- **⏩ Auto-advance**: moves on to the next track automatically (on by default). When off, the playlist stops at the end of each track.
+Tracks always advance automatically. An amber light shows which options are on.
+
+- **Shuffle**: random order, without repeating a track before the whole list has played.
+- **Loop**: starts over at the end of the list.
 
 ### Transition
 
@@ -282,7 +283,6 @@ default prefix.
 | `/jinglestar/module/<m>/playlist/previous` | — | Previous track |
 | `/jinglestar/module/<m>/playlist/shuffle` | bool | Shuffle |
 | `/jinglestar/module/<m>/playlist/loop` | bool | Loop the list |
-| `/jinglestar/module/<m>/playlist/auto_advance` | bool | Auto-advance |
 
 - Triggers (`play`, `stop`, `toggle`, `next`…) fire with no argument or a non-zero value: a button sending 1 on press and 0 on release triggers only once.
 - Booleans accept `T`/`F`, an int or a float (≥ 0.5 = true), or `true`/`false`/`on`/`off`.
@@ -332,7 +332,7 @@ the next jingle: for a 12-pad controller, repeat **＋ Add and learn** then the 
 
 ### How messages act
 
-| Message | Buttons (play, stop, next…) | Volumes | Shuffle, loop, auto-advance | Track no. |
+| Message | Buttons (play, stop, next…) | Volumes | Shuffle, loop | Track no. |
 |---|---|---|---|---|
 | Note | on press (release is ignored) | velocity | toggles | — |
 | CC | when the value reaches 64 or more | 0 → minimum, 127 → maximum | 64 or more = on | value |
@@ -367,7 +367,7 @@ on its own. The **Received** line shows the last message sent by the console.
 - **A scene recall**: triggers the action of the learned scene. With **Playlist: track no.**,
   any recalled scene plays the track with the same number.
 
-For playlist options (shuffle, loop, auto-advance), a channel ON sets the state: ON lit = option
+For playlist options (shuffle, loop), a channel ON sets the state: ON lit = option
 on.
 
 ### Learning
