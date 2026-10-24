@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::audio::decode::is_audio_file;
+use crate::audio::eq::EqSettings;
+use crate::audio::loudness::NormalizeSettings;
 use crate::i18n::Lang;
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 
@@ -50,6 +52,8 @@ pub struct JingleSlot {
     pub fade_in: f64,
     #[serde(default)]
     pub fade_out: f64,
+    #[serde(default)]
+    pub eq: EqSettings,
 }
 
 impl JingleSlot {
@@ -66,6 +70,7 @@ impl JingleSlot {
             loop_end: None,
             fade_in: 0.0,
             fade_out: 0.0,
+            eq: EqSettings::default(),
         }
     }
 
@@ -100,6 +105,8 @@ pub struct PlaylistConfig {
     pub shuffle: bool,
     pub transition: Transition,
     pub crossfade_secs: f32,
+    /// Équilibrage du niveau des morceaux (gain de lecture, fichiers intacts).
+    pub normalize: NormalizeSettings,
 }
 
 impl Default for PlaylistConfig {
@@ -111,6 +118,7 @@ impl Default for PlaylistConfig {
             shuffle: false,
             transition: Transition::Gapless,
             crossfade_secs: 3.0,
+            normalize: NormalizeSettings::default(),
         }
     }
 }
@@ -140,6 +148,8 @@ pub struct ModuleConfig {
     pub output_pair: usize,
     pub jingles: Vec<Option<JingleSlot>>,
     pub playlist: PlaylistConfig,
+    /// Égaliseur du bus du module (jingles et playlist).
+    pub eq: EqSettings,
 }
 
 impl ModuleConfig {
@@ -157,6 +167,7 @@ impl Default for ModuleConfig {
             output_pair: 0,
             jingles: vec![None; JINGLE_SLOTS],
             playlist: PlaylistConfig::default(),
+            eq: EqSettings::default(),
         }
     }
 }
@@ -175,11 +186,46 @@ pub struct Preferences {
     /// Empêche la mise en veille de l'ordinateur pendant la lecture.
     pub prevent_sleep: bool,
     pub language: Lang,
+    /// Largeur des modules en points ; `None` = ils remplissent la fenêtre.
+    pub module_width: Option<f32>,
+    pub osc: OscSettings,
 }
 
 impl Default for Preferences {
     fn default() -> Self {
-        Self { prevent_sleep: true, language: Lang::Fr }
+        Self { prevent_sleep: true, language: Lang::Fr, module_width: None, osc: OscSettings::default() }
+    }
+}
+
+/// Pilotage à distance : commandes OSC (UDP) et description OSCQuery (HTTP).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct OscSettings {
+    pub enabled: bool,
+    /// Port UDP de réception des commandes.
+    pub port: u16,
+    /// Préfixe des adresses (« /jinglestar »), vide pour aucun.
+    pub prefix: String,
+    /// Serveur HTTP OSCQuery qui décrit l'arborescence des commandes.
+    pub oscquery: bool,
+    pub oscquery_port: u16,
+    /// Annonce sur le réseau local (mDNS / Bonjour) pour la découverte automatique.
+    pub zeroconf: bool,
+    /// Nom annoncé sur le réseau.
+    pub name: String,
+}
+
+impl Default for OscSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: 8000,
+            prefix: "/jinglestar".into(),
+            oscquery: true,
+            oscquery_port: 8001,
+            zeroconf: true,
+            name: "JingleStar".into(),
+        }
     }
 }
 
@@ -233,6 +279,11 @@ impl Project {
         std::fs::rename(tmp, path)?;
         Ok(())
     }
+}
+
+/// Cache des mesures de niveau des morceaux.
+pub fn loudness_cache_path() -> Option<PathBuf> {
+    directories::ProjectDirs::from("com", "acetayls", "JingleStar").map(|d| d.cache_dir().join("loudness.json"))
 }
 
 /// Fichier de session restauré automatiquement au lancement.

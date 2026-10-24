@@ -19,6 +19,20 @@ serde_json = "1"
 directories = "6"
 anyhow = "1"
 keepawake = "0.6"
+rosc = "0.11"
+tiny_http = "0.12"
+mdns-sd = "0.21"
+
+[build-dependencies]
+# Icône et métadonnées de l'exécutable Windows.
+winresource = "0.1"
+
+# Pour un paquet .app macOS avec `cargo bundle --release`.
+[package.metadata.bundle]
+name = "JingleStar"
+identifier = "com.acetayls.JingleStar"
+icon = ["assets/icons/jinglestar.icns", "assets/icons/jinglestar-1024.png"]
+category = "public.app-category.music"
 
 [features]
 # Support ASIO sous Windows (nécessite le SDK ASIO de Steinberg, voir README).

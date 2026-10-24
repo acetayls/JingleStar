@@ -1,0 +1,333 @@
+# JingleStar help
+
+JingleStar plays jingles and playlists on one or more audio outputs. The screen is split into
+**modules** (1 to 8): each one is either a grid of 12 jingles or a playlist, with its own volume,
+equalizer and output pair.
+
+## Getting started
+
+1. On first launch, a single module in **Jingles** mode is shown.
+2. Click an empty button: a dialog lets you pick a sound file. You can also **drag and drop** one or
+   more files onto a button (several files fill the following buttons).
+3. Click a filled button to play the sound, click it again to stop it.
+4. **Esc** or the red **STOP ALL** button stops every sound.
+5. Check the audio output in the bottom bar. To change it: **Preferences → Audio**.
+
+Everything is saved automatically: when you restart JingleStar, the session is restored as you
+left it.
+
+Supported formats: WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
+
+## The screen
+
+### Top bar
+
+- **＋ Add module**: adds a module at the end (8 maximum). The counter shows the number of modules.
+- **⤢ Fill**: modules share the window width (4 per row at most). Turn it off to set a fixed width with the slider that appears; each row then holds as many modules as fit.
+- **Open…** / **Save as…**: opens or saves a project (`.jinglestar` file).
+- **⚙ Preferences**: audio, language, sleep prevention and OSC.
+- **? Help**: opens this help (**F1** key).
+- **■ STOP ALL**: stops every sound in every module (**Esc** key).
+
+### Bottom bar
+
+It shows the active audio output (driver, device, channel count, sample rate) with a green light,
+or a red light when there is no output. Errors and messages (project saved, unreadable file…) are
+shown there too.
+
+## Modules
+
+Each module has, from top to bottom:
+
+- its **number** and **name**;
+- the **output** selector (stereo pair 1-2, 3-4…);
+- the **EQ** button (module equalizer);
+- the **✏** button (edit mode);
+- the mode selector: **Jingles** or **Playlist**;
+- on the right, the volume **fader** (-∞ to +10 dB) with its dB value below, the stereo **meter** and the **■** button that stops the module.
+
+The module frame turns green while something is playing in it.
+
+- **Volume**: drag the fader. A **double-click** resets it to 0 dB.
+- **Change mode**: click **Jingles** or **Playlist**. The module stops; both the jingles and the playlist are kept.
+- **Rename**: switch to edit mode (✏), the name becomes editable.
+- **Delete**: in edit mode, click **🗑** then confirm with **Delete?**. The following modules move up one place. The last remaining module cannot be deleted.
+
+### Edit mode (✏)
+
+The pencil switches the module between **play** mode and **edit** mode:
+
+- in play mode, clicking a jingle plays or stops it;
+- in edit mode, clicking a jingle opens its editor (and asks for a file if the button is empty), the module name becomes editable, and the **EQ** and **🗑** buttons appear; in Playlist mode, the transition and level normalization settings are shown as well.
+
+When you close a jingle editor (**✓ Done** or the close cross), the module goes back to play mode.
+
+## Jingles
+
+A module in **Jingles** mode has 12 buttons (3 columns, 4 rows). Each button shows its number, the
+sound name, its color and its duration. While playing, a progress bar shows elapsed and remaining
+time; a looping jingle shows **⟳** instead of the remaining time. The jingle volume is shown at the
+top right (orange when it is not 0 dB). Extra marks complete the button: **🔁** next to the volume
+for a looping jingle, **EQ** at the bottom left when its equalizer is on,
+**…** while the sound is loading and **⚠** if the file is missing or unreadable.
+
+- **Click**: plays the sound from its start point; a second click stops it (with its fade-out, if any).
+- Several jingles of the same module can play at the same time.
+- **Right-click**: **Choose a file…**, **Edit…** (opens the editor without entering edit mode) and **Clear**.
+- **Drag and drop** a file onto a button to replace its sound; several files fill the following buttons of the module.
+
+### Editing a jingle
+
+Open the editor through edit mode (✏ then click the button) or with **right-click → Edit…**.
+
+- **Name**: the text shown on the button (the file name by default).
+- **File**: **Change…** to pick another sound.
+- **Volume**: from -40 to +10 dB, in 0.5 dB steps.
+- **Playback**: **Once** or **Loop**.
+- **Fades**: fade-**in** and fade-**out** duration, from 0 to 30 s. The fade-out also applies when you stop the sound.
+- **Color**: 8 colors to choose from.
+- **▶ Play / ■ Stop**: to try the sound from the editor.
+- **Clear slot**: removes the sound from the button.
+- **✓ Done**: closes the editor.
+
+Changes apply immediately, even while playing.
+
+### Waveform, start, end and loop
+
+The editor shows the sound's waveform with draggable handles, QLab style:
+
+- **green** handle (bottom): playback **start**;
+- **red** handle (bottom): playback **end**;
+- **orange** lines (top), in loop mode: **loop start** and **loop end**.
+
+Excluded parts are darkened and fades are drawn as ramps. Start and end are grabbed in the lower
+half of the waveform, loop points in the upper half, so they can be told apart even when they
+overlap.
+
+Below the waveform, the **Start**, **Loop → …** and **End** fields let you type the points to a
+hundredth of a second. **Reset points** goes back to the whole sound.
+
+In loop mode, the sound plays from the start to the loop end, jumps back to the loop start, and so
+on until you stop it.
+
+### Jingle equalizer
+
+At the bottom of the editor, the collapsible **Equalizer** section sets an equalizer for this
+jingle only. It turns orange and reads “on” when it changes the sound. See
+[The equalizer](#the-equalizer).
+
+## The playlist
+
+A module in **Playlist** mode plays the audio files of a folder, sorted by name.
+
+- **📁 Folder…**: picks the folder. You can also drop a folder (or a file from that folder) onto the playlist.
+- **⟳**: rescans the folder (after adding or removing files).
+- The top frame shows the current track, a progress bar, elapsed and remaining time.
+
+### Transport
+
+- **⏮** / **⏭**: previous / next track (playback continues if it was running).
+- **▶ GO**: starts playback at the selected track, or the first one.
+- **■**: stops the playlist.
+- **Click** a track: selects it (when stopped). **Double-click**: plays it right away.
+
+### Options
+
+Tracks always advance automatically. An amber light shows which options are on.
+
+- **Shuffle**: random order, without repeating a track before the whole list has played.
+- **Loop**: starts over at the end of the list.
+
+### Transition
+
+In edit mode (or when crossfade is selected), the **Transition** row offers:
+
+- **End of file**: the next track starts exactly when the previous one ends, gapless;
+- **Crossfade**: the next track fades in while the previous one fades out, over an adjustable time from 0.5 to 20 s (3 s by default).
+
+### Level normalization
+
+To make every track play at the same level, switch to edit mode and tick **Normalize level**. Each
+track is measured in the background, then played with the gain that brings it to the target. Files
+are never modified.
+
+- **Measurement**: **Loudness (LUFS)** (integrated loudness, ITU-R BS.1770 / EBU R128, closest to what the ear hears), **Peak**, **True peak** (dBTP) or **RMS**.
+- **Target**: the level to reach. -16 LUFS by default; for reference: -23 LUFS for radio and TV (EBU R128), -14 to -16 LUFS for streaming and live sound.
+- **Max** (on by default, -1 dBTP): if the gain would push a track's true peak above this ceiling, its gain is lowered so nothing clips.
+
+The applied gain is shown to the right of each track and next to the current track: grey normally,
+**orange** when lowered by the ceiling, **…** while measuring, **—** for a silent or too short
+track (gain unchanged), **⚠** if the measurement failed. Hovering shows the detailed measurements
+(loudness, peak, true peak, RMS). While measuring, an indicator shows the progress. Measurements
+are cached and only redone when the file changes.
+
+Outside edit mode, a **Normalize** row reminds you of the current setting.
+
+## The equalizer
+
+Every jingle and every module has its own equalizer. The module equalizer applies to everything the
+module plays (jingles and playlist), after the jingle's own.
+
+- **Module equalizer**: in edit mode, **EQ** button in the module header. Outside edit mode, a small orange **EQ** label shows that it is on.
+- **Jingle equalizer**: **Equalizer** section of the jingle editor.
+
+It has five bands:
+
+| Band | Settings |
+|---|---|
+| Low cut | frequency, 12 or 24 dB/oct slope |
+| Low shelf | frequency, gain, Q |
+| Peak 1 | frequency, gain, Q |
+| Peak 2 | frequency, gain, Q |
+| High shelf | frequency, gain, Q |
+
+Gain ranges from -18 to +18 dB, frequency from 20 Hz to 20 kHz, Q from 0.1 to 18.
+
+### With the mouse, on the curve
+
+- **Drag a point**: moves the frequency (horizontally) and the gain (vertically), with a slight detent at 0 dB.
+- **Mouse wheel** over a point: widens or narrows the band (Q).
+- **Double-click** a point: turns the band on or off.
+
+### With the fields
+
+Below the curve, each band has a button (on / off) and **Freq.**, **Gain** and **Q / slope** fields
+to drag or type into. Double-clicking a gain resets it to 0 dB. Changing a value turns the band on.
+
+- **EQ enabled**: master switch. When off, the sound passes untouched but the settings are kept (the curve stays visible, dimmed).
+- **Reset**: back to a flat equalizer.
+
+## Output routing
+
+Each module plays on a **stereo pair**: 1-2, 3-4, 5-6… Pick it from the **Output** menu in the
+module header.
+
+- With a stereo sound card, only pair 1-2 exists: all modules are mixed there.
+- With a multichannel interface, give each module its own pair for multitrack playback (for example jingles on 1-2 and background music on 3-4).
+- If the chosen pair does not exist on the active device (interface unplugged, another one selected), the menu shows **⚠ Output x-y → 1-2** in orange: the module then plays on 1-2, and gets its pair back once it is available again.
+
+## Preferences
+
+**⚙ Preferences** opens the settings window. **Audio** and **OSC** settings take effect with
+**Apply**; language and sleep prevention apply right away.
+
+### Audio
+
+- **Driver**: WASAPI (Windows), CoreAudio (macOS), ALSA (Linux), or ASIO if JingleStar was built with that option. “Default” uses the system driver.
+- **Device**: the output to use, with its channel count. ★ marks the system default output.
+- **Buffer size**: Automatic, or 64 to 2048 samples. Smaller = less latency, but more risk of crackles.
+- **Refresh list**: rescans drivers and devices (after plugging in an interface).
+
+Applying an audio change reopens the device, which interrupts the sounds that are playing. If
+nothing changed in the audio settings, playback is not interrupted.
+
+### System
+
+- **Language**: Français or English. The interface and this help switch immediately.
+- **Prevent sleep during playback**: while a sound is playing, the computer and screen do not go to sleep.
+
+### OSC
+
+See [OSC control](#osc-control).
+
+## Projects and saving
+
+- The session is **saved automatically** and restored on next launch (modules, jingles, playlists, preferences).
+- **Save as…** creates a `.jinglestar` file (a project), to keep several setups.
+- **Open…** loads a project: every sound stops, then the project replaces the current session.
+
+A project stores the **path** of the sound files, not the sounds themselves: if you move or rename
+a file, the matching button shows an error. Pick the file again (**Change…** or right-click →
+**Choose a file…**).
+
+## OSC control
+
+JingleStar can be remote-controlled over OSC (for example from QLab, TouchOSC, Chataigne, a control
+surface or a script).
+
+### Enabling it
+
+In **Preferences → OSC**, tick **Enable OSC control**, adjust the options and click **Apply**:
+
+| Setting | Default | Purpose |
+|---|---|---|
+| UDP port (receive) | 8000 | Port on which JingleStar receives commands |
+| Address prefix | `/jinglestar` | Start of every address (may be empty) |
+| OSCQuery | on, port 8001 | HTTP server describing the available commands |
+| Network discovery | on | mDNS / Bonjour advertisement for automatic discovery |
+| Advertised name | JingleStar | Name shown on the network |
+
+Once applied, the preferences show the IP address and listening ports, or the error if a port is
+already in use.
+
+### Addresses
+
+Module (1 to 8), jingle (1 to 12) and track numbers start at 1. Addresses are given with the
+default prefix.
+
+| Address | Argument | Effect |
+|---|---|---|
+| `/jinglestar/stop_all` | — | Stops everything |
+| `/jinglestar/module/<m>/stop` | — | Stops the module |
+| `/jinglestar/module/<m>/volume` | float, dB (-60 to +10) | Module volume |
+| `/jinglestar/module/<m>/mode` | `jingle` or `playlist` | Changes the module mode |
+| `/jinglestar/module/<m>/jingle/<j>/play` | — | Plays the jingle from the start (restarts it if playing) |
+| `/jinglestar/module/<m>/jingle/<j>/stop` | — | Stops the jingle |
+| `/jinglestar/module/<m>/jingle/<j>/toggle` | — | Plays or stops, like a click |
+| `/jinglestar/module/<m>/jingle/<j>/volume` | float, dB (-40 to +10) | Jingle volume |
+| `/jinglestar/module/<m>/playlist/play` | — or int | Play (selected track, or track no.) |
+| `/jinglestar/module/<m>/playlist/track` | int | Plays track no. |
+| `/jinglestar/module/<m>/playlist/stop` | — | Stops the playlist |
+| `/jinglestar/module/<m>/playlist/next` | — | Next track |
+| `/jinglestar/module/<m>/playlist/previous` | — | Previous track |
+| `/jinglestar/module/<m>/playlist/shuffle` | bool | Shuffle |
+| `/jinglestar/module/<m>/playlist/loop` | bool | Loop the list |
+
+- Triggers (`play`, `stop`, `toggle`, `next`…) fire with no argument or a non-zero value: a button sending 1 on press and 0 on release triggers only once.
+- Booleans accept `T`/`F`, an int or a float (≥ 0.5 = true), or `true`/`false`/`on`/`off`.
+- Jingle commands only act on a module in Jingles mode, playlist commands on a module in Playlist mode. Bundles are accepted.
+
+### OSCQuery
+
+- `http://<ip>:8001/` returns the command tree as JSON (types, access, ranges and current values).
+- `http://<ip>:8001/?HOST_INFO` returns the server information.
+- `http://<ip>:8001/<path>?VALUE` returns the value of a node.
+
+The tree follows the project state: number of modules, mode of each, jingle names. Read-only nodes
+are also available: `name`, `jingle/<j>/name`, `jingle/<j>/playing`, `playlist/playing` and
+`playlist/tracks`. The service is advertised as `_oscjson._tcp` and `_osc._udp`: Chataigne,
+TouchOSC, Vezér or Ossia Score find it on their own. Live notifications (WebSocket `LISTEN`) are
+not offered: clients read values again over HTTP.
+
+### Example
+
+```
+oscsend localhost 8000 /jinglestar/module/1/jingle/3/play
+oscsend localhost 8000 /jinglestar/module/2/volume f -6
+curl http://localhost:8001/jinglestar/module/2/volume?VALUE
+```
+
+## Keyboard and mouse shortcuts
+
+| Action | Shortcut |
+|---|---|
+| Stop all | **Esc** (except while typing text) |
+| Open or close the help | **F1** |
+| Play / stop a jingle | Click the button (play mode) |
+| Jingle menu | Right-click the button |
+| Fill buttons | Drag and drop one or more files |
+| Set a playlist folder | Drag and drop a folder onto the playlist |
+| Play a playlist track | Double-click the track |
+| Module volume to 0 dB | Double-click the fader |
+| EQ band gain to 0 dB | Double-click the Gain field |
+| EQ band width (Q) | Mouse wheel over the curve point |
+| Turn an EQ band on / off | Double-click the curve point |
+| Exact value in a number field | Click the field, type, then Enter (or drag to adjust) |
+
+## Troubleshooting
+
+- **No audio output** (red light): open **Preferences → Audio**, pick a device, click **Refresh list** if needed, then **Apply**.
+- **Crackles**: increase the **buffer size** (512 or 1024 samples).
+- **A button shows an error**: the file was moved, renamed, or its format is not supported. Pick the file again.
+- **A module plays on the wrong output**: check its **Output** menu; an orange ⚠ means the pair does not exist on the active device.
+- **OSC does not respond**: check that control is enabled and applied, that the port shown matches the sender's, the address prefix, and that the firewall lets the UDP port through.

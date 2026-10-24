@@ -17,6 +17,23 @@ pub fn fmt_time(secs: f64) -> String {
     }
 }
 
+/// Temps au dixième de seconde, pour les jingles : 0:03.4
+pub fn fmt_tenths(secs: f64) -> String {
+    let t = (secs.max(0.0) * 10.0).floor() / 10.0;
+    format!("{}:{:04.1}", (t / 60.0) as u64, t % 60.0)
+}
+
+/// Volume en dB pour l'affichage : « +1.5 dB », « -∞ dB » sous le plancher.
+pub fn fmt_db(db: f32, floor: f32) -> String {
+    if db <= floor {
+        "-∞ dB".into()
+    } else if db.abs() < 0.05 {
+        "0.0 dB".into()
+    } else {
+        format!("{db:+.1} dB")
+    }
+}
+
 pub fn gain_to_db(g: f32) -> f32 {
     if g <= 1e-6 {
         -120.0
@@ -60,14 +77,20 @@ pub struct SlotView<'a> {
     pub name: Option<&'a str>,
     pub color: [u8; 3],
     pub playing: bool,
-    pub progress: Option<f32>,
-    pub time_label: Option<String>,
+    /// Lecture en cours : progression (0..1), temps écoulé et temps restant.
+    pub progress: Option<(f32, String, String)>,
+    /// À l'arrêt : durée de la zone jouée.
+    pub duration_label: Option<String>,
     pub loading: bool,
     pub error: bool,
     pub looping: bool,
     pub selected: bool,
     pub edit_mode: bool,
     pub drop_hover: bool,
+    /// Égaliseur actif sur ce jingle.
+    pub eq: bool,
+    /// Volume du jingle (dB), toujours affiché.
+    pub volume_db: f32,
 }
 
 pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
@@ -83,26 +106,39 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
         p.text(rect.center(), Align2::CENTER_CENTER, label, FontId::proportional(22.0), TEXT_DIM);
     } else {
         p.rect_filled(rect, r, slot_fill(v.color, v.playing));
-        if let Some(prog) = v.progress {
-            let w = rect.width() * prog.clamp(0.0, 1.0);
-            let pr = Rect::from_min_size(rect.min, vec2(w, rect.height()));
-            p.rect_filled(pr, r, Color32::from_white_alpha(28));
-        }
         // Bandeau de couleur en haut.
         let band = Rect::from_min_size(rect.min, vec2(rect.width(), 4.0));
         p.rect_filled(band, CornerRadius { nw: 5, ne: 5, sw: 0, se: 0 }, rgb(v.color));
 
         let name = v.name.unwrap_or_default();
         let galley = p.layout(name.to_owned(), FontId::proportional(14.0), TEXT, rect.width() - 12.0);
-        let gpos = rect.center() - galley.size() / 2.0 - vec2(0.0, 4.0);
+        let gpos = rect.center() - galley.size() / 2.0 - vec2(0.0, 8.0);
         p.galley(gpos, galley, TEXT);
 
-        if let Some(t) = &v.time_label {
-            let col = if v.playing { Color32::WHITE } else { TEXT_DIM };
-            p.text(rect.center_bottom() - vec2(0.0, 6.0), Align2::CENTER_BOTTOM, t, FontId::monospace(12.0), col);
+        // Barre de lecture, temps écoulé à gauche et restant à droite.
+        let bar = Rect::from_min_max(
+            pos2(rect.left() + 7.0, rect.bottom() - 25.0),
+            pos2(rect.right() - 7.0, rect.bottom() - 21.0),
+        );
+        p.rect_filled(bar, CornerRadius::same(2), Color32::from_black_alpha(110));
+        let text_y = rect.bottom() - 5.0;
+        let font = FontId::monospace(11.0);
+        if let Some((prog, elapsed, remaining)) = &v.progress {
+            let fill = Rect::from_min_size(bar.min, vec2(bar.width() * prog.clamp(0.0, 1.0), bar.height()));
+            p.rect_filled(fill, CornerRadius::same(2), GO);
+            p.text(pos2(bar.left(), text_y), Align2::LEFT_BOTTOM, elapsed, font.clone(), Color32::WHITE);
+            p.text(pos2(bar.right(), text_y), Align2::RIGHT_BOTTOM, remaining, font, Color32::WHITE);
+        } else if let Some(d) = &v.duration_label {
+            p.text(pos2(rect.center().x, text_y), Align2::CENTER_BOTTOM, d, font, TEXT_DIM);
         }
+        // Volume en haut à droite, en couleur s'il n'est pas à 0 dB.
+        let vol_col = if v.volume_db.abs() < 0.05 { TEXT_DIM } else { ACCENT };
+        let vol = p.text(rect.right_top() + vec2(-6.0, 7.0), Align2::RIGHT_TOP, fmt_db(v.volume_db, -40.0), FontId::monospace(10.0), vol_col);
         if v.looping {
-            p.text(rect.right_top() + vec2(-6.0, 7.0), Align2::RIGHT_TOP, "🔁", FontId::proportional(11.0), TEXT_DIM);
+            p.text(pos2(vol.left() - 4.0, vol.top()), Align2::RIGHT_TOP, "🔁", FontId::proportional(11.0), TEXT_DIM);
+        }
+        if v.eq {
+            p.text(rect.left_bottom() + vec2(6.0, -5.0), Align2::LEFT_BOTTOM, "EQ", FontId::proportional(9.0), ACCENT);
         }
         if v.loading {
             p.text(rect.right_bottom() - vec2(6.0, 5.0), Align2::RIGHT_BOTTOM, "…", FontId::proportional(14.0), TEXT_DIM);
@@ -244,6 +280,28 @@ pub fn segmented(ui: &mut Ui, rect: Rect, id: impl std::hash::Hash + std::fmt::D
     }
     p.rect_stroke(rect, CornerRadius::same(4), Stroke::new(1.0, BORDER), StrokeKind::Inside);
     clicked
+}
+
+/// Ligne de la liste des morceaux : numéro et nom à gauche (tronqué), gain d'équilibrage à droite.
+pub fn track_row(ui: &mut Ui, label: &str, color: Color32, selected: bool, gain: Option<(String, Color32)>) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::click());
+    let p = ui.painter_at(rect);
+    if selected {
+        p.rect_filled(rect, CornerRadius::same(3), ACCENT.gamma_multiply(0.18));
+    } else if resp.hovered() {
+        p.rect_filled(rect, CornerRadius::same(3), PANEL_HI);
+    }
+    let font = FontId::monospace(12.0);
+    let mut right = rect.right() - 6.0;
+    if let Some((txt, col)) = gain {
+        let g = p.text(pos2(right, rect.center().y), Align2::RIGHT_CENTER, txt, FontId::monospace(11.0), col);
+        right = g.left() - 8.0;
+    }
+    let mut job = egui::text::LayoutJob::simple_singleline(label.to_owned(), font, color);
+    job.wrap = egui::text::TextWrapping::truncate_at_width((right - rect.left() - 6.0).max(10.0));
+    let g = p.layout_job(job);
+    p.galley(pos2(rect.left() + 6.0, rect.center().y - g.size().y / 2.0), g, color);
+    resp
 }
 
 /// Marge horizontale de la forme d'onde, pour saisir les poignées aux extrémités.
@@ -495,5 +553,69 @@ mod tests {
 
         let m = drag(pos2(wave.left(), y_top), pos2(mid_x, y_top), true);
         assert!((m.loop_start - 5.0).abs() < 0.3 && m.start == 0.0, "début de boucle seul : {m:?}");
+    }
+}
+
+/// Logo de la barre haute : la grille de pads avec l'étoile au centre, puis « JINGLESTAR ».
+/// Dessiné en vectoriel pour rester net à toutes les échelles d'affichage.
+pub fn logo(ui: &mut Ui, height: f32) -> Response {
+    const STRIPS: [Color32; 8] = [
+        Color32::from_rgb(0x4a, 0x8f, 0xdb),
+        Color32::from_rgb(0x4f, 0xae, 0x58),
+        Color32::from_rgb(0xe2, 0xb2, 0x32),
+        Color32::from_rgb(0xe2, 0x7a, 0x30),
+        Color32::from_rgb(0x9b, 0x6b, 0xd3),
+        Color32::from_rgb(0x3f, 0xb8, 0xaf),
+        Color32::from_rgb(0xd9, 0x53, 0x4f),
+        Color32::from_rgb(0x8a, 0x8a, 0x90),
+    ];
+    let mut job = egui::text::LayoutJob::default();
+    let font = FontId::new(height * 0.82, egui::FontFamily::Name("logo".into()));
+    for (txt, color) in [("JINGLE", Color32::WHITE), ("STAR", ACCENT)] {
+        job.append(
+            txt,
+            0.0,
+            egui::TextFormat { font_id: font.clone(), color, extra_letter_spacing: height * 0.05, ..Default::default() },
+        );
+    }
+    let galley = ui.fonts_mut(|f| f.layout_job(job));
+    let gap = height * 0.4;
+    let (rect, resp) = ui.allocate_exact_size(vec2(height + gap + galley.size().x, height), Sense::hover());
+    let p = ui.painter();
+    // Grille 3×3 dessinée dans un carré de 100 unités, comme le fichier SVG.
+    let u = height / 100.0;
+    let at = |x: f32, y: f32| rect.min + vec2(x * u, y * u);
+    let mut k = 0;
+    for row in 0..3 {
+        for col in 0..3 {
+            let pad = Rect::from_min_size(at(4.0 + col as f32 * 32.0, 4.0 + row as f32 * 32.0), vec2(28.0 * u, 28.0 * u));
+            let r = CornerRadius::same((4.5 * u).round().max(1.0) as u8);
+            if row == 1 && col == 1 {
+                p.rect_filled(pad, r, ACCENT);
+                star(p, pad.center() + vec2(0.0, 0.6 * u), 11.5 * u, BG);
+            } else {
+                // À cette taille, des pads pleins se lisent mieux que les bandeaux du grand logo.
+                p.rect_filled(pad, r, STRIPS[k]);
+                k += 1;
+            }
+        }
+    }
+    let text_pos = pos2(rect.min.x + height + gap, rect.center().y - galley.size().y / 2.0);
+    p.galley(text_pos, galley, Color32::WHITE);
+    resp
+}
+
+/// Étoile à cinq branches pleine (égui ne remplit que les formes convexes :
+/// on la compose d'un pentagone central et de cinq triangles).
+fn star(p: &egui::Painter, c: Pos2, r: f32, color: Color32) {
+    let pt = |i: usize, rad: f32| {
+        let a = (-90.0 + 36.0 * i as f32).to_radians();
+        c + vec2(a.cos(), a.sin()) * rad
+    };
+    let inner: Vec<Pos2> = (0..5).map(|i| pt(2 * i + 1, r * 0.45)).collect();
+    p.add(Shape::convex_polygon(inner.clone(), color, Stroke::NONE));
+    for i in 0..5 {
+        let tip = pt(2 * i, r);
+        p.add(Shape::convex_polygon(vec![inner[(i + 4) % 5], tip, inner[i]], color, Stroke::NONE));
     }
 }

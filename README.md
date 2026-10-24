@@ -15,13 +15,31 @@ audio cpal, décodage symphonia).
   - Lecture **une fois** ou **en boucle**, avec un éditeur de forme d'onde façon QLab :
     poignée de début (verte), traits de début et de fin de boucle (orange), poignée de fin (rouge).
   - **Fondus** d'entrée et de sortie.
+  - **Égaliseur** par jingle (dans l'éditeur du jingle).
   - Glisser-déposer de fichiers sur les boutons (plusieurs fichiers remplissent les boutons suivants).
+- **Égaliseur** sur chaque jingle et sur chaque module (bouton « EQ » en mode édition) :
+  coupe-bas 12 ou 24 dB/oct, shelf grave, deux bandes paramétriques, shelf aigu. Courbe éditable
+  à la souris (glisser = fréquence et gain, molette = Q, double-clic = activer/désactiver).
 - **Playlist** : un dossier, enchaînement automatique, **aléatoire**, **boucle**, transition
   **fin de fichier** (sans blanc) ou **fondu enchaîné** réglable.
+- **Équilibrage du niveau** des morceaux de la playlist (l'équivalent de « Normalize items » de REAPER),
+  en mode édition : « Équilibrer le niveau ». Chaque morceau est mesuré en arrière-plan puis lu avec
+  le gain qui l'amène à la cible ; les fichiers ne sont jamais modifiés.
+  - Cible au choix : **sonie intégrée** en LUFS (ITU-R BS.1770-4 / EBU R128 : pondération K, blocs
+    de 400 ms, portes -70 LUFS et -10 LU), **crête**, **crête vraie** (dBTP) ou **RMS**.
+    Repères : -23 LUFS (EBU R128, radio/TV), -14 à -16 LUFS (streaming, sonorisation).
+  - **Max** (activé par défaut, -1 dBTP) : le gain d'un morceau est réduit si sa crête vraie dépasserait
+    ce plafond, pour ne jamais saturer.
+  - Le gain appliqué s'affiche sur chaque morceau (orange s'il a été réduit par le plafond) ; au survol,
+    les mesures détaillées. Les mesures sont gardées en cache et refaites si le fichier change.
+- **Volumes en dB** affichés en permanence : faders des modules, volume de chaque jingle, gain des morceaux.
 - **Préférences** : pilote audio (WASAPI, CoreAudio, ALSA, ASIO en option), périphérique,
   taille de buffer, et **anti-veille** pendant la lecture.
 - **Échap** : tout arrêter.
+- **Pilotage OSC** avec description **OSCQuery** et annonce mDNS (voir plus bas).
 - **Langue** : français ou anglais (Préférences → Système).
+- **Aide intégrée** (bouton « ? Aide » ou **F1**), dans la langue choisie. Le manuel est aussi dans
+  [`docs/aide.md`](docs/aide.md) (français) et [`docs/help.md`](docs/help.md) (anglais).
 - Session sauvegardée automatiquement ; projets enregistrables (`.jinglestar`).
 
 Formats lus : WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
@@ -48,6 +66,67 @@ Télécharger le SDK ASIO de Steinberg, définir `CPAL_ASIO_DIR` vers son dossie
 cargo run --release --features asio
 ```
 
+### Icônes
+
+L'icône est intégrée à l'exécutable Windows à la compilation (`build.rs`) et appliquée à la
+fenêtre sur tous les systèmes. Pour une application macOS avec son icône :
+
+```sh
+cargo install cargo-bundle
+cargo bundle --release
+```
+
+## Pilotage OSC et OSCQuery
+
+À activer dans **Préférences → OSC** puis « Appliquer ». Réglages : port UDP de réception
+(8000 par défaut), préfixe des adresses (`/jinglestar` par défaut, peut être vide), serveur
+OSCQuery et son port HTTP (8001), annonce mDNS / Bonjour et nom annoncé. Les préférences
+affichent l'adresse IP et les ports en écoute.
+
+Les numéros de module (1 à 8), de jingle (1 à 12) et de morceau commencent à 1. Les adresses
+ci-dessous sont données avec le préfixe par défaut.
+
+| Adresse | Argument | Effet |
+|---|---|---|
+| `/jinglestar/stop_all` | — | Arrête tout |
+| `/jinglestar/module/<m>/stop` | — | Arrête le module |
+| `/jinglestar/module/<m>/volume` | float, dB (-60 à +10) | Volume du module |
+| `/jinglestar/module/<m>/mode` | `jingle` ou `playlist` | Change le mode du module |
+| `/jinglestar/module/<m>/jingle/<j>/play` | — | Lance le jingle depuis le début (le relance s'il joue) |
+| `/jinglestar/module/<m>/jingle/<j>/stop` | — | Arrête le jingle |
+| `/jinglestar/module/<m>/jingle/<j>/toggle` | — | Lance ou arrête, comme un clic |
+| `/jinglestar/module/<m>/jingle/<j>/volume` | float, dB (-40 à +10) | Volume du jingle |
+| `/jinglestar/module/<m>/playlist/play` | — ou int | Lecture (au morceau sélectionné, ou au morceau n°) |
+| `/jinglestar/module/<m>/playlist/track` | int | Lance le morceau n° |
+| `/jinglestar/module/<m>/playlist/stop` | — | Arrête la playlist |
+| `/jinglestar/module/<m>/playlist/next` | — | Morceau suivant |
+| `/jinglestar/module/<m>/playlist/previous` | — | Morceau précédent |
+| `/jinglestar/module/<m>/playlist/shuffle` | bool | Aléatoire |
+| `/jinglestar/module/<m>/playlist/loop` | bool | Boucle sur la liste |
+
+- Les déclencheurs (`play`, `stop`, `toggle`, `next`…) partent sans argument ou avec une valeur
+  non nulle : un bouton qui envoie 1 à l'appui puis 0 au relâché ne déclenche qu'une fois.
+- Les booléens acceptent `T`/`F`, un entier ou un float (≥ 0,5 = vrai), ou `true`/`false`/`on`/`off`.
+- Les commandes de jingle n'agissent que sur un module en mode Jingles, celles de playlist
+  sur un module en mode Playlist. Les paquets groupés (bundles) sont acceptés.
+
+**OSCQuery** : `http://<ip>:8001/` renvoie l'arborescence en JSON (types, accès, plages et
+valeurs courantes), `/?HOST_INFO` les informations du serveur, et `<chemin>?VALUE` la valeur
+d'un nœud. L'arborescence suit l'état du projet : nombre de modules, mode de chacun, nom des
+jingles. En lecture seule on y trouve aussi `name`, `jingle/<j>/name`, `jingle/<j>/playing`,
+`playlist/playing` et `playlist/tracks`. Le service est annoncé en `_oscjson._tcp` (et
+`_osc._udp`), ce qui permet à Chataigne, TouchOSC, Vezér ou Ossia Score de le trouver seuls.
+Les notifications en direct (WebSocket `LISTEN`) ne sont pas proposées : les clients relisent
+les valeurs en HTTP.
+
+Exemple avec `oscsend` (liblo) :
+
+```sh
+oscsend localhost 8000 /jinglestar/module/1/jingle/3/play
+oscsend localhost 8000 /jinglestar/module/2/volume f -6
+curl http://localhost:8001/jinglestar/module/2/volume?VALUE
+```
+
 ## Architecture
 
 ```
@@ -55,15 +134,24 @@ src/
   main.rs            fenêtre eframe
   controller.rs      logique : projet, chargement des sons, jingles, playlists, anti-veille
   project.rs         modèle sauvegardé (JSON)
+  osc.rs             commandes OSC (UDP), serveur OSCQuery (HTTP), annonce mDNS
   audio/
     engine.rs        périphérique cpal (thread dédié), choix de la config multicanal
-    mixer.rs         mixeur temps réel sans allocation : voix, boucles, fondus, routage par paire
+    mixer.rs         mixeur temps réel sans allocation : voix, boucles, fondus, EQ, routage par paire
+    eq.rs            égaliseur : réglages, coefficients biquad, filtrage
+    loudness.rs      mesure LUFS / crête / crête vraie / RMS, gain de normalisation, cache
     decode.rs        décodage symphonia + rééchantillonnage rubato
     buffer.rs        son en mémoire + aperçu de forme d'onde
   ui/
     mod.rs           interface (modules, éditeur de jingle, préférences)
     widgets.rs       boutons, vumètres, éditeur de forme d'onde
-    theme.rs         thème sombre façon QLab
+    eq_view.rs       courbe d'égaliseur éditable
+    help.rs          fenêtre d'aide (affiche docs/aide.md ou docs/help.md)
+    theme.rs         thème sombre façon QLab, police du logo
+assets/
+  icons/             icônes d'application (.ico Windows, .icns macOS, PNG)
+  logo/              logo et symbole en SVG, versions claire et sombre
+  fonts/             Barlow Condensed (logotype, licence OFL)
+build.rs             icône de l'exécutable Windows
 ```
 
-À venir : équilibrage du volume entre les morceaux de la playlist.
