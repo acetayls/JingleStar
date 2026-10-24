@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::audio::decode::is_audio_file;
+use crate::audio::eq::EqSettings;
 use crate::i18n::Lang;
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 
@@ -50,6 +51,8 @@ pub struct JingleSlot {
     pub fade_in: f64,
     #[serde(default)]
     pub fade_out: f64,
+    #[serde(default)]
+    pub eq: EqSettings,
 }
 
 impl JingleSlot {
@@ -66,6 +69,7 @@ impl JingleSlot {
             loop_end: None,
             fade_in: 0.0,
             fade_out: 0.0,
+            eq: EqSettings::default(),
         }
     }
 
@@ -143,6 +147,8 @@ pub struct ModuleConfig {
     pub output_pair: usize,
     pub jingles: Vec<Option<JingleSlot>>,
     pub playlist: PlaylistConfig,
+    /// Égaliseur du bus du module (jingles et playlist).
+    pub eq: EqSettings,
 }
 
 impl ModuleConfig {
@@ -160,6 +166,7 @@ impl Default for ModuleConfig {
             output_pair: 0,
             jingles: vec![None; JINGLE_SLOTS],
             playlist: PlaylistConfig::default(),
+            eq: EqSettings::default(),
         }
     }
 }

@@ -12,6 +12,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use crate::audio::buffer::{db_to_gain, AudioBuffer};
 use crate::audio::decode::decode_file;
 use crate::audio::engine::{AudioEngine, DeviceInfo};
+use crate::audio::eq::{EqCoeffs, EqSettings};
 use crate::i18n::{set_lang, tr, Lang};
 use crate::audio::mixer::{is_playlist_slot, Command, Event, Queued, Region, MAX_MODULES, PLAYLIST_SLOTS};
 use crate::project::{autosave_path, AudioSettings, JingleSlot, ModuleConfig, ModuleMode, Project, Transition, DEFAULT_COLORS};
@@ -168,6 +169,7 @@ impl Controller {
         for (m, cfg) in self.project.modules.iter().enumerate() {
             self.engine.send(Command::SetModuleGain { module: m, gain: db_to_gain(cfg.volume_db) });
             self.engine.send(Command::SetModuleOutput { module: m, pair: cfg.output_pair });
+            self.engine.send(Command::SetModuleEq { module: m, eq: cfg.eq.coeffs(self.rate()) });
         }
     }
 
@@ -297,7 +299,7 @@ impl Controller {
                     rt.duration = Some(buf.duration_secs());
                     let region = Region::full(&buf);
                     let slot = rt.slot;
-                    self.engine.send(Command::Play { module, slot, id, buffer: buf, gain: 1.0, region });
+                    self.engine.send(Command::Play { module, slot, id, buffer: buf, gain: 1.0, region, eq: EqCoeffs::flat() });
                     self.preload_next(module);
                 } else {
                     rt.queued = Some((index, id));
@@ -397,6 +399,17 @@ impl Controller {
         self.mark_dirty();
     }
 
+    pub fn set_module_eq(&mut self, m: usize, eq: EqSettings) {
+        self.project.modules[m].eq = eq;
+        self.engine.send(Command::SetModuleEq { module: m, eq: eq.coeffs(self.rate()) });
+        self.mark_dirty();
+    }
+
+    /// Taux utilisé pour tracer les courbes d'égaliseur.
+    pub fn sample_rate(&self) -> u32 {
+        self.rate()
+    }
+
     pub fn set_module_mode(&mut self, m: usize, mode: ModuleMode) {
         if self.project.modules[m].mode != mode {
             self.stop_module(m);
@@ -453,7 +466,8 @@ impl Controller {
         if let Some(buf) = self.cache.get(&j.path).cloned() {
             let id = self.voice_id();
             let region = jingle_region(&j, &buf);
-            self.engine.send(Command::Play { module: m, slot: s, id, buffer: buf, gain: db_to_gain(j.volume_db), region });
+            let eq = j.eq.coeffs(self.rate());
+            self.engine.send(Command::Play { module: m, slot: s, id, buffer: buf, gain: db_to_gain(j.volume_db), region, eq });
         } else {
             self.pending_play.insert((m, s));
             self.request_jingle_load(&j.path);
@@ -479,10 +493,15 @@ impl Controller {
     }
 
     pub fn update_jingle(&mut self, m: usize, s: usize, f: impl FnOnce(&mut JingleSlot)) {
+        let rate = self.rate();
         if let Some(j) = self.project.modules[m].jingles[s].as_mut() {
+            let old_eq = j.eq;
             f(j);
             let gain = db_to_gain(j.volume_db);
             self.engine.send(Command::SetSlotGain { module: m, slot: s, gain });
+            if j.eq != old_eq {
+                self.engine.send(Command::SetSlotEq { module: m, slot: s, eq: j.eq.coeffs(rate) });
+            }
             if let Some(buf) = self.cache.get(&j.path) {
                 let region = jingle_region(j, buf);
                 self.engine.send(Command::SetRegion { module: m, slot: s, region });

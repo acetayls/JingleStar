@@ -2,6 +2,8 @@
 //!
 //! Chaque module mixe ses voix dans un bus stéréo, applique son volume, puis
 //! écrit ce bus sur la paire de sorties choisie (1-2, 3-4, …) du périphérique.
+//! Chaque jingle passe par son propre égaliseur avant le bus, et chaque bus par
+//! l'égaliseur du module avant le volume.
 
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -9,6 +11,7 @@ use std::sync::Arc;
 use crossbeam_channel::{Receiver, Sender};
 
 use super::buffer::AudioBuffer;
+use super::eq::{EqCoeffs, EqState};
 
 pub const MAX_MODULES: usize = 8;
 pub const JINGLE_SLOTS: usize = 12;
@@ -65,7 +68,7 @@ impl Region {
 }
 
 pub enum Command {
-    Play { module: usize, slot: usize, id: u64, buffer: Arc<AudioBuffer>, gain: f32, region: Region },
+    Play { module: usize, slot: usize, id: u64, buffer: Arc<AudioBuffer>, gain: f32, region: Region, eq: EqCoeffs },
     /// Modifie la zone d'un son en cours (réglage des points de boucle pendant la lecture).
     SetRegion { module: usize, slot: usize, region: Region },
     Stop { module: usize, slot: usize },
@@ -74,6 +77,9 @@ pub enum Command {
     SetSlotGain { module: usize, slot: usize, gain: f32 },
     SetModuleGain { module: usize, gain: f32 },
     SetModuleOutput { module: usize, pair: usize },
+    /// Égaliseur d'un emplacement (jingle), appliqué aussi au son en cours.
+    SetSlotEq { module: usize, slot: usize, eq: EqCoeffs },
+    SetModuleEq { module: usize, eq: EqCoeffs },
     /// Morceau à enchaîner sans blanc quand le morceau de playlist en cours se termine.
     QueueNext { module: usize, next: Option<Queued> },
 }
@@ -149,6 +155,10 @@ struct ModuleState {
     pair: usize,
     voices: [Option<Voice>; SLOTS],
     next: Option<Queued>,
+    eq: EqCoeffs,
+    eq_state: EqState,
+    slot_eq: [EqCoeffs; SLOTS],
+    slot_eq_state: [EqState; SLOTS],
 }
 
 pub struct Mixer {
@@ -157,6 +167,8 @@ pub struct Mixer {
     fade_frames: usize,
     smooth: f32,
     bus: Vec<f32>,
+    /// Bus d'une voix seule, quand elle a un égaliseur.
+    voice_bus: Vec<f32>,
     commands: Receiver<Command>,
     events: Sender<Event>,
     /// Les buffers terminés sont renvoyés hors du thread audio pour y être libérés.
@@ -182,11 +194,16 @@ impl Mixer {
                 pair: 0,
                 voices: std::array::from_fn(|_| None),
                 next: None,
+                eq: EqCoeffs::flat(),
+                eq_state: EqState::default(),
+                slot_eq: [EqCoeffs::flat(); SLOTS],
+                slot_eq_state: [EqState::default(); SLOTS],
             }),
             channels: channels.max(1),
             fade_frames: ((FADE_OUT_SECS * sr) as usize).max(1),
             smooth: 1.0 - (-1.0 / (GAIN_SMOOTH_SECS * sr)).exp(),
             bus: vec![0.0; 8192 * 2],
+            voice_bus: vec![0.0; 8192 * 2],
             commands,
             events,
             garbage,
@@ -202,9 +219,12 @@ impl Mixer {
 
     fn handle(&mut self, cmd: Command) {
         match cmd {
-            Command::Play { module, slot, id, buffer, gain, region } => {
+            Command::Play { module, slot, id, buffer, gain, region, eq } => {
                 self.telemetry.len[module][slot].store(buffer.frames as u64, Ordering::Relaxed);
                 self.telemetry.pos[module][slot].store(region.start as u64, Ordering::Relaxed);
+                let st = &mut self.modules[module];
+                st.slot_eq[slot] = eq;
+                st.slot_eq_state[slot].reset();
                 let old = self.modules[module].voices[slot].replace(Voice::new(id, buffer, gain, region));
                 self.dispose(old);
             }
@@ -232,6 +252,8 @@ impl Mixer {
             }
             Command::SetModuleGain { module, gain } => self.modules[module].gain = gain,
             Command::SetModuleOutput { module, pair } => self.modules[module].pair = pair,
+            Command::SetSlotEq { module, slot, eq } => self.modules[module].slot_eq[slot] = eq,
+            Command::SetModuleEq { module, eq } => self.modules[module].eq = eq,
             Command::QueueNext { module, next } => {
                 let old = std::mem::replace(&mut self.modules[module].next, next);
                 if let Some(q) = old {
@@ -299,6 +321,7 @@ impl Mixer {
         let frames = out.len() / ch;
         if self.bus.len() < frames * 2 {
             self.bus.resize(frames * 2, 0.0);
+            self.voice_bus.resize(frames * 2, 0.0);
         }
 
         for m in 0..MAX_MODULES {
@@ -307,6 +330,7 @@ impl Mixer {
                 // Laisse le gain rejoindre sa cible pour éviter un saut au prochain départ.
                 let st = &mut self.modules[m];
                 st.current_gain = st.gain;
+                st.eq_state.reset();
                 continue;
             }
             self.start_crossfade(m);
@@ -321,8 +345,17 @@ impl Mixer {
                     let st = &mut self.modules[m];
                     let Some(v) = st.voices[slot].as_mut() else { continue };
                     ended_id = v.id;
+                    // Avec un égaliseur, la voix est rendue à part, filtrée, puis ajoutée au bus.
+                    let has_eq = !st.slot_eq[slot].is_flat();
+                    let target: &mut [f32] = if has_eq {
+                        let vb = &mut self.voice_bus[..frames * 2];
+                        vb.fill(0.0);
+                        vb
+                    } else {
+                        &mut *bus
+                    };
                     let mut from = 0;
-                    while let Some(stop_at) = render_voice(v, bus, from, frames, self.smooth) {
+                    while let Some(stop_at) = render_voice(v, target, from, frames, self.smooth) {
                         // Fin naturelle d'un morceau de playlist : on enchaîne sur la même
                         // image si un suivant est prêt, sinon la voix se termine.
                         let natural = is_playlist_slot(slot) && v.fade_left.is_none();
@@ -338,6 +371,13 @@ impl Mixer {
                                 ended = true;
                                 break;
                             }
+                        }
+                    }
+                    if has_eq {
+                        let vb = &mut self.voice_bus[..frames * 2];
+                        st.slot_eq_state[slot].process(&st.slot_eq[slot], vb);
+                        for (b, x) in bus.iter_mut().zip(vb.iter()) {
+                            *b += *x;
                         }
                     }
                 }
@@ -357,8 +397,9 @@ impl Mixer {
                 }
             }
 
-            // Volume du module, crêtes, puis écriture sur la paire de sorties.
+            // Égaliseur et volume du module, crêtes, puis écriture sur la paire de sorties.
             let st = &mut self.modules[m];
+            st.eq_state.process(&st.eq, bus);
             let base = if st.pair * 2 + 1 < ch { st.pair * 2 } else { 0 };
             let mut peak = [0f32; 2];
             for f in 0..frames {
@@ -446,7 +487,7 @@ mod tests {
         let (mut mx, tx, _) = setup(4);
         let buf = ramp(100);
         tx.send(Command::SetModuleOutput { module: 0, pair: 1 }).unwrap();
-        tx.send(Command::Play { module: 0, slot: 0, id: 1, region: Region::full(&buf), buffer: buf, gain: 1.0 }).unwrap();
+        tx.send(Command::Play { module: 0, slot: 0, id: 1, region: Region::full(&buf), buffer: buf, gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
         let mut out = vec![0.0; 4 * 50];
         mx.process(&mut out);
         let f = 10;
@@ -461,7 +502,7 @@ mod tests {
         let (mut mx, tx, _) = setup(2);
         let buf = ramp(100);
         tx.send(Command::SetModuleOutput { module: 0, pair: 3 }).unwrap();
-        tx.send(Command::Play { module: 0, slot: 0, id: 1, region: Region::full(&buf), buffer: buf, gain: 1.0 }).unwrap();
+        tx.send(Command::Play { module: 0, slot: 0, id: 1, region: Region::full(&buf), buffer: buf, gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
         let mut out = vec![0.0; 2 * 50];
         mx.process(&mut out);
         assert!(out[20] > 0.0);
@@ -472,7 +513,7 @@ mod tests {
         let (mut mx, tx, ev) = setup(2);
         let buf = ramp(100);
         let region = Region { start: 10, end: 100, looping: Some((20, 30)), fade_in: 0, fade_out: 0 };
-        tx.send(Command::Play { module: 0, slot: 0, id: 1, region, buffer: buf, gain: 1.0 }).unwrap();
+        tx.send(Command::Play { module: 0, slot: 0, id: 1, region, buffer: buf, gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
         let mut out = vec![0.0; 2 * 500];
         mx.process(&mut out);
         assert!((out[0] - 0.10).abs() < 1e-6, "commence au point de début");
@@ -488,7 +529,7 @@ mod tests {
         let a = ramp(10);
         let b = ramp(10);
         let slot = PLAYLIST_SLOTS[0];
-        tx.send(Command::Play { module: 0, slot, id: 1, region: Region::full(&a), buffer: a, gain: 1.0 }).unwrap();
+        tx.send(Command::Play { module: 0, slot, id: 1, region: Region::full(&a), buffer: a, gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
         tx.send(Command::QueueNext { module: 0, next: Some(Queued { buffer: b, gain: 1.0, id: 2, crossfade: 0 }) }).unwrap();
         let mut out = vec![0.0; 2 * 15];
         mx.process(&mut out);
@@ -504,7 +545,7 @@ mod tests {
         let a = Arc::new(AudioBuffer::from_planar(vec![0.5; 100], vec![0.5; 100], 1000));
         let b = Arc::new(AudioBuffer::from_planar(vec![0.5; 100], vec![0.5; 100], 1000));
         let slot = PLAYLIST_SLOTS[0];
-        tx.send(Command::Play { module: 0, slot, id: 1, region: Region::full(&a), buffer: a, gain: 1.0 }).unwrap();
+        tx.send(Command::Play { module: 0, slot, id: 1, region: Region::full(&a), buffer: a, gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
         tx.send(Command::QueueNext { module: 0, next: Some(Queued { buffer: b, gain: 1.0, id: 2, crossfade: 40 }) }).unwrap();
         let mut out = vec![0.0; 2 * 64];
         // Premier bloc : 64 images, le fondu n'a pas encore commencé (reste 100 > 40).
@@ -525,7 +566,7 @@ mod tests {
         let (mut mx, tx, _) = setup(2);
         let buf = Arc::new(AudioBuffer::from_planar(vec![1.0; 100], vec![1.0; 100], 1000));
         let region = Region { start: 0, end: 100, looping: None, fade_in: 10, fade_out: 20 };
-        tx.send(Command::Play { module: 0, slot: 0, id: 1, region, buffer: buf, gain: 1.0 }).unwrap();
+        tx.send(Command::Play { module: 0, slot: 0, id: 1, region, buffer: buf, gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
         let mut out = vec![0.0; 2 * 100];
         mx.process(&mut out);
         assert_eq!(out[0], 0.0);
