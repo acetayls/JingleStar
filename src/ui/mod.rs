@@ -94,9 +94,7 @@ impl JingleStarApp {
                 .add_enabled(n < MAX_MODULES, egui::Button::new(tr("＋ Ajouter un module", "＋ Add module")))
                 .on_disabled_hover_text(tr("8 modules au maximum", "8 modules maximum"));
             if add.clicked() {
-                if let Some(m) = self.ctrl.add_module() {
-                    self.edit_mode[m] = true;
-                }
+                self.ctrl.add_module();
             }
             ui.label(RichText::new(format!("{n}/{MAX_MODULES}")).color(TEXT_DIM));
             ui.separator();
@@ -416,7 +414,7 @@ impl JingleStarApp {
                 }
                 if slot.is_some() {
                     if ui.button(tr("Éditer…", "Edit…")).clicked() {
-                        self.edit_mode[m] = true;
+                        // Ouvre l'éditeur sans passer le module en mode édition.
                         self.selected = Some((m, s));
                         ui.close();
                     }
@@ -444,6 +442,7 @@ impl JingleStarApp {
             self.selected = None;
             return;
         };
+        let mut done = false;
         let mut open = true;
         egui::Window::new(format!("Jingle {}.{} — {}", m + 1, s + 1, j.name))
             .id(egui::Id::unique("jingle-editor"))
@@ -584,9 +583,12 @@ impl JingleStarApp {
                         self.ctrl.trigger_jingle(m, s);
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.button(tr("✓ Terminé", "✓ Done")).clicked() {
+                            done = true;
+                        }
                         if ui.button(RichText::new(tr("Vider l'emplacement", "Clear slot")).color(STOP)).clicked() {
                             self.ctrl.clear_jingle(m, s);
-                            self.selected = None;
+                            done = true;
                         }
                     });
                 });
@@ -595,8 +597,10 @@ impl JingleStarApp {
                     self.ctrl.update_jingle(m, s, |slot| *slot = j2);
                 }
             });
-        if !open {
+        if !open || done {
+            // Fin de l'édition : le module repasse en mode lecture, un clic relance le son.
             self.selected = None;
+            self.edit_mode[m] = false;
         }
     }
 
