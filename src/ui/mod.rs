@@ -11,7 +11,8 @@ use egui::{vec2, Align, Color32, CornerRadius, FontId, Key, Layout, Rect, RichTe
 
 use crate::audio::engine::{host_names, list_devices, DeviceDesc};
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
-use crate::controller::Controller;
+use crate::audio::loudness::{Loudness, NormalizeMode};
+use crate::controller::{Controller, TrackGain};
 use crate::i18n::{tr, Lang};
 use crate::project::{AudioSettings, ModuleMode, OscSettings, Transition, DEFAULT_COLORS};
 use theme::*;
@@ -330,13 +331,12 @@ impl JingleStarApp {
         if db != self.ctrl.project.modules[m].volume_db {
             self.ctrl.set_module_volume(m, db);
         }
-        let txt = if db <= -60.0 { "-∞".to_string() } else { format!("{db:+.1}") };
         ui.painter().text(
             egui::pos2(strip.center().x, fader_area.bottom() + 4.0),
             egui::Align2::CENTER_TOP,
-            txt,
-            FontId::monospace(11.0),
-            TEXT_DIM,
+            fmt_db(db, -60.0),
+            FontId::proportional(11.0),
+            if db.abs() < 0.05 { TEXT_DIM } else { TEXT },
         );
         let stop_rect = Rect::from_min_max(egui::pos2(strip.left(), strip.bottom() - stop_h), strip.max);
         if ui.put(stop_rect, egui::Button::new(RichText::new("■").color(Color32::WHITE)).fill(STOP.gamma_multiply(0.6))).on_hover_text(tr("Arrêter le module", "Stop module")).clicked() {
@@ -392,6 +392,7 @@ impl JingleStarApp {
                 edit_mode: self.edit_mode[m],
                 drop_hover: hover_pos.map(|p| rect.contains(p)).unwrap_or(false),
                 eq: slot.as_ref().map(|j| !j.eq.is_flat()).unwrap_or(false),
+                volume_db: slot.as_ref().map(|j| j.volume_db).unwrap_or(0.0),
             };
             let resp = jingle_button(ui, rect, &view);
             if resp.clicked() {
@@ -681,6 +682,11 @@ impl JingleStarApp {
             }
             ui.horizontal(|ui| {
                 ui.label(RichText::new(fmt_time(t)).monospace().color(TEXT_DIM));
+                if let Some(i) = rt.current {
+                    if let Some((txt, col, tip)) = gain_label(&self.ctrl.track_gain(m, i)) {
+                        ui.label(RichText::new(format!("{} {txt}", tr("Gain", "Gain"))).monospace().color(col)).on_hover_text(tip);
+                    }
+                }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(RichText::new(format!("-{}", fmt_time((len - t).max(0.0)))).monospace().color(TEXT_DIM));
                 });
@@ -728,19 +734,27 @@ impl JingleStarApp {
             });
         }
 
-        // Liste des morceaux.
+        // Équilibrage du niveau des morceaux.
+        if editing || pl.normalize.enabled {
+            self.normalize_controls(ui, m, editing);
+        }
+
+        // Liste des morceaux, avec le gain d'équilibrage de chacun.
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             if pl.tracks.is_empty() {
                 ui.label(RichText::new(tr("Choisissez un dossier ou glissez-le ici.", "Choose a folder or drop it here.")).color(TEXT_DIM));
             }
+            ui.spacing_mut().item_spacing.y = 1.0;
             for (i, path) in pl.tracks.iter().enumerate() {
                 let name = path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 let is_cur = rt.current == Some(i);
-                let mut text = RichText::new(format!("{:>3}  {}", i + 1, name)).monospace();
-                if is_cur {
-                    text = text.color(if rt.playing { GO } else { ACCENT }).strong();
+                let color = if !is_cur { TEXT } else if rt.playing { GO } else { ACCENT };
+                let gain = gain_label(&self.ctrl.track_gain(m, i));
+                let tip = gain.as_ref().map(|g| g.2.clone());
+                let mut resp = track_row(ui, &format!("{:>3}  {}", i + 1, name), color, is_cur, gain.map(|(t, c, _)| (t, c)));
+                if let Some(tip) = tip {
+                    resp = resp.on_hover_text(tip);
                 }
-                let resp = ui.add(egui::Button::selectable(is_cur, text).frame_when_inactive(false));
                 if resp.double_clicked() {
                     self.ctrl.playlist_play(m, i);
                 } else if resp.clicked() {
@@ -748,6 +762,70 @@ impl JingleStarApp {
                 }
             }
         });
+    }
+
+    /// Réglages d'équilibrage : complets en mode édition, résumé sinon.
+    fn normalize_controls(&mut self, ui: &mut egui::Ui, m: usize, editing: bool) {
+        let n = self.ctrl.project.modules[m].playlist.normalize.clone();
+        let pending = self.ctrl.pending_analyses(m);
+        let total = self.ctrl.project.modules[m].playlist.tracks.len();
+        let progress = (pending > 0).then(|| format!("{} {}/{}", tr("mesure", "measuring"), total - pending, total));
+        if !editing {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(tr("Équilibrage", "Normalize")).color(TEXT_DIM));
+                let mut txt = format!("{:.1} {}", n.target(), n.mode.unit());
+                if n.limit && n.mode != NormalizeMode::TruePeak {
+                    txt += &format!(" · max {:.1} dBTP", n.ceiling);
+                }
+                ui.label(RichText::new(txt).monospace().color(ACCENT));
+                if let Some(p) = &progress {
+                    ui.spinner();
+                    ui.label(RichText::new(p).small().color(TEXT_DIM));
+                }
+            });
+            return;
+        }
+        let mut n2 = n.clone();
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(&mut n2.enabled, tr("Équilibrer le niveau", "Normalize level")).on_hover_text(tr(
+                "Mesure chaque morceau et ajuste son gain de lecture pour atteindre la cible. Les fichiers ne sont pas modifiés.",
+                "Measures each track and adjusts its playback gain to reach the target. Files are not modified.",
+            ));
+            if !n2.enabled {
+                return;
+            }
+            let label = |md: NormalizeMode| match md {
+                NormalizeMode::Lufs => tr("Sonie (LUFS)", "Loudness (LUFS)"),
+                NormalizeMode::Peak => tr("Crête", "Peak"),
+                NormalizeMode::TruePeak => tr("Crête vraie", "True peak"),
+                NormalizeMode::Rms => "RMS",
+            };
+            egui::ComboBox::from_id_salt(("norm-mode", m)).selected_text(label(n2.mode)).width(110.0).show_ui(ui, |ui| {
+                for md in NormalizeMode::ALL {
+                    ui.selectable_value(&mut n2.mode, md, label(md));
+                }
+            });
+            let unit = format!(" {}", n2.mode.unit());
+            let range = if n2.mode == NormalizeMode::Lufs { -40.0..=-5.0 } else { -40.0..=0.0 };
+            ui.add(egui::DragValue::new(n2.target_mut()).range(range).speed(0.1).max_decimals(1).suffix(unit))
+                .on_hover_text(tr("Cible (EBU R128 : -23 LUFS, streaming : -14 à -16 LUFS)", "Target (EBU R128: -23 LUFS, streaming: -14 to -16 LUFS)"));
+            if n2.mode != NormalizeMode::TruePeak {
+                ui.checkbox(&mut n2.limit, tr("Max", "Max")).on_hover_text(tr(
+                    "Réduit le gain des morceaux dont la crête vraie dépasserait ce plafond, pour ne jamais saturer.",
+                    "Lowers the gain of tracks whose true peak would exceed this ceiling, so nothing clips.",
+                ));
+                if n2.limit {
+                    ui.add(egui::DragValue::new(&mut n2.ceiling).range(-20.0..=0.0).speed(0.1).max_decimals(1).suffix(" dBTP"));
+                }
+            }
+            if let Some(p) = &progress {
+                ui.spinner();
+                ui.label(RichText::new(p).small().color(TEXT_DIM));
+            }
+        });
+        if n2 != n {
+            self.ctrl.update_playlist(m, |c| c.normalize = n2);
+        }
     }
 
     // ------------------------------------------------------------ préférences
@@ -947,6 +1025,35 @@ fn osc_settings(ui: &mut egui::Ui, osc: &mut OscSettings, ctrl: &Controller) {
         }
         None => {
             ui.label(RichText::new(tr("Pilotage OSC désactivé.", "OSC control disabled.")).small().color(TEXT_DIM));
+        }
+    }
+}
+
+/// Texte, couleur et infobulle du gain d'équilibrage d'un morceau.
+fn gain_label(g: &TrackGain) -> Option<(String, Color32, String)> {
+    let details = |l: &Loudness| {
+        let lufs = l.integrated.map(|v| format!("{v:.1} LUFS")).unwrap_or_else(|| "—".into());
+        format!(
+            "{} : {lufs}\n{} : {:.1} dBFS\n{} : {:.1} dBTP\nRMS : {:.1} dBFS",
+            tr("Sonie intégrée", "Integrated loudness"),
+            tr("Crête", "Peak"),
+            l.peak,
+            tr("Crête vraie", "True peak"),
+            l.true_peak,
+            l.rms,
+        )
+    };
+    match g {
+        TrackGain::Off => None,
+        TrackGain::Pending => Some(("…".into(), TEXT_DIM, tr("Mesure en cours", "Measuring").into())),
+        TrackGain::Failed(e) => Some(("⚠".into(), STOP, format!("{} : {e}", tr("Mesure impossible", "Cannot measure")))),
+        TrackGain::Unmeasurable(l) => Some(("—".into(), TEXT_DIM, format!("{}\n{}", tr("Son muet ou trop court : gain inchangé", "Silent or too short: gain unchanged"), details(l)))),
+        TrackGain::Ready { db, limited, loudness } => {
+            let mut tip = format!("{} : {}\n{}", tr("Gain appliqué", "Applied gain"), fmt_db(*db, -60.0), details(loudness));
+            if *limited {
+                tip += &format!("\n{}", tr("Gain réduit pour ne pas dépasser le plafond de crête vraie", "Gain reduced to stay under the true peak ceiling"));
+            }
+            Some((fmt_db(*db, -60.0), if *limited { ACCENT } else { TEXT_DIM }, tip))
         }
     }
 }

@@ -23,6 +23,17 @@ pub fn fmt_tenths(secs: f64) -> String {
     format!("{}:{:04.1}", (t / 60.0) as u64, t % 60.0)
 }
 
+/// Volume en dB pour l'affichage : « +1.5 dB », « -∞ dB » sous le plancher.
+pub fn fmt_db(db: f32, floor: f32) -> String {
+    if db <= floor {
+        "-∞ dB".into()
+    } else if db.abs() < 0.05 {
+        "0.0 dB".into()
+    } else {
+        format!("{db:+.1} dB")
+    }
+}
+
 pub fn gain_to_db(g: f32) -> f32 {
     if g <= 1e-6 {
         -120.0
@@ -78,6 +89,8 @@ pub struct SlotView<'a> {
     pub drop_hover: bool,
     /// Égaliseur actif sur ce jingle.
     pub eq: bool,
+    /// Volume du jingle (dB), toujours affiché.
+    pub volume_db: f32,
 }
 
 pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
@@ -118,8 +131,11 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
         } else if let Some(d) = &v.duration_label {
             p.text(pos2(rect.center().x, text_y), Align2::CENTER_BOTTOM, d, font, TEXT_DIM);
         }
+        // Volume en haut à droite, en couleur s'il n'est pas à 0 dB.
+        let vol_col = if v.volume_db.abs() < 0.05 { TEXT_DIM } else { ACCENT };
+        let vol = p.text(rect.right_top() + vec2(-6.0, 7.0), Align2::RIGHT_TOP, fmt_db(v.volume_db, -40.0), FontId::monospace(10.0), vol_col);
         if v.looping {
-            p.text(rect.right_top() + vec2(-6.0, 7.0), Align2::RIGHT_TOP, "🔁", FontId::proportional(11.0), TEXT_DIM);
+            p.text(pos2(vol.left() - 4.0, vol.top()), Align2::RIGHT_TOP, "🔁", FontId::proportional(11.0), TEXT_DIM);
         }
         if v.eq {
             p.text(rect.left_bottom() + vec2(6.0, -5.0), Align2::LEFT_BOTTOM, "EQ", FontId::proportional(9.0), ACCENT);
@@ -146,6 +162,28 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
     if v.drop_hover {
         p.rect_stroke(rect, r, Stroke::new(2.0, EDIT), StrokeKind::Inside);
     }
+    resp
+}
+
+/// Ligne de la liste des morceaux : numéro et nom à gauche (tronqué), gain d'équilibrage à droite.
+pub fn track_row(ui: &mut Ui, label: &str, color: Color32, selected: bool, gain: Option<(String, Color32)>) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::click());
+    let p = ui.painter_at(rect);
+    if selected {
+        p.rect_filled(rect, CornerRadius::same(3), ACCENT.gamma_multiply(0.18));
+    } else if resp.hovered() {
+        p.rect_filled(rect, CornerRadius::same(3), PANEL_HI);
+    }
+    let font = FontId::monospace(12.0);
+    let mut right = rect.right() - 6.0;
+    if let Some((txt, col)) = gain {
+        let g = p.text(pos2(right, rect.center().y), Align2::RIGHT_CENTER, txt, FontId::monospace(11.0), col);
+        right = g.left() - 8.0;
+    }
+    let mut job = egui::text::LayoutJob::simple_singleline(label.to_owned(), font, color);
+    job.wrap = egui::text::TextWrapping::truncate_at_width((right - rect.left() - 6.0).max(10.0));
+    let g = p.layout_job(job);
+    p.galley(pos2(rect.left() + 6.0, rect.center().y - g.size().y / 2.0), g, color);
     resp
 }
 
