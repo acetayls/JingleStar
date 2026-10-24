@@ -4,6 +4,7 @@
 mod audio;
 mod controller;
 mod i18n;
+mod osc;
 mod project;
 mod ui;
 

@@ -187,11 +187,44 @@ pub struct Preferences {
     pub language: Lang,
     /// Largeur des modules en points ; `None` = ils remplissent la fenêtre.
     pub module_width: Option<f32>,
+    pub osc: OscSettings,
 }
 
 impl Default for Preferences {
     fn default() -> Self {
-        Self { prevent_sleep: true, language: Lang::Fr, module_width: None }
+        Self { prevent_sleep: true, language: Lang::Fr, module_width: None, osc: OscSettings::default() }
+    }
+}
+
+/// Pilotage à distance : commandes OSC (UDP) et description OSCQuery (HTTP).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct OscSettings {
+    pub enabled: bool,
+    /// Port UDP de réception des commandes.
+    pub port: u16,
+    /// Préfixe des adresses (« /jinglestar »), vide pour aucun.
+    pub prefix: String,
+    /// Serveur HTTP OSCQuery qui décrit l'arborescence des commandes.
+    pub oscquery: bool,
+    pub oscquery_port: u16,
+    /// Annonce sur le réseau local (mDNS / Bonjour) pour la découverte automatique.
+    pub zeroconf: bool,
+    /// Nom annoncé sur le réseau.
+    pub name: String,
+}
+
+impl Default for OscSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: 8000,
+            prefix: "/jinglestar".into(),
+            oscquery: true,
+            oscquery_port: 8001,
+            zeroconf: true,
+            name: "JingleStar".into(),
+        }
     }
 }
 

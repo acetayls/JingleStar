@@ -15,7 +15,10 @@ use crate::audio::engine::{AudioEngine, DeviceInfo};
 use crate::audio::eq::{EqCoeffs, EqSettings};
 use crate::audio::mixer::{is_playlist_slot, Command, Event, Queued, Region, MAX_MODULES, PLAYLIST_SLOTS};
 use crate::i18n::{set_lang, tr, Lang};
-use crate::project::{autosave_path, AudioSettings, JingleSlot, ModuleConfig, ModuleMode, Project, Transition, DEFAULT_COLORS};
+use crate::osc::{self, OscCommand, OscServer};
+use crate::project::{
+    autosave_path, AudioSettings, JingleSlot, ModuleConfig, ModuleMode, OscSettings, Project, Transition, DEFAULT_COLORS,
+};
 
 #[derive(Debug, Clone, Copy)]
 enum LoadKind {
@@ -76,6 +79,10 @@ pub struct Controller {
     pub project_path: Option<PathBuf>,
     keep_awake: Option<keepawake::KeepAwake>,
     rng: u64,
+    repaint: Arc<dyn Fn() + Send + Sync>,
+    /// Pilotage OSC, s'il est activé dans les préférences.
+    pub osc: Option<OscServer>,
+    last_osc_publish: Instant,
 }
 
 impl Controller {
@@ -84,7 +91,8 @@ impl Controller {
             .filter(|p| p.exists())
             .and_then(|p| Project::load(&p).ok())
             .unwrap_or_default();
-        let (jobs, done) = spawn_loaders(Arc::new(repaint));
+        let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(repaint);
+        let (jobs, done) = spawn_loaders(repaint.clone());
         let mut c = Self {
             project,
             engine: AudioEngine::new(),
@@ -107,12 +115,16 @@ impl Controller {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos() as u64 | 1)
                 .unwrap_or(0x9E37_79B9_7F4A_7C15),
+            repaint,
+            osc: None,
+            last_osc_publish: Instant::now(),
         };
         for rt in c.playlists.iter_mut() {
             rt.slot = PLAYLIST_SLOTS[0];
         }
         set_lang(c.project.preferences.language);
         c.open_device();
+        c.restart_osc();
         c
     }
 
@@ -217,6 +229,7 @@ impl Controller {
         while let Ok(err) = self.engine.stream_errors.try_recv() {
             self.device_error = Some(err);
         }
+        self.poll_osc();
         self.update_keep_awake();
         if self.dirty && self.last_change.elapsed() > Duration::from_millis(800) {
             self.dirty = false;
@@ -461,6 +474,17 @@ impl Controller {
         }
     }
 
+    /// Lance le son depuis le début, même s'il joue déjà.
+    pub fn start_jingle(&mut self, m: usize, s: usize) {
+        self.pending_play.remove(&(m, s));
+        self.play_jingle(m, s);
+    }
+
+    pub fn stop_jingle(&mut self, m: usize, s: usize) {
+        self.pending_play.remove(&(m, s));
+        self.engine.send(Command::Stop { module: m, slot: s });
+    }
+
     fn play_jingle(&mut self, m: usize, s: usize) {
         let Some(j) = self.jingle(m, s).cloned() else { return };
         if let Some(buf) = self.cache.get(&j.path).cloned() {
@@ -695,6 +719,112 @@ impl Controller {
         }
     }
 
+    // ------------------------------------------------------------------ OSC
+
+    pub fn set_osc_settings(&mut self, settings: OscSettings) {
+        if self.project.preferences.osc != settings {
+            self.project.preferences.osc = settings;
+            self.mark_dirty();
+            self.restart_osc();
+        }
+    }
+
+    /// (Re)démarre les serveurs OSC selon les préférences.
+    pub fn restart_osc(&mut self) {
+        // Libère d'abord les ports de l'ancien serveur.
+        self.osc = None;
+        let settings = self.project.preferences.osc.clone();
+        if !settings.enabled {
+            return;
+        }
+        let server = OscServer::start(settings, self.repaint.clone());
+        if let Some(e) = server.startup_errors.first() {
+            self.status = Some(e.clone());
+        }
+        server.publish(self.osc_snapshot());
+        self.osc = Some(server);
+    }
+
+    fn poll_osc(&mut self) {
+        let Some(server) = self.osc.as_ref() else { return };
+        let commands: Vec<OscCommand> = server.commands.try_iter().collect();
+        if let Some(e) = server.errors.try_iter().last() {
+            self.status = Some(format!("OSC : {e}"));
+        }
+        let changed = !commands.is_empty();
+        for cmd in commands {
+            self.handle_osc(cmd);
+        }
+        if changed || self.last_osc_publish.elapsed() > Duration::from_millis(200) {
+            self.last_osc_publish = Instant::now();
+            let snap = self.osc_snapshot();
+            if let Some(server) = self.osc.as_ref() {
+                server.publish(snap);
+            }
+        }
+    }
+
+    fn handle_osc(&mut self, cmd: OscCommand) {
+        let n = self.project.module_count;
+        let mode = |c: &Self, m: usize| c.project.modules[m].mode;
+        match cmd {
+            OscCommand::StopAll => self.stop_all(),
+            OscCommand::ModuleStop(m) if m < n => self.stop_module(m),
+            OscCommand::ModuleVolume(m, db) if m < n => self.set_module_volume(m, db),
+            OscCommand::ModuleMode(m, md) if m < n => self.set_module_mode(m, md),
+            OscCommand::JinglePlay(m, s) if m < n && mode(self, m) == ModuleMode::Jingle => self.start_jingle(m, s),
+            OscCommand::JingleStop(m, s) if m < n && mode(self, m) == ModuleMode::Jingle => self.stop_jingle(m, s),
+            OscCommand::JingleToggle(m, s) if m < n && mode(self, m) == ModuleMode::Jingle => self.trigger_jingle(m, s),
+            OscCommand::JingleVolume(m, s, db) if m < n => self.update_jingle(m, s, |j| j.volume_db = db),
+            OscCommand::PlaylistPlay(m, track) if m < n && mode(self, m) == ModuleMode::Playlist => match track {
+                Some(i) => self.playlist_play(m, i),
+                None => self.playlist_go(m),
+            },
+            OscCommand::PlaylistStop(m) if m < n && mode(self, m) == ModuleMode::Playlist => self.playlist_stop(m),
+            OscCommand::PlaylistStep(m, d) if m < n && mode(self, m) == ModuleMode::Playlist => self.playlist_step(m, d),
+            OscCommand::PlaylistShuffle(m, on) if m < n => self.update_playlist(m, |p| p.shuffle = on),
+            OscCommand::PlaylistLoop(m, on) if m < n => self.update_playlist(m, |p| p.looping = on),
+            OscCommand::PlaylistAutoAdvance(m, on) if m < n => self.update_playlist(m, |p| p.auto_advance = on),
+            other => self.status = Some(format!("OSC : {} ({other:?})", tr("commande ignorée", "command ignored"))),
+        }
+    }
+
+    /// État courant, publié par OSCQuery.
+    pub fn osc_snapshot(&self) -> osc::Snapshot {
+        let modules = (0..self.project.module_count)
+            .map(|m| {
+                let cfg = &self.project.modules[m];
+                let rt = &self.playlists[m];
+                osc::ModuleState {
+                    name: cfg.name.clone(),
+                    mode: cfg.mode,
+                    volume_db: cfg.volume_db,
+                    jingles: cfg
+                        .jingles
+                        .iter()
+                        .enumerate()
+                        .map(|(s, j)| {
+                            j.as_ref().map(|j| osc::JingleState {
+                                name: j.name.clone(),
+                                volume_db: j.volume_db,
+                                playing: self.is_jingle_playing(m, s),
+                            })
+                        })
+                        .collect(),
+                    playlist: osc::PlaylistState {
+                        tracks: cfg.playlist.tracks.len(),
+                        current: rt.current,
+                        playing: rt.playing,
+                        shuffle: cfg.playlist.shuffle,
+                        looping: cfg.playlist.looping,
+                        auto_advance: cfg.playlist.auto_advance,
+                    },
+                }
+            })
+            .collect();
+        osc::Snapshot { modules }
+    }
+
     // --------------------------------------------------------------- projet
 
     pub fn open_project(&mut self, path: PathBuf) {
@@ -702,8 +832,12 @@ impl Controller {
             Ok(p) => {
                 self.stop_all();
                 let audio_changed = p.audio != self.project.audio;
+                let osc_changed = p.preferences.osc != self.project.preferences.osc;
                 self.project = p;
                 set_lang(self.project.preferences.language);
+                if osc_changed {
+                    self.restart_osc();
+                }
                 self.project_path = Some(path);
                 self.playlists = Default::default();
                 self.pending_play.clear();
