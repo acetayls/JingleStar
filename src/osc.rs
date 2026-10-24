@@ -34,6 +34,8 @@ pub enum OscCommand {
     /// Lecture, au morceau donné ou au morceau sélectionné.
     PlaylistPlay(usize, Option<usize>),
     PlaylistStop(usize),
+    /// Pause : état imposé, ou bascule (`None`).
+    PlaylistPause(usize, Option<bool>),
     PlaylistStep(usize, isize),
     PlaylistShuffle(usize, bool),
     PlaylistLoop(usize, bool),
@@ -68,6 +70,7 @@ pub struct PlaylistState {
     pub tracks: usize,
     pub current: Option<usize>,
     pub playing: bool,
+    pub paused: bool,
     pub shuffle: bool,
     pub looping: bool,
 }
@@ -189,6 +192,8 @@ pub fn parse(prefix: &str, msg: &OscMessage) -> Result<Option<OscCommand>, Strin
                         Ok(Some(OscCommand::PlaylistPlay(m, Some(n as usize - 1))))
                     }
                     "stop" => trigger(OscCommand::PlaylistStop(m)),
+                    "pause" => trigger(OscCommand::PlaylistPause(m, None)),
+                    "paused" => Ok(Some(OscCommand::PlaylistPause(m, Some(flag()?)))),
                     "next" => trigger(OscCommand::PlaylistStep(m, 1)),
                     "previous" => trigger(OscCommand::PlaylistStep(m, -1)),
                     "shuffle" => Ok(Some(OscCommand::PlaylistShuffle(m, flag()?))),
@@ -307,6 +312,8 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
                 let pb = format!("{base}/playlist");
                 add(format!("{pb}/play"), trigger_leaf("Lecture (un entier choisit le morceau)"));
                 add(format!("{pb}/stop"), trigger_leaf("Arrête la playlist"));
+                add(format!("{pb}/pause"), trigger_leaf("Pause / reprise"));
+                add(format!("{pb}/paused"), leaf(bool_type(pl.paused), ACCESS_RW, "La playlist est en pause", Some(json!(pl.paused)), None));
                 add(format!("{pb}/next"), trigger_leaf("Morceau suivant"));
                 add(format!("{pb}/previous"), trigger_leaf("Morceau précédent"));
                 add(
@@ -594,6 +601,12 @@ mod tests {
             Ok(Some(OscCommand::PlaylistPlay(2, Some(3))))
         );
         assert_eq!(parse(p, &msg("/jinglestar/module/3/playlist/previous", vec![])), Ok(Some(OscCommand::PlaylistStep(2, -1))));
+        assert_eq!(parse(p, &msg("/jinglestar/module/2/playlist/pause", vec![])), Ok(Some(OscCommand::PlaylistPause(1, None))));
+        assert_eq!(parse(p, &msg("/jinglestar/module/2/playlist/pause", vec![OscType::Int(0)])), Ok(None));
+        assert_eq!(
+            parse(p, &msg("/jinglestar/module/2/playlist/paused", vec![OscType::Bool(false)])),
+            Ok(Some(OscCommand::PlaylistPause(1, Some(false))))
+        );
         assert_eq!(
             parse(p, &msg("/jinglestar/module/1/playlist/shuffle", vec![OscType::Bool(true)])),
             Ok(Some(OscCommand::PlaylistShuffle(0, true)))

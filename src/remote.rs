@@ -176,6 +176,7 @@ pub enum ActionKind {
     ModuleVolume,
     PlaylistPlay,
     PlaylistStop,
+    PlaylistPause,
     PlaylistNext,
     PlaylistPrevious,
     PlaylistTrack,
@@ -185,7 +186,7 @@ pub enum ActionKind {
 }
 
 impl ActionKind {
-    pub const ALL: [ActionKind; 14] = [
+    pub const ALL: [ActionKind; 15] = [
         ActionKind::JingleToggle,
         ActionKind::JinglePlay,
         ActionKind::JingleStop,
@@ -194,6 +195,7 @@ impl ActionKind {
         ActionKind::ModuleVolume,
         ActionKind::PlaylistPlay,
         ActionKind::PlaylistStop,
+        ActionKind::PlaylistPause,
         ActionKind::PlaylistNext,
         ActionKind::PlaylistPrevious,
         ActionKind::PlaylistTrack,
@@ -212,6 +214,7 @@ impl ActionKind {
             ActionKind::ModuleVolume => tr("Module : volume", "Module: volume"),
             ActionKind::PlaylistPlay => tr("Playlist : lecture", "Playlist: play"),
             ActionKind::PlaylistStop => tr("Playlist : arrêt", "Playlist: stop"),
+            ActionKind::PlaylistPause => tr("Playlist : pause / reprise", "Playlist: pause / resume"),
             ActionKind::PlaylistNext => tr("Playlist : suivant", "Playlist: next"),
             ActionKind::PlaylistPrevious => tr("Playlist : précédent", "Playlist: previous"),
             ActionKind::PlaylistTrack => tr("Playlist : morceau n° (valeur)", "Playlist: track no. (value)"),
@@ -268,6 +271,7 @@ impl Mapping {
             ActionKind::JingleVolume => ev.level_db(JINGLE_DB).map(|db| OscCommand::JingleVolume(m, s, db)),
             ActionKind::PlaylistPlay => press(OscCommand::PlaylistPlay(m, None)),
             ActionKind::PlaylistStop => press(OscCommand::PlaylistStop(m)),
+            ActionKind::PlaylistPause => press(OscCommand::PlaylistPause(m, None)),
             ActionKind::PlaylistNext => press(OscCommand::PlaylistStep(m, 1)),
             ActionKind::PlaylistPrevious => press(OscCommand::PlaylistStep(m, -1)),
             ActionKind::PlaylistTrack => ev.track().map(|n| OscCommand::PlaylistPlay(m, Some(n - 1))),

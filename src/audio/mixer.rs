@@ -108,6 +108,8 @@ pub enum Command {
     Seek { module: usize, slot: usize, frame: usize },
     /// Morceau à enchaîner sans blanc quand le morceau de playlist en cours se termine.
     QueueNext { module: usize, next: Option<Queued> },
+    /// Met en pause (ou reprend) la voix d'un emplacement : fondu court, puis tête figée.
+    SetPaused { module: usize, slot: usize, paused: bool },
 }
 
 impl Command {
@@ -192,6 +194,11 @@ struct Voice {
     seek_left: usize,
     seek_in: usize,
     seek_len: usize,
+    /// Pause : la voix s'éteint en fondu court puis ne joue plus sans perdre sa place,
+    /// et remonte en fondu court à la reprise.
+    paused: bool,
+    pause_gain: f32,
+    pause_step: f32,
 }
 
 impl Voice {
@@ -213,6 +220,9 @@ impl Voice {
             seek_left: 0,
             seek_in: 0,
             seek_len: ramps.stop,
+            paused: false,
+            pause_gain: 1.0,
+            pause_step: 1.0 / ramps.stop as f32,
         };
         v.set_region(region, ramps);
         v.pos = v.region.start;
@@ -481,6 +491,11 @@ impl Mixer {
             }
             Command::SetSlotEq { module, slot, eq } => self.modules[module].slot_eq[slot].set(eq),
             Command::SetModuleEq { module, eq } => self.modules[module].eq.set(eq),
+            Command::SetPaused { module, slot, paused } => {
+                if let Some(v) = self.modules[module].voices[slot].as_mut() {
+                    v.paused = paused;
+                }
+            }
             Command::QueueNext { module, next } => {
                 let old = std::mem::replace(&mut self.modules[module].next, next);
                 if let Some(q) = old {
@@ -518,7 +533,7 @@ impl Mixer {
             let other = PLAYLIST_SLOTS[1 - i];
             let st = &mut self.modules[m];
             let Some(v) = st.voices[slot].as_mut() else { continue };
-            if v.fade_left.is_some() {
+            if v.fade_left.is_some() || v.paused {
                 continue;
             }
             let remaining = v.region.end.saturating_sub(v.pos);
@@ -614,6 +629,8 @@ impl Mixer {
                             Some(q) => {
                                 let region = Region::full(&q.buffer);
                                 let old = std::mem::replace(v, Voice::new(q.id, q.buffer, q.gain, region, ramps));
+                                // Pause demandée juste avant la fin : le suivant reste en pause.
+                                (v.paused, v.pause_gain) = (old.paused, old.pause_gain);
                                 let _ = self.garbage.try_send(old.buffer);
                                 advanced = true;
                                 from = stop_at;
@@ -719,9 +736,18 @@ fn render_voice(v: &mut Voice, bus: &mut [f32], from: usize, frames: usize, smoo
         if v.pos >= v.region.end {
             return Some(f);
         }
-        let mut fade = dip;
+        if v.paused {
+            v.pause_gain = (v.pause_gain - v.pause_step).max(0.0);
+            if v.pause_gain <= 0.0 {
+                // En pause et silencieuse : un arrêt la termine aussitôt, sinon elle attend.
+                return v.fade_left.is_some().then_some(f);
+            }
+        } else if v.pause_gain < 1.0 {
+            v.pause_gain = (v.pause_gain + v.pause_step).min(1.0);
+        }
+        let mut fade = dip * v.pause_gain;
         if v.played < v.region.fade_in {
-            fade = v.played as f32 / v.region.fade_in as f32;
+            fade *= v.played as f32 / v.region.fade_in as f32;
         }
         if v.region.looping.is_none() && v.region.fade_out > 0 {
             let remaining = v.region.end - v.pos;
@@ -887,6 +913,38 @@ mod tests {
             assert!(out[0] > 0.3, "la transitoire passe");
             assert!(out[499 * 2].abs() < 0.01, "continu retiré (EQ du module : {on_module}) : {}", out[499 * 2]);
         }
+    }
+
+    #[test]
+    fn pause_freezes_and_resumes_without_click() {
+        let (mut mx, tx, ev) = setup(2);
+        let buf = Arc::new(AudioBuffer::from_planar(vec![1.0; 1000], vec![1.0; 1000], 1000));
+        let tel = mx.telemetry.clone();
+        let slot = PLAYLIST_SLOTS[0];
+        tx.send(Command::Play { module: 0, slot, id: 1, region: Region::full(&buf), buffer: buf, gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
+        let mut out = vec![0.0; 2 * 100];
+        mx.process(&mut out);
+        tx.send(Command::SetPaused { module: 0, slot, paused: true }).unwrap();
+        mx.process(&mut out);
+        // Fondu de 10 images (10 ms à 1 kHz) : décroissance progressive, puis silence.
+        assert!(out[0] < 1.0 && out[0] > 0.8, "début du fondu : {}", out[0]);
+        assert!(out.windows(2).step_by(2).all(|w| w[1] <= w[0] + 1e-6), "décroissance monotone");
+        assert!(out[20 * 2..].iter().all(|s| *s == 0.0), "silence en pause");
+        let frozen = tel.position(0, slot).unwrap().0;
+        mx.process(&mut out);
+        assert_eq!(tel.position(0, slot).unwrap().0, frozen, "la tête ne bouge plus");
+        assert!(ev.try_recv().is_err(), "la voix ne se termine pas");
+        tx.send(Command::SetPaused { module: 0, slot, paused: false }).unwrap();
+        mx.process(&mut out);
+        assert!(out[0] > 0.0 && out[0] < 0.2, "reprise en fondu : {}", out[0]);
+        assert!((out[50 * 2] - 1.0).abs() < 1e-6);
+        assert_eq!(tel.position(0, slot).unwrap().0, frozen + 100, "reprend au même endroit");
+        // Arrêt pendant la pause : la voix se termine.
+        tx.send(Command::SetPaused { module: 0, slot, paused: true }).unwrap();
+        mx.process(&mut out);
+        tx.send(Command::Stop { module: 0, slot }).unwrap();
+        mx.process(&mut out);
+        assert!(matches!(ev.try_recv(), Ok(Event::Ended { id: 1, .. })));
     }
 
     #[test]
