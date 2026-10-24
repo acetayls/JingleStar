@@ -599,40 +599,78 @@ impl JingleStarApp {
             });
         });
 
-        // Transport.
-        ui.horizontal(|ui| {
-            if ui.button("⏮").clicked() {
-                self.ctrl.playlist_step(m, -1);
-            }
-            let go = egui::Button::new(RichText::new("▶").color(Color32::BLACK).strong()).fill(GO).min_size(vec2(44.0, 0.0));
-            if ui.add(go).clicked() {
-                self.ctrl.playlist_go(m);
-            }
-            if ui.add(egui::Button::new(RichText::new("■").color(Color32::WHITE)).fill(STOP.gamma_multiply(0.7))).clicked() {
-                self.ctrl.playlist_stop(m);
-            }
-            if ui.button("⏭").clicked() {
-                self.ctrl.playlist_step(m, 1);
-            }
-            ui.separator();
-            let mut p2 = pl.clone();
-            ui.toggle_value(&mut p2.shuffle, "🔀").on_hover_text(tr("Lecture aléatoire", "Shuffle"));
-            ui.toggle_value(&mut p2.looping, "🔁").on_hover_text(tr("En boucle", "Loop"));
-            ui.toggle_value(&mut p2.auto_advance, "⏩").on_hover_text(tr("Enchaîner les morceaux", "Auto-advance"));
-            if (p2.shuffle, p2.looping, p2.auto_advance) != (pl.shuffle, pl.looping, pl.auto_advance) {
-                self.ctrl.update_playlist(m, |c| *c = p2);
-            }
-        });
+        // Transport : précédent, GO, stop, suivant sur toute la largeur.
+        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), egui::Sense::hover());
+        let (gap, side, stop_w) = (4.0, 40.0, 56.0);
+        let go_w = (row.width() - 2.0 * side - stop_w - 3.0 * gap).max(40.0);
+        let mut x = row.left();
+        let mut cell = |w: f32| {
+            let r = Rect::from_min_size(egui::pos2(x, row.top()), vec2(w, row.height()));
+            x += w + gap;
+            r
+        };
+        let (prev_r, go_r, stop_r, next_r) = (cell(side), cell(go_w), cell(stop_w), cell(side));
+        if transport_button(ui, prev_r, ("pl-prev", m), TransportIcon::Prev, None, PANEL_HI, TEXT)
+            .on_hover_text(tr("Morceau précédent", "Previous track"))
+            .clicked()
+        {
+            self.ctrl.playlist_step(m, -1);
+        }
+        if transport_button(ui, go_r, ("pl-go", m), TransportIcon::Play, Some("GO"), GO, Color32::from_rgb(0x0c, 0x1a, 0x0e))
+            .on_hover_text(tr("Lancer le morceau sélectionné", "Play the selected track"))
+            .clicked()
+        {
+            self.ctrl.playlist_go(m);
+        }
+        if transport_button(ui, stop_r, ("pl-stop", m), TransportIcon::Stop, None, STOP.gamma_multiply(0.75), Color32::WHITE)
+            .on_hover_text(tr("Arrêter", "Stop"))
+            .clicked()
+        {
+            self.ctrl.playlist_stop(m);
+        }
+        if transport_button(ui, next_r, ("pl-next", m), TransportIcon::Next, None, PANEL_HI, TEXT)
+            .on_hover_text(tr("Morceau suivant", "Next track"))
+            .clicked()
+        {
+            self.ctrl.playlist_step(m, 1);
+        }
+
+        // Modes : les morceaux s'enchaînent toujours, dans l'ordre ou au hasard.
+        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), egui::Sense::hover());
+        let half = (row.width() - 4.0) / 2.0;
+        let shuffle_r = Rect::from_min_size(row.min, vec2(half, row.height()));
+        let loop_r = Rect::from_min_size(egui::pos2(row.left() + half + 4.0, row.top()), vec2(half, row.height()));
+        if mode_chip(ui, shuffle_r, ("pl-shuffle", m), pl.shuffle, tr("Aléatoire", "Shuffle"))
+            .on_hover_text(tr("Enchaîner les morceaux au hasard", "Play tracks in random order"))
+            .clicked()
+        {
+            self.ctrl.update_playlist(m, |c| c.shuffle = !c.shuffle);
+        }
+        if mode_chip(ui, loop_r, ("pl-loop", m), pl.looping, tr("Boucle", "Loop"))
+            .on_hover_text(tr("Reprendre au début à la fin de la liste", "Start over at the end of the list"))
+            .clicked()
+        {
+            self.ctrl.update_playlist(m, |c| c.looping = !c.looping);
+        }
 
         // Transition.
         if editing || pl.transition == Transition::Crossfade {
             ui.horizontal(|ui| {
                 let mut p2 = pl.clone();
                 ui.label(RichText::new("Transition").color(TEXT_DIM));
-                ui.selectable_value(&mut p2.transition, Transition::Gapless, tr("Fin de fichier", "End of file"));
-                ui.selectable_value(&mut p2.transition, Transition::Crossfade, tr("Fondu enchaîné", "Crossfade"));
-                if p2.transition == Transition::Crossfade {
-                    ui.add(egui::DragValue::new(&mut p2.crossfade_secs).range(0.5..=20.0).speed(0.1).suffix(" s").max_decimals(1));
+                let fade = p2.transition == Transition::Crossfade;
+                let secs_w = if fade { 52.0 } else { 0.0 };
+                let seg_w = (ui.available_width() - secs_w - if fade { 6.0 } else { 0.0 }).max(80.0);
+                let (seg, _) = ui.allocate_exact_size(vec2(seg_w, 22.0), egui::Sense::hover());
+                let labels = [tr("Fin de fichier", "End of file"), tr("Fondu", "Crossfade")];
+                if let Some(i) = segmented(ui, seg, ("pl-transition", m), &labels, fade as usize) {
+                    p2.transition = if i == 1 { Transition::Crossfade } else { Transition::Gapless };
+                }
+                if fade {
+                    ui.add_sized(
+                        vec2(secs_w, 22.0),
+                        egui::DragValue::new(&mut p2.crossfade_secs).range(0.5..=20.0).speed(0.1).suffix(" s").max_decimals(1),
+                    );
                 }
                 if (p2.transition, p2.crossfade_secs) != (pl.transition, pl.crossfade_secs) {
                     self.ctrl.update_playlist(m, |c| *c = p2);

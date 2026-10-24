@@ -129,6 +129,123 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
     resp
 }
 
+// ------------------------------------------------------- commandes de playlist
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TransportIcon {
+    Prev,
+    Play,
+    Stop,
+    Next,
+}
+
+/// Symbole de transport dessiné à la main, dans un carré de côté `s` centré sur `c`.
+fn paint_transport_icon(p: &egui::Painter, c: Pos2, s: f32, icon: TransportIcon, col: Color32) {
+    let h = s / 2.0;
+    let tri = |pts: Vec<Pos2>| Shape::convex_polygon(pts, col, Stroke::NONE);
+    match icon {
+        TransportIcon::Play => {
+            p.add(tri(vec![pos2(c.x - h * 0.7, c.y - h), pos2(c.x + h * 0.9, c.y), pos2(c.x - h * 0.7, c.y + h)]));
+        }
+        TransportIcon::Stop => {
+            p.rect_filled(Rect::from_center_size(c, vec2(s * 0.8, s * 0.8)), CornerRadius::same(1), col);
+        }
+        TransportIcon::Prev => {
+            p.rect_filled(Rect::from_min_max(pos2(c.x - h, c.y - h * 0.8), pos2(c.x - h * 0.65, c.y + h * 0.8)), CornerRadius::ZERO, col);
+            p.add(tri(vec![pos2(c.x + h * 0.8, c.y - h * 0.8), pos2(c.x + h * 0.8, c.y + h * 0.8), pos2(c.x - h * 0.5, c.y)]));
+        }
+        TransportIcon::Next => {
+            p.rect_filled(Rect::from_min_max(pos2(c.x + h * 0.65, c.y - h * 0.8), pos2(c.x + h, c.y + h * 0.8)), CornerRadius::ZERO, col);
+            p.add(tri(vec![pos2(c.x - h * 0.8, c.y - h * 0.8), pos2(c.x + h * 0.5, c.y), pos2(c.x - h * 0.8, c.y + h * 0.8)]));
+        }
+    }
+}
+
+/// Bouton de la barre de transport : fond plein, symbole et texte facultatif.
+pub fn transport_button(ui: &mut Ui, rect: Rect, id: impl std::hash::Hash + std::fmt::Debug, icon: TransportIcon, label: Option<&str>, fill: Color32, fg: Color32) -> Response {
+    let resp = ui.interact(rect, ui.make_persistent_id(id), Sense::click());
+    let p = ui.painter_at(rect.expand(1.0));
+    let r = CornerRadius::same(4);
+    let fill = if resp.is_pointer_button_down_on() {
+        fill.gamma_multiply(0.8)
+    } else if resp.hovered() {
+        fill.gamma_multiply(1.2)
+    } else {
+        fill
+    };
+    p.rect_filled(rect, r, fill);
+    p.rect_stroke(rect, r, Stroke::new(1.0, Color32::from_black_alpha(110)), StrokeKind::Inside);
+    let s = 14.0;
+    match label {
+        Some(text) => {
+            let galley = p.layout_no_wrap(text.to_owned(), FontId::proportional(14.0), fg);
+            let total = s + 7.0 + galley.size().x;
+            let x0 = rect.center().x - total / 2.0;
+            paint_transport_icon(&p, pos2(x0 + s / 2.0, rect.center().y), s, icon, fg);
+            p.galley(pos2(x0 + s + 7.0, rect.center().y - galley.size().y / 2.0), galley, fg);
+        }
+        None => paint_transport_icon(&p, rect.center(), s, icon, fg),
+    }
+    resp
+}
+
+/// Interrupteur de mode avec voyant : ambre et lumineux quand il est actif.
+pub fn mode_chip(ui: &mut Ui, rect: Rect, id: impl std::hash::Hash + std::fmt::Debug, on: bool, label: &str) -> Response {
+    let resp = ui.interact(rect, ui.make_persistent_id(id), Sense::click());
+    let p = ui.painter_at(rect.expand(1.0));
+    let r = CornerRadius::same(4);
+    let (fill, stroke, text) = if on {
+        (ACCENT.gamma_multiply(0.14), ACCENT.gamma_multiply(0.6), TEXT)
+    } else {
+        (PANEL_HI, BORDER, TEXT_DIM)
+    };
+    p.rect_filled(rect, r, if resp.hovered() { fill.gamma_multiply(1.3) } else { fill });
+    p.rect_stroke(rect, r, Stroke::new(1.0, stroke), StrokeKind::Inside);
+    let galley = p.layout_no_wrap(label.to_owned(), FontId::proportional(13.0), text);
+    let total = 7.0 + 6.0 + galley.size().x;
+    let x0 = rect.center().x - total / 2.0;
+    let led = pos2(x0 + 3.5, rect.center().y);
+    if on {
+        p.circle_filled(led, 6.0, ACCENT.gamma_multiply(0.18));
+        p.circle_filled(led, 3.5, ACCENT);
+    } else {
+        p.circle_filled(led, 3.5, Color32::from_rgb(0x4a, 0x4a, 0x54));
+    }
+    p.galley(pos2(x0 + 13.0, rect.center().y - galley.size().y / 2.0), galley, text);
+    resp
+}
+
+/// Contrôle segmenté : une rangée d'options exclusives. Renvoie l'option cliquée.
+pub fn segmented(ui: &mut Ui, rect: Rect, id: impl std::hash::Hash + std::fmt::Debug + Copy, labels: &[&str], selected: usize) -> Option<usize> {
+    let n = labels.len() as f32;
+    let w = rect.width() / n;
+    let p = ui.painter_at(rect.expand(1.0));
+    let mut clicked = None;
+    for (i, label) in labels.iter().enumerate() {
+        let r = Rect::from_min_size(pos2(rect.left() + i as f32 * w, rect.top()), vec2(w, rect.height()));
+        let resp = ui.interact(r, ui.make_persistent_id((id, i)), Sense::click());
+        let corner = CornerRadius {
+            nw: if i == 0 { 4 } else { 0 },
+            sw: if i == 0 { 4 } else { 0 },
+            ne: if i + 1 == labels.len() { 4 } else { 0 },
+            se: if i + 1 == labels.len() { 4 } else { 0 },
+        };
+        let on = i == selected;
+        let fill = if on { ACCENT.gamma_multiply(0.55) } else { PANEL_HI };
+        p.rect_filled(r, corner, if resp.hovered() && !on { fill.gamma_multiply(1.3) } else { fill });
+        if i > 0 {
+            p.line_segment([r.left_top(), r.left_bottom()], Stroke::new(1.0, BORDER));
+        }
+        let col = if on { TEXT } else { TEXT_DIM };
+        p.text(r.center(), Align2::CENTER_CENTER, *label, FontId::proportional(12.5), col);
+        if resp.clicked() {
+            clicked = Some(i);
+        }
+    }
+    p.rect_stroke(rect, CornerRadius::same(4), Stroke::new(1.0, BORDER), StrokeKind::Inside);
+    clicked
+}
+
 /// Marge horizontale de la forme d'onde, pour saisir les poignées aux extrémités.
 const HANDLE_PAD: f32 = 14.0;
 

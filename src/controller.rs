@@ -533,7 +533,7 @@ impl Controller {
 
     fn next_index(&mut self, m: usize, index: usize) -> Option<usize> {
         let pl = &self.project.modules[m].playlist;
-        if !pl.auto_advance || pl.tracks.is_empty() {
+        if pl.tracks.is_empty() {
             return None;
         }
         let (len, looping) = (pl.tracks.len(), pl.looping);
