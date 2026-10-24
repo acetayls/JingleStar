@@ -1,7 +1,9 @@
 //! Widgets dessinés à la main : boutons de jingle, vumètres, éditeur de forme d'onde.
 
+use std::ops::RangeInclusive;
+
 use egui::{
-    pos2, vec2, Align2, Color32, CornerRadius, FontId, Pos2, Rect, Response, Sense, Shape, Stroke,
+    pos2, vec2, Align2, Color32, CornerRadius, FontId, Id, Key, Pos2, Rect, Response, Sense, Shape, Stroke,
     StrokeKind, Ui,
 };
 
@@ -39,6 +41,158 @@ pub fn gain_to_db(g: f32) -> f32 {
         -120.0
     } else {
         20.0 * g.log10()
+    }
+}
+
+/// Lit une valeur en dB tapée au clavier : « -6 », « +3,5 », « -4.5 dB », « -inf ».
+/// `-inf` donne le bas de la plage ; la valeur est ramenée dans la plage.
+pub fn parse_db(text: &str, range: &RangeInclusive<f32>) -> Option<f32> {
+    let t = text.trim().to_lowercase().replace(',', ".").replace(' ', "");
+    let t = t.strip_suffix("db").unwrap_or(&t);
+    let v = match t {
+        "-inf" | "-∞" | "inf" | "∞" => *range.start(),
+        _ => t.parse::<f32>().ok().filter(|v| v.is_finite())?,
+    };
+    Some(v.clamp(*range.start(), *range.end()))
+}
+
+/// Valeur en dB affichée en texte. Un double-clic ouvre un champ de saisie :
+/// Entrée valide, Échap (ou un clic ailleurs) annule. Renvoie la valeur validée.
+#[allow(clippy::too_many_arguments)]
+pub fn db_value(
+    ui: &mut Ui,
+    id: Id,
+    anchor: Pos2,
+    align: Align2,
+    db: f32,
+    floor: f32,
+    range: RangeInclusive<f32>,
+    font: FontId,
+    color: Color32,
+) -> Option<f32> {
+    db_value_shown(ui, id, anchor, align, db, floor, range, font, color, fmt_db(db, floor), None)
+}
+
+/// Comme `db_value`, avec un texte affiché au choix (« … », « ⚠ ») et une bulle d'aide en plus.
+#[allow(clippy::too_many_arguments)]
+pub fn db_value_shown(
+    ui: &mut Ui,
+    id: Id,
+    anchor: Pos2,
+    align: Align2,
+    db: f32,
+    floor: f32,
+    range: RangeInclusive<f32>,
+    font: FontId,
+    color: Color32,
+    text: String,
+    tip: Option<String>,
+) -> Option<f32> {
+    let editing: Option<String> = ui.data(|d| d.get_temp(id));
+    if let Some(mut buf) = editing {
+        let w = ui.painter().layout_no_wrap("-60.0 dB".into(), font.clone(), color).size().x + 10.0;
+        let rect = align.anchor_size(anchor, vec2(w, font.size + 6.0));
+        let edit_id = id.with("edit");
+        // `place` : le champ se pose sur la valeur sans décaler la mise en page.
+        let resp = ui.place(
+            rect,
+            egui::TextEdit::singleline(&mut buf)
+                .id(edit_id)
+                .font(font)
+                .align(Align2::CENTER_CENTER)
+                .margin(vec2(2.0, 1.0)),
+        );
+        let first = !ui.data(|d| d.get_temp::<bool>(id.with("focused")).unwrap_or(false));
+        if first {
+            if let Some(mut st) = egui::text_edit::TextEditState::load(ui.ctx(), edit_id) {
+                st.cursor.set_char_range(Some(egui::text::CCursorRange::select_all_str(&buf)));
+                st.store(ui.ctx(), edit_id);
+            }
+            ui.data_mut(|d| d.insert_temp(id.with("focused"), true));
+        }
+        if !ui.memory(|m| m.has_focus(edit_id)) && !resp.lost_focus() {
+            resp.request_focus();
+        }
+        // Entrée valide ; Échap, la perte du focus ou un clic hors du champ annulent.
+        let (enter, escape, clicked_out) = ui.input(|i| {
+            let out = i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !rect.contains(p));
+            (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape), out)
+        });
+        if enter || escape || clicked_out || (!first && resp.lost_focus()) {
+            ui.data_mut(|d| {
+                d.remove::<String>(id);
+                d.remove::<bool>(id.with("focused"));
+            });
+            if resp.has_focus() || ui.memory(|m| m.has_focus(edit_id)) {
+                ui.memory_mut(|m| m.surrender_focus(edit_id));
+            }
+            return if enter { parse_db(&buf, &range) } else { None };
+        }
+        ui.data_mut(|d| d.insert_temp(id, buf));
+        return None;
+    }
+    let galley = ui.painter().layout_no_wrap(text.clone(), font.clone(), color);
+    let rect = align.anchor_size(anchor, galley.size()).expand2(vec2(3.0, 1.0));
+    let resp = ui.interact(rect, id, Sense::click());
+    ui.painter().galley(rect.min + vec2(3.0, 1.0), galley, color);
+    if resp.hovered() {
+        ui.painter().rect_stroke(rect, CornerRadius::same(2), Stroke::new(1.0, Color32::from_white_alpha(40)), StrokeKind::Inside);
+    }
+    let hint = tr("Double-clic pour saisir une valeur", "Double-click to type a value");
+    let resp = resp.on_hover_text(match tip {
+        Some(t) => format!("{t}\n\n{hint}"),
+        None => hint.to_string(),
+    });
+    if resp.double_clicked() {
+        let start = if db <= floor { "-inf".to_string() } else { format!("{db:.1}") };
+        ui.data_mut(|d| d.insert_temp(id, start));
+    }
+    None
+}
+
+/// Repères de niveau des faders et curseurs de volume.
+pub const DB_MARKS: [f32; 3] = [3.0, 0.0, -6.0];
+
+/// Position d'une valeur le long d'un curseur egui de `rect` (même marge que egui : un rayon de poignée).
+pub fn slider_value_pos(rect: Rect, vertical: bool, range: &RangeInclusive<f32>, v: f32) -> f32 {
+    let t = ((v - range.start()) / (range.end() - range.start())).clamp(0.0, 1.0);
+    if vertical {
+        let r = rect.width() / 2.5;
+        egui::lerp((rect.bottom() - r)..=(rect.top() + r), t)
+    } else {
+        let r = rect.height() / 2.5;
+        egui::lerp((rect.left() + r)..=(rect.right() - r), t)
+    }
+}
+
+/// Petits traits aux repères de niveau (0 dB plus marqué), le long d'un curseur.
+pub fn db_marks(ui: &Ui, rect: Rect, vertical: bool, range: &RangeInclusive<f32>, labels: bool) {
+    let p = ui.painter();
+    for m in DB_MARKS {
+        if !range.contains(&m) {
+            continue;
+        }
+        let zero = m == 0.0;
+        let col = if zero { Color32::from_white_alpha(150) } else { Color32::from_white_alpha(80) };
+        let len = if zero { 7.0 } else { 5.0 };
+        let at = slider_value_pos(rect, vertical, range, m);
+        let txt = if zero { "0".to_string() } else { format!("{m:+}") };
+        if vertical {
+            // Trait à droite du rail, valeur à gauche (le rail est au centre).
+            let rail = ui.spacing().slider_rail_height / 2.0 + 2.0;
+            let c = rect.center().x;
+            p.line_segment([pos2(c + rail, at), pos2(c + rail + len, at)], Stroke::new(1.0, col));
+            if !labels {
+                p.line_segment([pos2(c - rail - len, at), pos2(c - rail, at)], Stroke::new(1.0, col));
+            } else {
+                p.text(pos2(c - rail + 1.0, at), Align2::RIGHT_CENTER, txt, FontId::monospace(8.0), col);
+            }
+        } else {
+            p.line_segment([pos2(at, rect.bottom() - len), pos2(at, rect.bottom())], Stroke::new(1.0, col));
+            if labels {
+                p.text(pos2(at, rect.top()), Align2::CENTER_BOTTOM, txt, FontId::monospace(8.0), col);
+            }
+        }
     }
 }
 
@@ -137,11 +291,10 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
         } else if let Some(d) = &v.duration_label {
             p.text(pos2(rect.center().x, text_y), Align2::CENTER_BOTTOM, d, font, TEXT_DIM);
         }
-        // Volume en haut à droite, en couleur s'il n'est pas à 0 dB.
-        let vol_col = if v.volume_db.abs() < 0.05 { TEXT_DIM } else { ACCENT };
-        let vol = p.text(rect.right_top() + vec2(-6.0, 7.0), Align2::RIGHT_TOP, fmt_db(v.volume_db, -40.0), FontId::monospace(10.0), vol_col);
+        // Le volume en haut à droite est dessiné (et modifiable) par `jingle_volume`.
         if v.looping {
-            p.text(pos2(vol.left() - 4.0, vol.top()), Align2::RIGHT_TOP, "🔁", FontId::proportional(11.0), TEXT_DIM);
+            let w = p.layout_no_wrap(fmt_db(v.volume_db, -40.0), FontId::monospace(10.0), TEXT).size().x;
+            p.text(rect.right_top() + vec2(-6.0 - w - 7.0, 7.0), Align2::RIGHT_TOP, "🔁", FontId::proportional(11.0), TEXT_DIM);
         }
         if v.eq {
             p.text(rect.left_bottom() + vec2(6.0, -5.0), Align2::LEFT_BOTTOM, "EQ", FontId::proportional(9.0), ACCENT);
@@ -288,10 +441,18 @@ pub fn segmented(ui: &mut Ui, rect: Rect, id: impl std::hash::Hash + std::fmt::D
     clicked
 }
 
-/// Ligne de la liste des morceaux : numéro et nom à gauche (tronqué), gain d'équilibrage à droite.
-pub fn track_row(ui: &mut Ui, label: &str, color: Color32, selected: bool, gain: Option<(String, Color32)>) -> Response {
+/// Volume d'un jingle en haut à droite de son bouton, en couleur s'il n'est pas à 0 dB ;
+/// double-clic pour le saisir. À appeler après `jingle_button`, pour passer au-dessus du bouton.
+pub fn jingle_volume(ui: &mut Ui, id: Id, rect: Rect, volume_db: f32) -> Option<f32> {
+    let col = if volume_db.abs() < 0.05 { TEXT_DIM } else { ACCENT };
+    db_value(ui, id, rect.right_top() + vec2(-6.0, 7.0), Align2::RIGHT_TOP, volume_db, -40.0, -40.0..=10.0, FontId::monospace(10.0), col)
+}
+
+/// Ligne de la liste des morceaux : numéro et nom à gauche (tronqué), place réservée au gain à droite
+/// (dessiné ensuite par l'appelant, à la position renvoyée).
+pub fn track_row(ui: &mut Ui, label: &str, color: Color32, selected: bool, gain: Option<&str>) -> (Response, Pos2) {
     // Glissable : un morceau peut être déposé sur un bouton de jingle.
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::click_and_drag());
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.max_rect().width().min(ui.available_width()), 20.0), Sense::click_and_drag());
     let p = ui.painter_at(rect);
     if selected {
         p.rect_filled(rect, CornerRadius::same(3), ACCENT.gamma_multiply(0.18));
@@ -299,16 +460,16 @@ pub fn track_row(ui: &mut Ui, label: &str, color: Color32, selected: bool, gain:
         p.rect_filled(rect, CornerRadius::same(3), PANEL_HI);
     }
     let font = FontId::monospace(12.0);
-    let mut right = rect.right() - 6.0;
-    if let Some((txt, col)) = gain {
-        let g = p.text(pos2(right, rect.center().y), Align2::RIGHT_CENTER, txt, FontId::monospace(11.0), col);
-        right = g.left() - 8.0;
+    let anchor = pos2(rect.right() - 6.0, rect.center().y);
+    let mut right = anchor.x;
+    if let Some(txt) = gain {
+        right -= p.layout_no_wrap(txt.to_owned(), FontId::monospace(11.0), TEXT).size().x + 8.0;
     }
     let mut job = egui::text::LayoutJob::simple_singleline(label.to_owned(), font, color);
     job.wrap = egui::text::TextWrapping::truncate_at_width((right - rect.left() - 6.0).max(10.0));
     let g = p.layout_job(job);
     p.galley(pos2(rect.left() + 6.0, rect.center().y - g.size().y / 2.0), g, color);
-    resp
+    (resp, anchor)
 }
 
 /// Marge horizontale de la forme d'onde, pour saisir les poignées aux extrémités.
@@ -329,19 +490,22 @@ enum Handle {
     LoopStart,
     LoopEnd,
     End,
+    FadeIn,
+    FadeOut,
 }
 
 /// Éditeur façon QLab : poignées de début et de fin, traits de début et de fin de boucle,
-/// rampes de fondu. Renvoie `true` si un point a été déplacé.
+/// rampes de fondu avec leurs poignées en haut. Renvoie `true` si un point ou un fondu a été déplacé.
+/// Le fondu de sortie n'a de poignée qu'en lecture unique (en boucle, il ne sert qu'à l'arrêt).
 #[allow(clippy::too_many_arguments)]
 pub fn waveform_editor(
     ui: &mut Ui,
-    overview: &[f32],
+    peaks: impl Fn(f64, f64, usize) -> Vec<f32>,
     duration: f64,
     m: &mut Markers,
     looping: bool,
-    fade_in: f64,
-    fade_out: f64,
+    fade_in: &mut f64,
+    fade_out: &mut f64,
     playhead: Option<f64>,
 ) -> bool {
     let size = vec2(ui.available_width(), 150.0);
@@ -352,23 +516,50 @@ pub fn waveform_editor(
     if duration <= 0.0 {
         return false;
     }
-    let x_of = |t: f64| wave.left() + (t / duration).clamp(0.0, 1.0) as f32 * wave.width();
-    let t_of = |x: f32| ((x - wave.left()) / wave.width()).clamp(0.0, 1.0) as f64 * duration;
+
+    // Zoom : partie visible (v0..v1 s), gardée d'une image à l'autre pour ce son.
+    let view_id = resp.id.with("view");
+    let (mut v0, mut v1) = ui
+        .data(|d| d.get_temp::<(f64, f64, f64)>(view_id))
+        .filter(|v| v.2 == duration)
+        .map(|v| (v.0, v.1))
+        .unwrap_or((0.0, duration));
+    let min_span = (duration / 2000.0).max(0.002).min(duration);
+    if let Some(hover) = resp.hover_pos() {
+        // Molette (ou Ctrl + molette, pincement) : zoom autour du pointeur. Défilement horizontal : déplacement.
+        let (scroll, zoom) = ui.input_mut(|i| {
+            let d = (i.smooth_scroll_delta, i.zoom_delta());
+            i.smooth_scroll_delta = egui::Vec2::ZERO;
+            d
+        });
+        let span = v1 - v0;
+        let factor = (-(scroll.y as f64) * 0.004).exp() / zoom as f64;
+        let new_span = (span * factor).clamp(min_span, duration);
+        let anchor = v0 + ((hover.x - wave.left()) / wave.width()).clamp(0.0, 1.0) as f64 * span;
+        v0 = anchor - (anchor - v0) * new_span / span - scroll.x as f64 / wave.width() as f64 * new_span;
+        v1 = v0 + new_span;
+    }
+    let clamp_view = |v0: f64, v1: f64| {
+        let span = (v1 - v0).clamp(min_span, duration);
+        let v0 = v0.clamp(0.0, duration - span);
+        (v0, v0 + span)
+    };
+    (v0, v1) = clamp_view(v0, v1);
+    let zoomed = v1 - v0 < duration * 0.999;
+    let x_of = |t: f64| wave.left() + ((t - v0) / (v1 - v0)) as f32 * wave.width();
+    let t_of = |x: f32| (v0 + ((x - wave.left()) / wave.width()) as f64 * (v1 - v0)).clamp(0.0, duration);
+    let clip_x = |x: f32| x.clamp(rect.left(), rect.right());
 
     // Zone de boucle.
     if looping {
-        let lr = Rect::from_x_y_ranges(x_of(m.loop_start)..=x_of(m.loop_end), wave.y_range());
+        let lr = Rect::from_x_y_ranges(clip_x(x_of(m.loop_start))..=clip_x(x_of(m.loop_end)), wave.y_range());
         p.rect_filled(lr, CornerRadius::ZERO, ACCENT.gamma_multiply(0.12));
     }
 
     // Forme d'onde.
     let mid = wave.center().y;
-    let n = overview.len().max(1);
     let cols = wave.width().max(1.0) as usize;
-    for c in 0..cols {
-        let a = c * n / cols;
-        let b = ((c + 1) * n / cols).max(a + 1).min(n);
-        let peak = overview[a.min(n - 1)..b].iter().cloned().fold(0.0f32, f32::max);
+    for (c, peak) in peaks(v0, v1, cols).into_iter().enumerate() {
         let x = wave.left() + c as f32 + 0.5;
         let t = t_of(x);
         let inside = t >= m.start && t <= m.end;
@@ -379,16 +570,38 @@ pub fn waveform_editor(
 
     // Parties exclues assombries.
     let shade = Color32::from_black_alpha(140);
-    p.rect_filled(Rect::from_x_y_ranges(rect.left()..=x_of(m.start), rect.y_range()), CornerRadius::ZERO, shade);
-    p.rect_filled(Rect::from_x_y_ranges(x_of(m.end)..=rect.right(), rect.y_range()), CornerRadius::ZERO, shade);
+    p.rect_filled(Rect::from_x_y_ranges(rect.left()..=clip_x(x_of(m.start)), rect.y_range()), CornerRadius::ZERO, shade);
+    p.rect_filled(Rect::from_x_y_ranges(clip_x(x_of(m.end))..=rect.right(), rect.y_range()), CornerRadius::ZERO, shade);
 
-    // Rampes de fondu.
+    // Rampes de fondu (linéaires, comme dans le mixeur) : partie atténuée voilée, poignée carrée en haut.
+    let span = (m.end - m.start).max(0.0);
+    *fade_in = fade_in.clamp(0.0, span);
+    *fade_out = fade_out.clamp(0.0, span);
+    let fi_x = x_of(m.start + *fade_in);
+    let fo_x = x_of(m.end - *fade_out);
     let ramp = Stroke::new(1.5, Color32::from_rgb(0xe8, 0xe8, 0xe8));
-    if fade_in > 0.0 {
-        p.line_segment([pos2(x_of(m.start), wave.bottom()), pos2(x_of(m.start + fade_in), wave.top())], ramp);
+    let veil = Color32::from_black_alpha(110);
+    if *fade_in > 0.0 {
+        let (a, b) = (pos2(x_of(m.start), wave.bottom()), pos2(fi_x, wave.top()));
+        p.add(Shape::convex_polygon(vec![pos2(a.x, wave.top()), b, a], veil, Stroke::NONE));
+        p.line_segment([a, b], ramp);
     }
-    if fade_out > 0.0 && !looping {
-        p.line_segment([pos2(x_of(m.end - fade_out), wave.top()), pos2(x_of(m.end), wave.bottom())], ramp);
+    if *fade_out > 0.0 && !looping {
+        let (a, b) = (pos2(fo_x, wave.top()), pos2(x_of(m.end), wave.bottom()));
+        p.add(Shape::convex_polygon(vec![a, pos2(b.x, wave.top()), b], veil, Stroke::NONE));
+        p.line_segment([a, b], ramp);
+    }
+    let mut fade_handles = vec![(Handle::FadeIn, fi_x, *fade_in)];
+    if !looping {
+        fade_handles.push((Handle::FadeOut, fo_x, *fade_out));
+    }
+    for &(_, x, secs) in &fade_handles {
+        let sq = Rect::from_center_size(pos2(x, rect.top() + 7.0), vec2(9.0, 9.0));
+        p.rect_filled(sq, CornerRadius::same(1), Color32::from_rgb(0xe8, 0xe8, 0xe8));
+        p.rect_stroke(sq, CornerRadius::same(1), Stroke::new(1.0, Color32::from_black_alpha(160)), StrokeKind::Inside);
+        if secs > 0.0 {
+            p.text(pos2(x, wave.top() + 3.0), Align2::CENTER_TOP, format!("{secs:.2} s"), FontId::monospace(9.0), Color32::from_rgb(0xe8, 0xe8, 0xe8));
+        }
     }
 
     // Traits de boucle.
@@ -418,7 +631,19 @@ pub fn waveform_editor(
 
     // Glisser les poignées. Les points de boucle se saisissent dans la moitié haute,
     // le début et la fin dans la moitié basse : ils restent séparables même superposés.
+    // Les poignées de fondu se saisissent dans la bande au-dessus de la forme d'onde.
     let nearest = |pos: Pos2| {
+        if pos.y < wave.top() {
+            let fade = fade_handles
+                .iter()
+                .map(|&(h, x, _)| (h, (x - pos.x).abs()))
+                .filter(|(_, d)| *d < 10.0)
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(h, _)| h);
+            if fade.is_some() {
+                return fade;
+            }
+        }
         let top = pos.y < rect.center().y;
         let mut handles = vec![(Handle::Start, m.start), (Handle::End, m.end)];
         if looping {
@@ -452,13 +677,22 @@ pub fn waveform_editor(
         let h = origin.and_then(nearest);
         ui.data_mut(|d| d.insert_temp(drag_id, h));
     }
+    let dbl_empty = resp.double_clicked() && resp.interact_pointer_pos().and_then(nearest).is_none();
     let mut changed = false;
+    let mut view = (v0, v1);
     if resp.dragged() {
         let h: Option<Handle> = ui.data(|d| d.get_temp(drag_id)).flatten();
+        if h.is_none() && zoomed {
+            // Glisser hors des poignées : déplace la partie visible.
+            let dt = -(resp.drag_delta().x / wave.width()) as f64 * (v1 - v0);
+            view = clamp_view(v0 + dt, v1 + dt);
+        }
         if let (Some(h), Some(pos)) = (h, resp.interact_pointer_pos()) {
             let t = t_of(pos.x);
-            let before = *m;
+            let before = (*m, *fade_in, *fade_out);
             match h {
+                Handle::FadeIn => *fade_in = (t - m.start).clamp(0.0, m.end - m.start),
+                Handle::FadeOut => *fade_out = (m.end - t).clamp(0.0, m.end - m.start),
                 Handle::Start => {
                     m.start = t.min(m.end);
                     m.loop_start = m.loop_start.max(m.start);
@@ -472,12 +706,31 @@ pub fn waveform_editor(
                 Handle::LoopStart => m.loop_start = t.clamp(m.start, m.loop_end),
                 Handle::LoopEnd => m.loop_end = t.clamp(m.loop_start, m.end),
             }
-            changed = *m != before;
+            changed = (*m, *fade_in, *fade_out) != before;
         }
     }
+
+    // Zoom : bouton pour tout afficher (ou double-clic) et repère de la partie visible.
+    if zoomed {
+        let bar = Rect::from_min_max(pos2(rect.left(), rect.bottom() - 3.0), rect.right_bottom());
+        let part = Rect::from_x_y_ranges(
+            rect.left() + (v0 / duration) as f32 * rect.width()..=rect.left() + (v1 / duration) as f32 * rect.width(),
+            bar.y_range(),
+        );
+        p.rect_filled(bar, CornerRadius::ZERO, Color32::from_white_alpha(20));
+        p.rect_filled(part, CornerRadius::ZERO, Color32::from_white_alpha(110));
+        let btn = Rect::from_min_size(rect.right_top() + vec2(-86.0, 16.0), vec2(80.0, 18.0));
+        if ui.place(btn, egui::Button::new(egui::RichText::new(tr("Tout afficher", "Show all")).small())).clicked() {
+            view = (0.0, duration);
+        }
+    }
+    if dbl_empty {
+        view = (0.0, duration);
+    }
+    ui.data_mut(|d| d.insert_temp(view_id, (view.0, view.1, duration)));
     resp.on_hover_text(tr(
-        "Glisser les poignées : début et fin en bas (vert, rouge), boucle en haut (orange)",
-        "Drag the handles: start and end at the bottom (green, red), loop at the top (orange)",
+        "Glisser les poignées : début et fin en bas (vert, rouge), boucle en haut (orange), fondus sur les carrés blancs.\nMolette : zoom, glisser ailleurs : se déplacer, double-clic : tout afficher.",
+        "Drag the handles: start and end at the bottom (green, red), loop at the top (orange), fades on the white squares.\nWheel: zoom, drag elsewhere: scroll, double-click: show all.",
     ));
     changed
 }
@@ -491,14 +744,14 @@ mod tests {
     fn drag(from: Pos2, to: Pos2, looping: bool) -> Markers {
         let ctx = egui::Context::default();
         let mut m = Markers { start: 0.0, loop_start: 0.0, loop_end: 10.0, end: 10.0 };
-        let overview = vec![0.5f32; 500];
+        let overview = |_: f64, _: f64, n: usize| vec![0.5f32; n];
         let screen = Rect::from_min_size(Pos2::ZERO, vec2(1000.0, 700.0));
         let mut frame = |events: Vec<Event>, m: &mut Markers| {
             let input = RawInput { screen_rect: Some(screen), events, ..Default::default() };
             let mut wave_rect = Rect::NOTHING;
             let mut out = ctx.run_ui(input, |ui| {
                 egui::Window::new("t").fixed_pos(pos2(0.0, 0.0)).default_width(620.0).resizable(true).show(ui.ctx(), |ui| {
-                    waveform_editor(ui, &overview, 10.0, m, looping, 0.0, 0.0, None);
+                    waveform_editor(ui, overview, 10.0, m, looping, &mut 0.0, &mut 0.0, None);
                     wave_rect = ui.min_rect();
                 });
             });
@@ -523,6 +776,47 @@ mod tests {
     }
 
     #[test]
+    fn double_click_types_a_db_value() {
+        let ctx = egui::Context::default();
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0));
+        let mut got = None;
+        let mut frame = |events: Vec<Event>, got: &mut Option<f32>| {
+            let input = RawInput { screen_rect: Some(screen), events, ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                let id = ui.make_persistent_id("db");
+                if let Some(v) = db_value(ui, id, pos2(100.0, 100.0), Align2::CENTER_TOP, 0.0, -60.0, -60.0..=10.0, FontId::proportional(11.0), TEXT) {
+                    *got = Some(v);
+                }
+            });
+            out.textures_delta.clear();
+        };
+        let p = pos2(100.0, 106.0);
+        let btn = |pressed| Event::PointerButton { pos: p, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+        frame(vec![], &mut got);
+        frame(vec![Event::PointerMoved(p)], &mut got);
+        frame(vec![btn(true), btn(false), btn(true), btn(false)], &mut got);
+        frame(vec![], &mut got);
+        frame(vec![], &mut got);
+        frame(vec![Event::Key { key: Key::A, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::COMMAND }], &mut got);
+        frame(vec![Event::Text("-6,5".into())], &mut got);
+        frame(vec![Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE }], &mut got);
+        assert_eq!(got, Some(-6.5));
+    }
+
+    #[test]
+    fn typed_db_values() {
+        let r = -60.0..=10.0;
+        assert_eq!(parse_db("-6", &r), Some(-6.0));
+        assert_eq!(parse_db(" +3,5 dB", &r), Some(3.5));
+        assert_eq!(parse_db("-4.5dB", &r), Some(-4.5));
+        assert_eq!(parse_db("-inf", &r), Some(-60.0));
+        assert_eq!(parse_db("-∞ dB", &r), Some(-60.0));
+        assert_eq!(parse_db("25", &r), Some(10.0));
+        assert_eq!(parse_db("abc", &r), None);
+        assert_eq!(parse_db("", &r), None);
+    }
+
+    #[test]
     fn handles_are_draggable() {
         // Géométrie : fenêtre en (0,0), marge interne, éditeur pleine largeur.
         let probe = drag(pos2(-50.0, -50.0), pos2(-50.0, -50.0), false);
@@ -530,13 +824,13 @@ mod tests {
         let ctx_rect = {
             let ctx = egui::Context::default();
             let mut r = Rect::NOTHING;
-            let overview = vec![0.5f32; 500];
+            let overview = |_: f64, _: f64, n: usize| vec![0.5f32; n];
             for _ in 0..2 {
                 let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1000.0, 700.0))), ..Default::default() };
                 let mut out = ctx.run_ui(input, |ui| {
                     egui::Window::new("t").fixed_pos(pos2(0.0, 0.0)).default_width(620.0).resizable(true).show(ui.ctx(), |ui| {
                         let mut m = Markers { start: 0.0, loop_start: 0.0, loop_end: 10.0, end: 10.0 };
-                        waveform_editor(ui, &overview, 10.0, &mut m, true, 0.0, 0.0, None);
+                        waveform_editor(ui, overview, 10.0, &mut m, true, &mut 0.0, &mut 0.0, None);
                         r = ui.min_rect();
                     });
                 });
@@ -546,7 +840,7 @@ mod tests {
         };
         let wave = ctx_rect.shrink2(vec2(HANDLE_PAD, 14.0));
         let y_low = ctx_rect.bottom() - 20.0;
-        let y_top = ctx_rect.top() + 10.0;
+        let y_top = wave.top() + 15.0;
         let mid_x = wave.center().x;
 
         let m = drag(pos2(wave.right(), y_low), pos2(mid_x, y_low), false);

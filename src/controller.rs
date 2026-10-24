@@ -71,13 +71,15 @@ pub enum TrackGain {
     /// Son muet ou trop court : pas de gain calculable.
     Unmeasurable(Loudness),
     Failed(String),
+    /// Gain réglé à la main (dB), prioritaire sur l'équilibrage.
+    Manual(f32),
 }
 
 impl TrackGain {
     /// Gain linéaire à appliquer à la lecture.
     pub fn linear(&self) -> f32 {
         match self {
-            TrackGain::Ready { db, .. } => 10f32.powf(db / 20.0),
+            TrackGain::Ready { db, .. } | TrackGain::Manual(db) => 10f32.powf(db / 20.0),
             _ => 1.0,
         }
     }
@@ -526,6 +528,11 @@ impl Controller {
         }
     }
 
+    pub fn set_module_notes(&mut self, m: usize, notes: String) {
+        self.project.modules[m].notes = notes;
+        self.mark_dirty();
+    }
+
     pub fn rename_module(&mut self, m: usize, name: String) {
         self.project.modules[m].name = name;
         self.mark_dirty();
@@ -827,10 +834,13 @@ impl Controller {
     /// Gain d'équilibrage du morceau `index` de la playlist du module `m`.
     pub fn track_gain(&self, m: usize, index: usize) -> TrackGain {
         let pl = &self.project.modules[m].playlist;
+        let Some(path) = pl.tracks.get(index) else { return TrackGain::Off };
+        if let Some(db) = pl.manual_gains.get(path) {
+            return TrackGain::Manual(*db);
+        }
         if !pl.normalize.enabled {
             return TrackGain::Off;
         }
-        let Some(path) = pl.tracks.get(index) else { return TrackGain::Off };
         match self.analysis.get(path) {
             None | Some(Analysis::Pending) => TrackGain::Pending,
             Some(Analysis::Failed(e)) => TrackGain::Failed(e.clone()),
@@ -838,6 +848,27 @@ impl Controller {
                 Some((db, limited)) => TrackGain::Ready { db, limited, loudness: *l },
                 None => TrackGain::Unmeasurable(*l),
             },
+        }
+    }
+
+    /// Règle à la main le gain d'un morceau (`None` : retour au gain automatique).
+    /// Le morceau en cours le prend tout de suite, lissé par le mixeur.
+    pub fn set_track_gain(&mut self, m: usize, index: usize, db: Option<f32>) {
+        let Some(path) = self.project.modules[m].playlist.tracks.get(index).cloned() else { return };
+        self.update_playlist(m, |pl| match db {
+            Some(db) => {
+                pl.manual_gains.insert(path, db);
+            }
+            None => {
+                pl.manual_gains.remove(&path);
+            }
+        });
+        let rt = &self.playlists[m];
+        if let (Some(cur), Some(_)) = (rt.current, rt.voice) {
+            if cur == index {
+                let gain = self.track_gain(m, cur).linear();
+                self.engine.send(Command::SetSlotGain { module: m, slot: rt.slot, gain });
+            }
         }
     }
 
@@ -965,6 +996,14 @@ impl Controller {
     pub fn playlist_position(&self, m: usize) -> Option<(u64, u64)> {
         let rt = &self.playlists[m];
         rt.voice.and_then(|_| self.engine.telemetry.position(m, rt.slot))
+    }
+
+    /// Déplace la lecture du morceau en cours à `fraction` (0..1) de sa durée, avec un micro-fondu.
+    pub fn playlist_seek(&mut self, m: usize, fraction: f64) {
+        if let Some((_, len)) = self.playlist_position(m) {
+            let frame = (fraction.clamp(0.0, 1.0) * len as f64) as usize;
+            self.engine.send(Command::Seek { module: m, slot: self.playlists[m].slot, frame });
+        }
     }
 
     pub fn anything_playing(&self) -> bool {

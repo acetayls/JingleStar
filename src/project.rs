@@ -28,6 +28,8 @@ pub enum ModuleMode {
     #[default]
     Jingle,
     Playlist,
+    /// Simple champ de texte, pour écrire sa conduite.
+    Text,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,6 +110,8 @@ pub struct PlaylistConfig {
     pub crossfade_secs: f32,
     /// Équilibrage du niveau des morceaux (gain de lecture, fichiers intacts).
     pub normalize: NormalizeSettings,
+    /// Gains réglés à la main (dB) : ils remplacent le gain d'équilibrage du morceau.
+    pub manual_gains: std::collections::HashMap<PathBuf, f32>,
 }
 
 impl Default for PlaylistConfig {
@@ -120,6 +124,7 @@ impl Default for PlaylistConfig {
             transition: Transition::Gapless,
             crossfade_secs: 3.0,
             normalize: NormalizeSettings::default(),
+            manual_gains: Default::default(),
         }
     }
 }
@@ -151,6 +156,8 @@ pub struct ModuleConfig {
     pub playlist: PlaylistConfig,
     /// Égaliseur du bus du module (jingles et playlist).
     pub eq: EqSettings,
+    /// Texte du module en mode Texte (la conduite).
+    pub notes: String,
 }
 
 impl ModuleConfig {
@@ -169,6 +176,7 @@ impl Default for ModuleConfig {
             jingles: vec![None; JINGLE_SLOTS],
             playlist: PlaylistConfig::default(),
             eq: EqSettings::default(),
+            notes: String::new(),
         }
     }
 }
@@ -336,4 +344,21 @@ pub fn loudness_cache_path() -> Option<PathBuf> {
 pub fn autosave_path() -> Option<PathBuf> {
     directories::ProjectDirs::from("com", "acetayls", "JingleStar")
         .map(|d| d.config_dir().join("session.json"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manual_gains_and_notes_survive_save() {
+        let mut p = Project::default();
+        p.modules[0].playlist.manual_gains.insert(PathBuf::from("/musique/01 Morceau.wav"), -4.5);
+        p.modules[1].mode = ModuleMode::Text;
+        p.modules[1].notes = "1. Ouverture\n2. Applaudissements".into();
+        let back: Project = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(back.modules[0].playlist.manual_gains.get(Path::new("/musique/01 Morceau.wav")), Some(&-4.5));
+        assert_eq!(back.modules[1].mode, ModuleMode::Text);
+        assert_eq!(back.modules[1].notes, p.modules[1].notes);
+    }
 }

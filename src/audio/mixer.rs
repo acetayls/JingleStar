@@ -104,6 +104,8 @@ pub enum Command {
     /// Égaliseur d'un emplacement (jingle), appliqué aussi au son en cours.
     SetSlotEq { module: usize, slot: usize, eq: EqCoeffs },
     SetModuleEq { module: usize, eq: EqCoeffs },
+    /// Déplace la lecture d'un son en cours à l'image `frame`, avec un micro-fondu (sortie puis entrée).
+    Seek { module: usize, slot: usize, frame: usize },
     /// Morceau à enchaîner sans blanc quand le morceau de playlist en cours se termine.
     QueueNext { module: usize, next: Option<Queued> },
 }
@@ -111,7 +113,7 @@ pub enum Command {
 impl Command {
     /// Commande qui lance du son : périmée si elle attend depuis l'ouverture précédente.
     fn starts_sound(&self) -> bool {
-        matches!(self, Command::Play { .. } | Command::QueueNext { .. } | Command::SetRegion { .. })
+        matches!(self, Command::Play { .. } | Command::QueueNext { .. } | Command::SetRegion { .. } | Command::Seek { .. })
     }
 }
 
@@ -185,6 +187,11 @@ struct Voice {
     loop_pre: usize,
     loop_post: usize,
     wrapped: bool,
+    /// Déplacement demandé : la voix descend à zéro en `seek_len` images, saute, puis remonte.
+    seek: Option<usize>,
+    seek_left: usize,
+    seek_in: usize,
+    seek_len: usize,
 }
 
 impl Voice {
@@ -202,6 +209,10 @@ impl Voice {
             loop_pre: 0,
             loop_post: 0,
             wrapped: false,
+            seek: None,
+            seek_left: 0,
+            seek_in: 0,
+            seek_len: ramps.stop,
         };
         v.set_region(region, ramps);
         v.pos = v.region.start;
@@ -429,6 +440,17 @@ impl Mixer {
                             v.pos = v.region.end;
                         }
                     }
+                }
+            }
+            Command::Seek { module, slot, frame } => {
+                if let Some(v) = self.modules[module].voices[slot].as_mut().filter(|v| v.fade_left.is_none()) {
+                    let frame = frame.clamp(v.region.start, v.region.end.saturating_sub(1).max(v.region.start));
+                    // Déjà en train de descendre : on garde la descente en cours, seule la cible change.
+                    if v.seek.is_none() {
+                        v.seek_left = if v.seek_in > 0 { v.seek_len - v.seek_in } else { v.seek_len };
+                        v.seek_in = 0;
+                    }
+                    v.seek = Some(frame);
                 }
             }
             Command::Stop { module, slot } => self.fade(module, slot),
@@ -670,6 +692,22 @@ impl Mixer {
 /// Renvoie l'image où la voix s'est terminée, ou `None` si elle continue.
 fn render_voice(v: &mut Voice, bus: &mut [f32], from: usize, frames: usize, smooth: f32) -> Option<usize> {
     for f in from..frames {
+        // Micro-fondu de déplacement : descente, saut, remontée.
+        let mut dip = 1.0;
+        if let Some(target) = v.seek {
+            if v.seek_left == 0 {
+                v.pos = target;
+                v.seek = None;
+                v.seek_in = v.seek_len;
+            } else {
+                dip = v.seek_left as f32 / v.seek_len as f32;
+                v.seek_left -= 1;
+            }
+        }
+        if v.seek_in > 0 {
+            dip = 1.0 - v.seek_in as f32 / v.seek_len as f32;
+            v.seek_in -= 1;
+        }
         // La boucle continue aussi pendant le fondu d'arrêt : le son s'éteint sans
         // jamais buter sur la fin du fichier.
         if let Some((ls, le)) = v.region.looping {
@@ -681,7 +719,7 @@ fn render_voice(v: &mut Voice, bus: &mut [f32], from: usize, frames: usize, smoo
         if v.pos >= v.region.end {
             return Some(f);
         }
-        let mut fade = 1.0;
+        let mut fade = dip;
         if v.played < v.region.fade_in {
             fade = v.played as f32 / v.region.fade_in as f32;
         }
@@ -771,6 +809,23 @@ mod tests {
         assert!((out[20 * 2] - 0.20).abs() < 1e-6);
         assert!(out.iter().all(|s| *s < 0.30 + 1e-6), "ne dépasse jamais la fin de boucle");
         assert!(ev.try_recv().is_err(), "la boucle ne se termine pas");
+    }
+
+    #[test]
+    fn seek_jumps_with_micro_fade() {
+        let (mut mx, tx, _) = setup(2);
+        let buf = ramp(1000);
+        tx.send(Command::Play { module: 0, slot: 0, id: 1, region: Region::full(&buf), buffer: buf, gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
+        let mut out = vec![0.0; 2 * 100];
+        mx.process(&mut out);
+        tx.send(Command::Seek { module: 0, slot: 0, frame: 800 }).unwrap();
+        mx.process(&mut out);
+        // Sans fondu, on sauterait de 0,1 à 0,8 d'un coup.
+        let steps = out.chunks(2).map(|f| f[0]).collect::<Vec<_>>();
+        let max_step = steps.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
+        assert!(max_step < 0.1, "pas de saut : {max_step}");
+        assert_eq!(steps[10], 0.0, "le saut se fait au silence");
+        assert!((steps[30] - 0.82).abs() < 1e-6, "lecture reprise à la cible : {}", steps[30]);
     }
 
     #[test]

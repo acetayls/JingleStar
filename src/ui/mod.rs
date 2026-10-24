@@ -54,6 +54,10 @@ pub struct JingleStarApp {
     drop_targets: Vec<(Rect, DropTarget)>,
     /// Position du curseur pendant un glisser-déposer de fichiers.
     drag_pos: Option<egui::Pos2>,
+    /// Un module Texte avait le focus à l'image précédente : Échap y arrête quand même les jingles.
+    notes_focused: bool,
+    /// Module renommé par double-clic sur son titre, avec le nom en cours de saisie.
+    renaming: Option<(usize, String)>,
 }
 
 impl JingleStarApp {
@@ -73,6 +77,8 @@ impl JingleStarApp {
             last_frame: Instant::now(),
             drop_targets: Vec::new(),
             drag_pos: None,
+            notes_focused: false,
+            renaming: None,
         }
     }
 
@@ -230,21 +236,49 @@ impl JingleStarApp {
             self.module_header(ui, m);
             ui.add_space(2.0);
             let body = ui.available_rect_before_wrap();
+            if self.ctrl.project.modules[m].mode == ModuleMode::Text {
+                ui.scope_builder(UiBuilder::new().max_rect(body), |ui| self.notes_view(ui, m, body));
+                ui.allocate_rect(body, egui::Sense::hover());
+                return;
+            }
             let strip_w = 46.0;
             let content = Rect::from_min_max(body.min, egui::pos2(body.right() - strip_w - 6.0, body.bottom()));
             let strip = Rect::from_min_max(egui::pos2(body.right() - strip_w, body.top()), body.max);
             ui.scope_builder(UiBuilder::new().max_rect(content), |ui| match self.ctrl.project.modules[m].mode {
                 ModuleMode::Jingle => self.jingle_grid(ui, m, content),
                 ModuleMode::Playlist => self.playlist_view(ui, m, content),
+                ModuleMode::Text => {}
             });
             ui.scope_builder(UiBuilder::new().max_rect(strip), |ui| self.fader_strip(ui, m, strip));
             ui.allocate_rect(body, egui::Sense::hover());
         });
     }
 
+    /// Module Texte : un grand champ libre pour la conduite, sauvegardé avec le projet.
+    fn notes_view(&mut self, ui: &mut egui::Ui, m: usize, area: Rect) {
+        let mut text = self.ctrl.project.modules[m].notes.clone();
+        let mut focused = false;
+        egui::ScrollArea::vertical().id_salt(("notes", m)).auto_shrink([false, false]).max_height(area.height()).show(ui, |ui| {
+            let resp = ui.add_sized(
+                vec2(area.width(), area.height()),
+                egui::TextEdit::multiline(&mut text)
+                    .font(FontId::proportional(15.0))
+                    .hint_text(tr("Écrire la conduite ici…", "Write your running order here…"))
+                    .desired_width(f32::INFINITY)
+                    .lock_focus(true),
+            );
+            focused = resp.has_focus();
+            if resp.changed() {
+                self.ctrl.set_module_notes(m, text);
+            }
+        });
+        self.notes_focused |= focused;
+    }
+
     fn remove_module(&mut self, m: usize) {
         self.ctrl.remove_module(m);
         self.confirm_delete = None;
+        self.renaming = None;
         self.selected = None;
         self.module_eq = None;
         // Les modes édition suivent les modules qui remontent.
@@ -265,8 +299,29 @@ impl JingleStarApp {
                 if ui.add(egui::TextEdit::singleline(&mut name).desired_width(110.0)).changed() {
                     self.ctrl.rename_module(m, name);
                 }
+            } else if let Some((_, buf)) = self.renaming.as_mut().filter(|(rm, _)| *rm == m) {
+                // Entrée valide, Échap ou un clic ailleurs annule.
+                let id = ui.make_persistent_id(("rename", m));
+                let resp = ui.add(egui::TextEdit::singleline(buf).id(id).desired_width(130.0));
+                if !resp.has_focus() && !resp.lost_focus() {
+                    resp.request_focus();
+                }
+                if resp.lost_focus() {
+                    let enter = ui.input(|i| i.key_pressed(Key::Enter));
+                    let name = buf.trim().to_string();
+                    self.renaming = None;
+                    if enter && !name.is_empty() {
+                        self.ctrl.rename_module(m, name);
+                    }
+                }
             } else {
-                ui.label(RichText::new(&self.ctrl.project.modules[m].name).strong());
+                let name = self.ctrl.project.modules[m].name.clone();
+                let resp = ui
+                    .add(egui::Label::new(RichText::new(&name).strong()).sense(egui::Sense::click()))
+                    .on_hover_text(tr("Double-clic pour renommer", "Double-click to rename"));
+                if resp.double_clicked() {
+                    self.renaming = Some((m, name));
+                }
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if editing && self.ctrl.project.module_count > 1 {
@@ -286,6 +341,9 @@ impl JingleStarApp {
                     if editing && self.selected.map(|(sm, _)| sm == m).unwrap_or(false) {
                         self.selected = None;
                     }
+                }
+                if self.ctrl.project.modules[m].mode == ModuleMode::Text {
+                    return;
                 }
                 let eq_on = !self.ctrl.project.modules[m].eq.is_flat();
                 let eq_text = RichText::new("EQ").color(if eq_on { ACCENT } else { TEXT_DIM }).strong();
@@ -307,6 +365,9 @@ impl JingleStarApp {
             }
             if ui.selectable_label(mode == ModuleMode::Playlist, "Playlist").clicked() {
                 self.ctrl.set_module_mode(m, ModuleMode::Playlist);
+            }
+            if ui.selectable_label(mode == ModuleMode::Text, tr("Texte", "Text")).on_hover_text(tr("Champ libre pour écrire sa conduite", "Free text field for your running order")).clicked() {
+                self.ctrl.set_module_mode(m, ModuleMode::Text);
             }
         });
     }
@@ -347,19 +408,28 @@ impl JingleStarApp {
             slider_rect,
             egui::Slider::new(&mut db, -60.0..=10.0).vertical().show_value(false).trailing_fill(true),
         );
+        // Repères dessinés d'après la place réelle du curseur (centré dans la zone).
+        db_marks(ui, resp.rect, true, &(-60.0..=10.0), true);
         if resp.double_clicked() {
             db = 0.0;
         }
         if db != self.ctrl.project.modules[m].volume_db {
             self.ctrl.set_module_volume(m, db);
         }
-        ui.painter().text(
+        let typed = db_value(
+            ui,
+            ui.make_persistent_id(("module_db", m)),
             egui::pos2(strip.center().x, fader_area.bottom() + 4.0),
             egui::Align2::CENTER_TOP,
-            fmt_db(db, -60.0),
+            db,
+            -60.0,
+            -60.0..=10.0,
             FontId::proportional(11.0),
             if db.abs() < 0.05 { TEXT_DIM } else { TEXT },
         );
+        if let Some(v) = typed {
+            self.ctrl.set_module_volume(m, v);
+        }
         let stop_rect = Rect::from_min_max(egui::pos2(strip.left(), strip.bottom() - stop_h), strip.max);
         if ui.put(stop_rect, egui::Button::new(RichText::new("■").color(Color32::WHITE)).fill(STOP.gamma_multiply(0.6))).on_hover_text(tr("Arrêter le module", "Stop module")).clicked() {
             self.ctrl.stop_module(m);
@@ -419,6 +489,11 @@ impl JingleStarApp {
                 volume_db: slot.as_ref().map(|j| j.volume_db).unwrap_or(0.0),
             };
             let resp = jingle_button(ui, rect, &view);
+            if let Some(j) = &slot {
+                if let Some(v) = jingle_volume(ui, ui.make_persistent_id(("jingle_db", m, s)), rect, j.volume_db) {
+                    self.ctrl.update_jingle(m, s, |j| j.volume_db = v);
+                }
+            }
             // Morceau glissé depuis une playlist : il devient le son de ce bouton.
             if let Some(track) = resp.dnd_release_payload::<TrackPayload>() {
                 self.ctrl.assign_jingle(m, s, track.0.clone());
@@ -497,7 +572,9 @@ impl JingleStarApp {
                     ui.end_row();
 
                     ui.label("Volume");
-                    ui.add(egui::Slider::new(&mut j2.volume_db, -40.0..=10.0).suffix(" dB").step_by(0.5));
+                    let r = ui.add(egui::Slider::new(&mut j2.volume_db, -40.0..=10.0).suffix(" dB").step_by(0.5));
+                    let rail = Rect::from_min_size(r.rect.min, vec2(ui.spacing().slider_width, r.rect.height()));
+                    db_marks(ui, rail, false, &(-40.0..=10.0), false);
                     ui.end_row();
 
                     ui.label(tr("Lecture", "Playback"));
@@ -539,7 +616,7 @@ impl JingleStarApp {
                     let mut mk = Markers { start: st, loop_start: ls, loop_end: le, end };
                     let rate = buf.sample_rate as f64;
                     let playhead = self.ctrl.engine.telemetry.position(m, s).map(|(p, _)| p as f64 / rate);
-                    if waveform_editor(ui, &buf.overview, dur, &mut mk, j2.looping, j2.fade_in, j2.fade_out, playhead) {
+                    if waveform_editor(ui, |a, b, n| buf.peaks(a, b, n), dur, &mut mk, j2.looping, &mut j2.fade_in, &mut j2.fade_out, playhead) {
                         j2.start = mk.start;
                         j2.end = Some(mk.end);
                         j2.loop_start = Some(mk.loop_start);
@@ -715,17 +792,39 @@ impl JingleStarApp {
             ui.set_width(ui.available_width());
             let col = if rt.playing { GO } else { TEXT };
             ui.label(RichText::new(&current_name).strong().size(15.0).color(col));
-            let (t, len) = pos.map(|(p, l)| (p as f64 / rate, l as f64 / rate)).unwrap_or((0.0, 0.0));
-            let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 6.0), egui::Sense::hover());
+            let (mut t, len) = pos.map(|(p, l)| (p as f64 / rate, l as f64 / rate)).unwrap_or((0.0, 0.0));
+            // Barre de lecture : un clic ou un glisser (appliqué au relâché) déplace la lecture.
+            let (hit, bar_resp) = ui.allocate_exact_size(vec2(ui.available_width(), 14.0), egui::Sense::click_and_drag());
+            let r = Rect::from_center_size(hit.center(), vec2(hit.width(), 6.0));
+            let frac_at = |x: f32| ((x - r.left()) / r.width()).clamp(0.0, 1.0) as f64;
+            if len > 0.0 {
+                if let Some(p) = bar_resp.interact_pointer_pos() {
+                    if bar_resp.dragged() {
+                        t = frac_at(p.x) * len;
+                    }
+                    if bar_resp.clicked() || bar_resp.drag_stopped() {
+                        self.ctrl.playlist_seek(m, frac_at(p.x));
+                        t = frac_at(p.x) * len;
+                    }
+                }
+                if bar_resp.hovered() || bar_resp.dragged() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+            }
             ui.painter().rect_filled(r, CornerRadius::same(3), PANEL_HI);
             if len > 0.0 {
                 let w = r.width() * (t / len).clamp(0.0, 1.0) as f32;
                 ui.painter().rect_filled(Rect::from_min_size(r.min, vec2(w, r.height())), CornerRadius::same(3), GO);
+                if bar_resp.hovered() || bar_resp.dragged() {
+                    ui.painter().circle_filled(egui::pos2(r.left() + w, r.center().y), 5.0, Color32::WHITE);
+                }
             }
             ui.horizontal(|ui| {
                 ui.label(RichText::new(fmt_time(t)).monospace().color(TEXT_DIM));
                 if let Some(i) = rt.current {
-                    if let Some((txt, col, tip)) = gain_label(&self.ctrl.track_gain(m, i)) {
+                    let g = self.ctrl.track_gain(m, i);
+                    if !matches!(g, TrackGain::Off) {
+                        let (txt, col, tip, _) = gain_label(&g);
                         ui.label(RichText::new(format!("{} {txt}", tr("Gain", "Gain"))).monospace().color(col)).on_hover_text(tip);
                     }
                 }
@@ -791,7 +890,8 @@ impl JingleStarApp {
 
         // Transition.
         if editing || pl.transition == Transition::Crossfade {
-            ui.horizontal(|ui| {
+            // Retour à la ligne si le module est étroit (sinon le champ déborde sous le fader).
+            ui.horizontal_wrapped(|ui| {
                 let mut p2 = pl.clone();
                 ui.label(RichText::new("Transition").color(TEXT_DIM));
                 let fade = p2.transition == Transition::Crossfade;
@@ -820,7 +920,10 @@ impl JingleStarApp {
         }
 
         // Liste des morceaux, avec le gain d'équilibrage de chacun.
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        // Largeur fixée sur celle du module : le gain de chaque morceau reste visible à droite.
+        let row_w = (area.right() - ui.cursor().left()).max(40.0);
+        egui::ScrollArea::vertical().auto_shrink([false, false]).max_width(row_w).show(ui, |ui| {
+            ui.set_max_width(row_w);
             if pl.tracks.is_empty() {
                 ui.label(RichText::new(tr(
                     "Choisissez un dossier, ou glissez ici des fichiers ou des dossiers.",
@@ -833,11 +936,14 @@ impl JingleStarApp {
                 let name = path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 let is_cur = rt.current == Some(i);
                 let color = if !is_cur { TEXT } else if rt.playing { GO } else { ACCENT };
-                let gain = gain_label(&self.ctrl.track_gain(m, i));
-                let tip = gain.as_ref().map(|g| g.2.clone());
-                let mut resp = track_row(ui, &format!("{:>3}  {}", i + 1, name), color, is_cur, gain.map(|(t, c, _)| (t, c)));
-                if let Some(tip) = tip {
-                    resp = resp.on_hover_text(tip);
+                let tg = self.ctrl.track_gain(m, i);
+                let manual = matches!(tg, TrackGain::Manual(_));
+                let (gtxt, gcol, gtip, gdb) = gain_label(&tg);
+                let (resp, anchor) = track_row(ui, &format!("{:>3}  {}", i + 1, name), color, is_cur, Some(&gtxt));
+                // Gain du morceau : double-clic pour le régler à la main.
+                let gid = ui.make_persistent_id(("track_gain", m, i));
+                if let Some(db) = db_value_shown(ui, gid, anchor, egui::Align2::RIGHT_CENTER, gdb, -60.0, -60.0..=20.0, FontId::monospace(11.0), gcol, gtxt, Some(gtip)) {
+                    self.ctrl.set_track_gain(m, i, Some(db));
                 }
                 if resp.double_clicked() {
                     self.ctrl.playlist_play(m, i);
@@ -848,6 +954,10 @@ impl JingleStarApp {
                 resp.context_menu(|ui| {
                     if ui.button(tr("Lire", "Play")).clicked() {
                         self.ctrl.playlist_play(m, i);
+                        ui.close();
+                    }
+                    if manual && ui.button(tr("Revenir au gain automatique", "Back to automatic gain")).clicked() {
+                        self.ctrl.set_track_gain(m, i, None);
                         ui.close();
                     }
                     if ui.button(tr("Retirer de la liste", "Remove from list")).clicked() {
@@ -1045,7 +1155,17 @@ impl JingleStarApp {
                     if ui.button(tr("Fermer", "Close")).clicked() {
                         close = true;
                     }
+                
                 });
+                // Version de build, pour savoir quelle mise à jour est installée.
+                let v = build_version();
+                if ui
+                    .add(egui::Label::new(RichText::new(&v).monospace().size(10.0).color(TEXT_DIM)).sense(egui::Sense::click()))
+                    .on_hover_text(tr("Version de build (clic pour copier)", "Build version (click to copy)"))
+                    .clicked()
+                {
+                    ui.ctx().copy_text(v);
+                }
             });
         if refresh {
             draft.devices = list_devices(draft.audio.host.as_deref());
@@ -1151,7 +1271,8 @@ fn osc_settings(ui: &mut egui::Ui, osc: &mut OscSettings, ctrl: &Controller) {
 }
 
 /// Texte, couleur et infobulle du gain d'équilibrage d'un morceau.
-fn gain_label(g: &TrackGain) -> Option<(String, Color32, String)> {
+/// Gain d'un morceau pour l'affichage : texte, couleur, bulle d'aide, et valeur de départ d'une saisie.
+fn gain_label(g: &TrackGain) -> (String, Color32, String, f32) {
     let details = |l: &Loudness| {
         let lufs = l.integrated.map(|v| format!("{v:.1} LUFS")).unwrap_or_else(|| "—".into());
         format!(
@@ -1165,16 +1286,22 @@ fn gain_label(g: &TrackGain) -> Option<(String, Color32, String)> {
         )
     };
     match g {
-        TrackGain::Off => None,
-        TrackGain::Pending => Some(("…".into(), TEXT_DIM, tr("Mesure en cours", "Measuring").into())),
-        TrackGain::Failed(e) => Some(("⚠".into(), STOP, format!("{} : {e}", tr("Mesure impossible", "Cannot measure")))),
-        TrackGain::Unmeasurable(l) => Some(("—".into(), TEXT_DIM, format!("{}\n{}", tr("Son muet ou trop court : gain inchangé", "Silent or too short: gain unchanged"), details(l)))),
+        TrackGain::Off => (fmt_db(0.0, -60.0), TEXT_DIM.gamma_multiply(0.6), tr("Aucun gain appliqué", "No gain applied").into(), 0.0),
+        TrackGain::Manual(db) => (
+            fmt_db(*db, -60.0),
+            EDIT,
+            tr("Gain réglé à la main (clic droit : revenir au gain automatique)", "Manual gain (right-click: back to automatic gain)").into(),
+            *db,
+        ),
+        TrackGain::Pending => ("…".into(), TEXT_DIM, tr("Mesure en cours", "Measuring").into(), 0.0),
+        TrackGain::Failed(e) => ("⚠".into(), STOP, format!("{} : {e}", tr("Mesure impossible", "Cannot measure")), 0.0),
+        TrackGain::Unmeasurable(l) => ("—".into(), TEXT_DIM, format!("{}\n{}", tr("Son muet ou trop court : gain inchangé", "Silent or too short: gain unchanged"), details(l)), 0.0),
         TrackGain::Ready { db, limited, loudness } => {
             let mut tip = format!("{} : {}\n{}", tr("Gain appliqué", "Applied gain"), fmt_db(*db, -60.0), details(loudness));
             if *limited {
                 tip += &format!("\n{}", tr("Gain réduit pour ne pas dépasser le plafond de crête vraie", "Gain reduced to stay under the true peak ceiling"));
             }
-            Some((fmt_db(*db, -60.0), if *limited { ACCENT } else { TEXT_DIM }, tip))
+            (fmt_db(*db, -60.0), if *limited { ACCENT } else { TEXT_DIM }, tip, *db)
         }
     }
 }
@@ -1219,6 +1346,16 @@ fn fmt_secs(t: f64) -> String {
     format!("{}:{:05.2}", (t / 60.0) as u64, t % 60.0)
 }
 
+/// « JingleStar 0.1.0 · a1b2c3d · 2026-10-24 » : version du Cargo.toml, commit et date de compilation.
+pub fn build_version() -> String {
+    format!(
+        "JingleStar {} · {} · {}",
+        env!("CARGO_PKG_VERSION"),
+        env!("JINGLESTAR_GIT"),
+        env!("JINGLESTAR_BUILD_DATE")
+    )
+}
+
 impl eframe::App for JingleStarApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
@@ -1227,7 +1364,8 @@ impl eframe::App for JingleStarApp {
         self.update_meters();
         self.drop_targets.clear();
 
-        let typing = ctx.egui_wants_keyboard_input();
+        // Dans un module Texte, Échap sort du champ et arrête quand même les jingles.
+        let typing = ctx.egui_wants_keyboard_input() && !std::mem::take(&mut self.notes_focused);
         if !typing && ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.ctrl.escape();
         }

@@ -152,7 +152,8 @@ pub fn parse(prefix: &str, msg: &OscMessage) -> Result<Option<OscCommand>, Strin
                     let mode = match args.first() {
                         Some(OscType::String(s)) if s.eq_ignore_ascii_case("jingle") => ModuleMode::Jingle,
                         Some(OscType::String(s)) if s.eq_ignore_ascii_case("playlist") => ModuleMode::Playlist,
-                        _ => return Err(format!("{} : {}", tr("mode attendu (jingle ou playlist)", "mode expected (jingle or playlist)"), msg.addr)),
+                        Some(OscType::String(s)) if s.eq_ignore_ascii_case("text") => ModuleMode::Text,
+                        _ => return Err(format!("{} : {}", tr("mode attendu (jingle, playlist ou text)", "mode expected (jingle, playlist or text)"), msg.addr)),
                     };
                     Ok(Some(OscCommand::ModuleMode(m, mode)))
                 }
@@ -260,10 +261,11 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
         let mode = match m.mode {
             ModuleMode::Jingle => "jingle",
             ModuleMode::Playlist => "playlist",
+            ModuleMode::Text => "text",
         };
         add(
             format!("{base}/mode"),
-            leaf("s", ACCESS_RW, "Mode du module", Some(json!(mode)), Some(json!({ "VALS": ["jingle", "playlist"] }))),
+            leaf("s", ACCESS_RW, "Mode du module", Some(json!(mode)), Some(json!({ "VALS": ["jingle", "playlist", "text"] }))),
         );
         add(
             format!("{base}/volume"),
@@ -277,6 +279,7 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
         );
         add(format!("{base}/stop"), trigger_leaf("Arrête tous les sons du module"));
         match m.mode {
+            ModuleMode::Text => {}
             ModuleMode::Jingle => {
                 for (si, j) in m.jingles.iter().enumerate() {
                     let jb = format!("{base}/jingle/{}", si + 1);

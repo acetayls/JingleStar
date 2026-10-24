@@ -7,14 +7,17 @@ audio cpal, décodage symphonia).
 ## Fonctionnalités
 
 - **Modules dynamiques** : on démarre avec un seul, on en ajoute jusqu'à 8 (« ＋ Ajouter un module »)
-  et on les supprime en mode édition (🗑). Chacun en mode **Jingles** ou **Playlist**, avec son propre volume et son vumètre.
+  et on les supprime en mode édition (🗑). Chacun en mode **Jingles**, **Playlist** ou **Texte**, avec son propre volume et son vumètre.
+  Double-clic sur le titre d'un module pour le renommer.
+- **Module Texte** : un grand champ libre pour écrire sa conduite, sauvegardé avec le projet.
 - **Routage** : chaque module sort sur une paire stéréo (1-2, 3-4, 5-6…). Multipiste avec une carte
   multicanal, ou tous les modules sur 1-2.
 - **Jingles** : 12 boutons par module. Clic = lecture, second clic = arrêt.
   - Mode édition (✏) : choisir le son, nom, couleur, volume.
   - Lecture **une fois** ou **en boucle**, avec un éditeur de forme d'onde façon QLab :
     poignée de début (verte), traits de début et de fin de boucle (orange), poignée de fin (rouge).
-  - **Fondus** d'entrée et de sortie.
+    **Zoom** à la molette (ou Ctrl + molette), glisser pour se déplacer, double-clic ou « Tout afficher » pour revenir.
+  - **Fondus** d'entrée et de sortie, réglables avec les poignées carrées en haut de la forme d'onde.
   - **Égaliseur** par jingle (dans l'éditeur du jingle).
   - Glisser-déposer de fichiers sur les boutons (plusieurs fichiers remplissent les boutons suivants),
     ou d'un morceau de playlist vers un bouton de jingle.
@@ -23,7 +26,9 @@ audio cpal, décodage symphonia).
   à la souris (glisser = fréquence et gain, molette = Q, double-clic = activer/désactiver).
 - **Playlist** : un dossier, ou une liste libre de fichiers et de dossiers glissés-déposés (ou ajoutés avec ＋),
   enchaînement automatique, **aléatoire**, **boucle**, transition
-  **fin de fichier** (sans blanc) ou **fondu enchaîné** réglable.
+  **fin de fichier** (sans blanc) ou **fondu enchaîné** réglable. Clic ou glisser sur la barre de lecture
+  pour se déplacer dans le morceau (avec un micro-fondu, sans clic). **Gain de chaque morceau réglable à la main**
+  (double-clic sur sa valeur en dB, en bleu une fois réglé ; clic droit → « Revenir au gain automatique »).
 - **Équilibrage du niveau** des morceaux de la playlist (l'équivalent de « Normalize items » de REAPER),
   en mode édition : « Équilibrer le niveau ». Chaque morceau est mesuré en arrière-plan puis lu avec
   le gain qui l'amène à la cible ; les fichiers ne sont jamais modifiés.
@@ -35,6 +40,9 @@ audio cpal, décodage symphonia).
   - Le gain appliqué s'affiche sur chaque morceau (orange s'il a été réduit par le plafond) ; au survol,
     les mesures détaillées. Les mesures sont gardées en cache et refaites si le fichier change.
 - **Volumes en dB** affichés en permanence : faders des modules, volume de chaque jingle, gain des morceaux.
+  **Double-clic** sur une valeur en dB pour la taper au clavier (Entrée valide, Échap annule).
+  Repères à +3, 0 et -6 dB sur les faders et le curseur de volume des jingles.
+- **Version de build** (version, commit, date) en bas des Préférences, pour suivre les mises à jour.
 - **Préférences** : pilote audio (WASAPI, CoreAudio, ALSA, ASIO en option), périphérique,
   taille de buffer, et **anti-veille** pendant la lecture.
 - **Échap** : arrête tous les jingles ; les playlists aussi si l'option est cochée (Préférences → Système).
@@ -49,6 +57,8 @@ audio cpal, décodage symphonia).
 - **Aide intégrée** (bouton « ? Aide » ou **F1**), dans la langue choisie. Le manuel est aussi dans
   [`docs/aide.md`](docs/aide.md) (français) et [`docs/help.md`](docs/help.md) (anglais).
 - Session sauvegardée automatiquement ; projets enregistrables (`.jinglestar`).
+
+Les idées pour plus tard sont notées dans [`ROADMAP.md`](ROADMAP.md).
 
 Formats lus : WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 
@@ -99,7 +109,7 @@ ci-dessous sont données avec le préfixe par défaut.
 | `/jinglestar/stop_all` | — | Arrête tout |
 | `/jinglestar/module/<m>/stop` | — | Arrête le module |
 | `/jinglestar/module/<m>/volume` | float, dB (-60 à +10) | Volume du module |
-| `/jinglestar/module/<m>/mode` | `jingle` ou `playlist` | Change le mode du module |
+| `/jinglestar/module/<m>/mode` | `jingle`, `playlist` ou `text` | Change le mode du module |
 | `/jinglestar/module/<m>/jingle/<j>/play` | — | Lance le jingle depuis le début (le relance s'il joue) |
 | `/jinglestar/module/<m>/jingle/<j>/stop` | — | Arrête le jingle |
 | `/jinglestar/module/<m>/jingle/<j>/toggle` | — | Lance ou arrête, comme un clic |

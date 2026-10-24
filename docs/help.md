@@ -44,14 +44,15 @@ Each module has, from top to bottom:
 - the **output** selector (stereo pair 1-2, 3-4…);
 - the **EQ** button (module equalizer);
 - the **✏** button (edit mode);
-- the mode selector: **Jingles** or **Playlist**;
-- on the right, the volume **fader** (-∞ to +10 dB) with its dB value below, the stereo **meter** and the **■** button that stops the module.
+- the mode selector: **Jingles**, **Playlist** or **Text**;
+- on the right, the volume **fader** (-∞ to +10 dB) with marks at +3, 0 and -6 dB and its dB value below, the stereo **meter** and the **■** button that stops the module.
 
 The module frame turns green while something is playing in it.
 
-- **Volume**: drag the fader. A **double-click** resets it to 0 dB.
-- **Change mode**: click **Jingles** or **Playlist**. The module stops; both the jingles and the playlist are kept.
-- **Rename**: switch to edit mode (✏), the name becomes editable.
+- **Volume**: drag the fader. A **double-click** resets it to 0 dB. **Double-click the dB value** to type it on the keyboard (Enter confirms, Escape cancels).
+- **Change mode**: click **Jingles**, **Playlist** or **Text**. The module stops; the jingles, the playlist and the text are all kept.
+- **Rename**: **double-click the module name**, type the new name and press Enter (Escape cancels). In edit mode (✏) the name is also directly editable.
+- **Text module**: a large free text field to write your running order, saved with the project. Escape still stops the jingles from there.
 - **Delete**: in edit mode, click **🗑** then confirm with **Delete?**. The following modules move up one place. The last remaining module cannot be deleted.
 
 ### Edit mode (✏)
@@ -101,6 +102,14 @@ The editor shows the sound's waveform with draggable handles, QLab style:
 - **red** handle (bottom): playback **end**;
 - **orange** lines (top), in loop mode: **loop start** and **loop end**.
 
+The **fade in** and **fade out** are set with the **white squares** in the band above the
+waveform: drag them inwards to lengthen the fade. The duration is shown next to them and the
+attenuated part is veiled (when looping, the fade out only applies on stop and is set in its field).
+
+**Zoom**: the mouse wheel (or Ctrl + wheel, or a trackpad pinch) zooms around the pointer;
+horizontal scrolling or dragging away from the handles moves the view; a double-click or
+**Show all** returns to the whole sound. A bar at the bottom shows the visible part.
+
 Excluded parts are darkened and fades are drawn as ramps. Start and end are grabbed in the lower
 half of the waveform, loop points in the upper half, so they can be told apart even when they
 overlap.
@@ -130,7 +139,12 @@ A module in **Playlist** mode plays the audio files of a folder, sorted by name.
 - **⏮** / **⏭**: previous / next track (playback continues if it was running).
 - **▶ GO**: starts playback at the selected track, or the first one.
 - **■**: stops the playlist.
+- **Progress bar**: click or drag to move within the current track (applied on release, with a micro-fade to avoid clicks).
 - **Click** a track: selects it (when stopped). **Double-click**: plays it right away.
+- **Track gain**: the dB value on the right of each track can be set by hand with a
+  **double-click** (Enter confirms, Escape cancels). A manual gain is shown in blue and replaces the
+  automatic level balancing; the current track takes it at once. Right-click the track →
+  **Back to automatic gain**.
 
 ### Options
 
@@ -193,7 +207,7 @@ Gain ranges from -18 to +18 dB, frequency from 20 Hz to 20 kHz, Q from 0.1 to 18
 ### With the fields
 
 Below the curve, each band has a button (on / off) and **Freq.**, **Gain** and **Q / slope** fields
-to drag or type into. Double-clicking a gain resets it to 0 dB. Changing a value turns the band on.
+to drag or type into. A click (or double-click) on a value lets you type it: Enter confirms, Escape cancels. Changing a value turns the band on.
 
 - **EQ enabled**: master switch. When off, the sound passes untouched but the settings are kept (the curve stays visible, dimmed).
 - **Reset**: back to a flat equalizer.
@@ -226,6 +240,9 @@ nothing changed in the audio settings, playback is not interrupted.
 
 - **Language**: Français or English. The interface and this help switch immediately.
 - **Prevent sleep during playback**: while a sound is playing, the computer and screen do not go to sleep.
+
+At the bottom of the window, the **build version** (version, commit and build date) tells you which
+update is installed; click it to copy it.
 
 ### OSC
 
@@ -409,7 +426,10 @@ or **QL · Scene 12**.
 | Set a playlist folder | Drag and drop a folder onto the playlist |
 | Play a playlist track | Double-click the track |
 | Module volume to 0 dB | Double-click the fader |
-| EQ band gain to 0 dB | Double-click the Gain field |
+| Type a dB value (fader, jingle) | Double-click the value, then Enter (Escape cancels) |
+| Rename a module | Double-click its name |
+| Zoom the waveform | Wheel, drag to move, double-click to show all |
+| Move within a playlist track | Click or drag the progress bar |
 | EQ band width (Q) | Mouse wheel over the curve point |
 | Turn an EQ band on / off | Double-click the curve point |
 | Exact value in a number field | Click the field, type, then Enter (or drag to adjust) |

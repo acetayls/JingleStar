@@ -45,14 +45,15 @@ Chaque module a, de haut en bas :
 - le choix de **sortie** (paire stéréo 1-2, 3-4…) ;
 - le bouton **EQ** (égaliseur du module) ;
 - le bouton **✏** (mode édition) ;
-- le choix du mode : **Jingles** ou **Playlist** ;
-- à droite, le **fader** de volume (-∞ à +10 dB) avec sa valeur en dB en dessous, le **vumètre** stéréo et le bouton **■** qui arrête le module.
+- le choix du mode : **Jingles**, **Playlist** ou **Texte** ;
+- à droite, le **fader** de volume (-∞ à +10 dB) avec des repères à +3, 0 et -6 dB et sa valeur en dB en dessous, le **vumètre** stéréo et le bouton **■** qui arrête le module.
 
 Le cadre du module devient vert quand un son y joue.
 
-- **Volume** : glissez le fader. Un **double-clic** le remet à 0 dB.
-- **Changer de mode** : cliquez sur **Jingles** ou **Playlist**. Le module s'arrête ; les jingles et la playlist sont conservés tous les deux.
-- **Renommer** : passez en mode édition (✏), le nom devient modifiable.
+- **Volume** : glissez le fader. Un **double-clic** sur le fader le remet à 0 dB ; un **double-clic sur la valeur en dB** permet de la taper au clavier (Entrée valide, Échap annule).
+- **Changer de mode** : cliquez sur **Jingles**, **Playlist** ou **Texte**. Le module s'arrête ; les jingles, la playlist et le texte sont conservés.
+- **Renommer** : **double-clic sur le nom** du module, tapez le nouveau nom puis Entrée (Échap annule). En mode édition (✏), le nom est aussi modifiable directement.
+- **Module Texte** : un grand champ libre pour écrire sa conduite, sauvegardé avec le projet. Échap y arrête quand même les jingles.
 - **Supprimer** : en mode édition, cliquez sur **🗑** puis confirmez avec **Supprimer ?**. Les modules suivants remontent d'un rang. Le dernier module restant ne peut pas être supprimé.
 
 ### Mode édition (✏)
@@ -102,6 +103,15 @@ L'éditeur affiche la forme d'onde du son avec des poignées à faire glisser, f
 - poignée **rouge** (en bas) : **fin** de la lecture ;
 - traits **orange** (en haut), en mode boucle : **début** et **fin de la boucle**.
 
+Les **fondus** d'entrée et de sortie se règlent avec les **carrés blancs** dans la bande au-dessus
+de la forme d'onde : glissez-les vers l'intérieur pour allonger le fondu. La durée s'affiche à côté
+et la partie atténuée est voilée (en boucle, le fondu de sortie ne sert qu'à l'arrêt et se règle
+dans le champ).
+
+**Zoom** : la molette (ou Ctrl + molette, ou le pincement du pavé tactile) zoome autour du
+pointeur ; le défilement horizontal ou un glisser hors des poignées déplace la vue ; un double-clic
+ou **Tout afficher** revient au son entier. Une barre en bas indique la partie visible.
+
 Les parties exclues sont assombries et les fondus sont dessinés en rampe. Le début et la fin se
 saisissent dans la moitié basse de la forme d'onde, les points de boucle dans la moitié haute : on
 peut ainsi les séparer même s'ils sont superposés.
@@ -131,7 +141,12 @@ Un module en mode **Playlist** lit les fichiers audio d'un dossier, triés par n
 - **⏮** / **⏭** : morceau précédent / suivant (la lecture continue si elle était en cours).
 - **▶ GO** : lance la lecture au morceau sélectionné, ou au premier.
 - **■** : arrête la playlist.
+- **Barre de lecture** : un clic ou un glisser déplace la lecture dans le morceau en cours (appliqué au relâché, avec un micro-fondu pour éviter les clics).
 - **Clic** sur un morceau : le sélectionne (à l'arrêt). **Double-clic** : le lance immédiatement.
+- **Gain d'un morceau** : la valeur en dB à droite de chaque morceau se règle à la main par un
+  **double-clic** (Entrée valide, Échap annule). Un gain manuel s'affiche en bleu et remplace
+  l'équilibrage automatique ; le morceau en cours le prend tout de suite. Clic droit sur le morceau →
+  **Revenir au gain automatique**.
 
 ### Options
 
@@ -195,7 +210,7 @@ Le gain va de -18 à +18 dB, la fréquence de 20 Hz à 20 kHz, le Q de 0,1 à 18
 ### Avec les champs
 
 Sous la courbe, chaque bande a un bouton (activer / désactiver) et des champs **Fréq.**, **Gain**
-et **Q / pente** à glisser ou à saisir. Un double-clic sur un gain le remet à 0 dB. Modifier une
+et **Q / pente** à glisser ou à saisir. Un clic (ou double-clic) sur une valeur permet de la taper au clavier : Entrée valide, Échap annule. Modifier une
 valeur active la bande.
 
 - **Égaliseur actif** : interrupteur général. Décoché, le son passe sans traitement mais les réglages sont gardés (la courbe reste visible, estompée).
@@ -229,6 +244,9 @@ rien n'a changé dans l'audio, la lecture n'est pas interrompue.
 
 - **Langue** : Français ou English. L'interface et cette aide changent immédiatement.
 - **Empêcher la mise en veille pendant la lecture** : tant qu'un son joue, l'ordinateur et l'écran ne se mettent pas en veille.
+
+En bas de la fenêtre, la **version de build** (version, commit et date de compilation) permet de
+vérifier quelle mise à jour est installée ; un clic la copie.
 
 ### OSC
 
@@ -418,7 +436,10 @@ du canal 32) ou **QL · Scène 12**.
 | Choisir le dossier d'une playlist | Glisser-déposer un dossier sur la playlist |
 | Lancer un morceau de la playlist | Double-clic sur le morceau |
 | Volume du module à 0 dB | Double-clic sur le fader |
-| Gain d'une bande d'EQ à 0 dB | Double-clic sur le champ Gain |
+| Taper une valeur en dB (fader, jingle) | Double-clic sur la valeur, puis Entrée (Échap annule) |
+| Renommer un module | Double-clic sur son nom |
+| Zoomer sur la forme d'onde | Molette, glisser pour se déplacer, double-clic pour tout afficher |
+| Se déplacer dans un morceau de playlist | Clic ou glisser sur la barre de lecture |
 | Largeur (Q) d'une bande d'EQ | Molette sur le point de la courbe |
 | Activer / désactiver une bande d'EQ | Double-clic sur le point de la courbe |
 | Valeur précise dans un champ numérique | Clic sur le champ, saisie au clavier, puis Entrée (ou glisser pour ajuster) |

@@ -246,9 +246,6 @@ fn controls(ui: &mut Ui, id: egui::Id, eq: &mut EqSettings, selected: &mut BandK
             }
             let b = eq.band_mut(k);
             let r = ui.add(egui::DragValue::new(&mut b.gain_db).range(-GAIN_RANGE..=GAIN_RANGE).speed(0.1).max_decimals(1).suffix(" dB"));
-            if r.double_clicked() {
-                b.gain_db = 0.0;
-            }
             if r.changed() {
                 b.on = true;
                 *selected = k;
