@@ -128,9 +128,12 @@ impl EqSettings {
             return Vec::new();
         }
         let b = self.band(k);
-        let f = (b.freq as f64).clamp(MIN_FREQ as f64, sr * 0.45);
-        let q = (b.q as f64).clamp(0.1, 18.0);
-        let g = b.gain_db.clamp(-GAIN_RANGE, GAIN_RANGE) as f64;
+        // Valeurs non finies (fichier abîmé, saisie) : on retombe sur des réglages sûrs,
+        // sinon un NaN bloquerait le filtre pour toujours.
+        let finite = |v: f32, d: f32| if v.is_finite() { v as f64 } else { d as f64 };
+        let f = finite(b.freq, 1000.0).min(sr * 0.45).max(MIN_FREQ as f64);
+        let q = finite(b.q, 1.0).clamp(0.1, 18.0);
+        let g = finite(b.gain_db, 0.0).clamp(-GAIN_RANGE as f64, GAIN_RANGE as f64);
         match k {
             BandKind::LowCut => match self.low_cut_slope {
                 CutSlope::Db12 => vec![Biquad::high_pass(f, std::f64::consts::FRAC_1_SQRT_2, sr)],
@@ -247,6 +250,24 @@ impl EqCoeffs {
         self.len == 0
     }
 
+    /// Plus grand module des pôles : < 1 pour un filtre stable.
+    #[cfg(test)]
+    pub fn max_pole_radius(&self) -> f64 {
+        self.stages[..self.len]
+            .iter()
+            .map(|s| {
+                // Racines de z² + a1·z + a2.
+                let disc = s.a1 * s.a1 - 4.0 * s.a2;
+                if disc < 0.0 {
+                    s.a2.sqrt()
+                } else {
+                    let r = disc.sqrt();
+                    ((-s.a1 + r) / 2.0).abs().max(((-s.a1 - r) / 2.0).abs())
+                }
+            })
+            .fold(0.0, f64::max)
+    }
+
     /// Réponse totale en dB à la fréquence `f`.
     pub fn response_db(&self, f: f64, sr: f64) -> f64 {
         let g: f64 = self.stages[..self.len].iter().map(|s| s.magnitude(f, sr)).product();
@@ -283,10 +304,112 @@ impl EqState {
                 *sample = x as f32;
             }
         }
-        // Évite les nombres dénormalisés quand le signal s'éteint.
+        // Évite les nombres dénormalisés quand le signal s'éteint, et repart de zéro
+        // si un échantillon non fini a empoisonné la mémoire du filtre.
+        let mut finite = true;
         for q in self.z[..c.len].iter_mut().flatten().flatten() {
+            finite &= q.is_finite();
             if q.abs() < 1e-20 {
                 *q = 0.0;
+            }
+        }
+        if !finite {
+            self.reset();
+        }
+    }
+}
+
+/// Égaliseur temps réel : quand les coefficients changent, l'ancien et le nouveau
+/// filtre tournent en parallèle le temps d'un court fondu enchaîné, pour qu'un
+/// réglage pendant la lecture ne produise ni clic ni transitoire.
+#[derive(Debug, Clone, Copy)]
+pub struct EqProcessor {
+    cur: EqCoeffs,
+    cur_state: EqState,
+    old: EqCoeffs,
+    old_state: EqState,
+    /// Réglage arrivé pendant un fondu, appliqué à la fin de celui-ci.
+    pending: Option<EqCoeffs>,
+    xfade_left: usize,
+    xfade_len: usize,
+}
+
+impl EqProcessor {
+    pub fn new(coeffs: EqCoeffs, xfade_len: usize) -> Self {
+        Self {
+            cur: coeffs,
+            cur_state: EqState::default(),
+            old: EqCoeffs::flat(),
+            old_state: EqState::default(),
+            pending: None,
+            xfade_left: 0,
+            xfade_len: xfade_len.max(1),
+        }
+    }
+
+    /// Vrai si le signal passe sans traitement (EQ plat et aucun fondu en cours).
+    pub fn is_bypassed(&self) -> bool {
+        self.cur.is_flat() && self.xfade_left == 0
+    }
+
+    /// Nouveau réglage, appliqué en fondu.
+    pub fn set(&mut self, c: EqCoeffs) {
+        if self.xfade_left > 0 {
+            self.pending = (c != self.cur).then_some(c);
+        } else if c != self.cur {
+            self.begin(c);
+        }
+    }
+
+    /// Repart de zéro (nouveau son, module silencieux) sans fondu.
+    pub fn reset(&mut self) {
+        if let Some(c) = self.pending.take() {
+            self.cur = c;
+        }
+        self.cur_state.reset();
+        self.old_state.reset();
+        self.xfade_left = 0;
+    }
+
+    fn begin(&mut self, c: EqCoeffs) {
+        self.old = self.cur;
+        self.old_state = self.cur_state;
+        // Même structure de filtres : on garde la mémoire, le nouveau filtre démarre
+        // presque en régime établi. Sinon il part de zéro et le fondu masque sa mise en route.
+        if c.len != self.cur.len {
+            self.cur_state.reset();
+        }
+        self.cur = c;
+        self.xfade_left = self.xfade_len;
+    }
+
+    /// Filtre en place un bloc stéréo entrelacé ; `scratch` (même taille) sert au fondu.
+    pub fn process(&mut self, buf: &mut [f32], scratch: &mut [f32]) {
+        if self.xfade_left == 0 {
+            self.cur_state.process(&self.cur, buf);
+            return;
+        }
+        let scratch = &mut scratch[..buf.len()];
+        scratch.copy_from_slice(buf);
+        self.old_state.process(&self.old, scratch);
+        self.cur_state.process(&self.cur, buf);
+        let len = self.xfade_len as f32;
+        for (frame, old) in buf.chunks_exact_mut(2).zip(scratch.chunks_exact(2)) {
+            if self.xfade_left == 0 {
+                break;
+            }
+            let t = 1.0 - self.xfade_left as f32 / len;
+            frame[0] = old[0] + (frame[0] - old[0]) * t;
+            frame[1] = old[1] + (frame[1] - old[1]) * t;
+            self.xfade_left -= 1;
+        }
+        if self.xfade_left == 0 {
+            self.old_state.reset();
+            if self.cur.is_flat() {
+                self.cur_state.reset();
+            }
+            if let Some(c) = self.pending.take() {
+                self.begin(c);
             }
         }
     }
