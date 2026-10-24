@@ -278,6 +278,38 @@ impl Mapping {
     }
 }
 
+/// Reprise en douceur d'un volume : le fader distant n'agit qu'une fois arrivé à la valeur
+/// actuelle de JingleStar (à 1 dB près, ou en la franchissant). Évite un saut de volume quand
+/// le fader de la console ou du contrôleur n'est pas à la même position.
+#[derive(Debug, Clone, Default)]
+pub struct Pickup {
+    /// Dernière valeur appliquée par ce fader ; si le volume a changé depuis (souris, OSC),
+    /// il faut le rejoindre à nouveau.
+    applied: Option<f32>,
+    /// Position précédente du fader.
+    last: Option<f32>,
+    /// Valeur à rejoindre, tant que le fader ne l'a pas atteinte.
+    pub waiting: Option<f32>,
+}
+
+impl Pickup {
+    /// Le fader passe à `target` alors que le volume vaut `current` : faut-il l'appliquer ?
+    pub fn take(&mut self, current: f32, target: f32) -> bool {
+        let engaged = self.applied.is_some_and(|a| (a - current).abs() < 0.01)
+            || (target - current).abs() <= 1.0
+            || self.last.is_some_and(|l| (l - current).signum() != (target - current).signum());
+        self.last = Some(target);
+        if engaged {
+            self.applied = Some(target);
+            self.waiting = None;
+        } else {
+            self.applied = None;
+            self.waiting = Some(current);
+        }
+        engaged
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,6 +394,26 @@ mod tests {
         let go = map(fader(0, None).trigger(), ActionKind::PlaylistPlay, 0, 0);
         assert_eq!(go.command(&fader(-2000, Some(CONSOLE_MIN)), |_, _| false), Some(OscCommand::PlaylistPlay(0, None)));
         assert_eq!(go.command(&fader(-1000, Some(-2000)), |_, _| false), None);
+    }
+
+    #[test]
+    fn pickup_avoids_jumps() {
+        let mut p = Pickup::default();
+        // JingleStar à 0 dB, fader de la console à -20 dB : rien ne bouge.
+        assert!(!p.take(0.0, -20.0));
+        assert_eq!(p.waiting, Some(0.0));
+        assert!(!p.take(0.0, -10.0));
+        // Le fader franchit 0 dB : il prend la main.
+        assert!(p.take(0.0, 2.0));
+        assert_eq!(p.waiting, None);
+        // Il suit ensuite librement.
+        assert!(p.take(2.0, -15.0));
+        // Volume changé à la souris : il faut le rejoindre de nouveau.
+        assert!(!p.take(-3.0, -14.0));
+        // À 1 dB près, il reprend.
+        assert!(p.take(-3.0, -3.5));
+        // Premier mouvement déjà au bon endroit.
+        assert!(Pickup::default().take(-6.0, -6.4));
     }
 
     #[test]

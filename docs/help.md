@@ -343,6 +343,13 @@ picks the track: program 1 → track 1, program 2 → track 2…
 
 Jingle actions are ignored when the module is in playlist mode, and vice versa.
 
+### Soft takeover of volumes
+
+A fader (console or MIDI controller) assigned to a volume only takes over once it reaches
+JingleStar's current volume, within 1 dB or by crossing it: no volume jump when the two are not
+in the same place. Until then, the mapping line shows **bring the fader to … dB**. If the volume
+is then changed with the mouse or over OSC, the fader has to catch it again.
+
 ## Control from a Yamaha console
 
 JingleStar listens directly to a Yamaha console over the network (QL, CL, TF, DM7, Rivage), with
@@ -374,8 +381,10 @@ their link) and plug it into the control network port, never into the Dante port
   unused input, for example placed in a custom fader bank) becomes a button this way. If your
   console lets you assign a **USER DEFINED** key to that channel's ON, the key becomes a
   JingleStar button.
-- **A fader**: sets a module or jingle volume (the fader level in dB is used as is, -∞ gives the
-  minimum). For a button action (play, stop…), it fires when the fader leaves -∞.
+- **A fader**: sets a module volume (so also the playlist volume of a module in playlist mode)
+  or a jingle volume. The dB level shown on the console is used as is: 0 dB on the console =
+  0 dB in JingleStar, so the Yamaha fader curve is kept; -∞ gives the minimum. For a button
+  action (play, stop…), it fires when the fader leaves -∞.
 - **A scene recall**: triggers the action of the learned scene. With **Playlist: track no.**,
   any recalled scene plays the track with the same number.
 

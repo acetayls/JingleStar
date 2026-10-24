@@ -18,7 +18,7 @@ use crate::audio::mixer::{is_playlist_slot, Command, Event, Queued, Region, MAX_
 use crate::i18n::{set_lang, tr, Lang};
 use crate::console::ConsoleClient;
 use crate::midi::MidiListener;
-use crate::remote::{Flag, InputEvent, Mapping};
+use crate::remote::{Flag, InputEvent, Mapping, Pickup};
 use crate::osc::{self, OscCommand, OscServer};
 use crate::project::{
     autosave_path, loudness_cache_path, AudioSettings, ConsoleSettings, JingleSlot, MidiSettings, ModuleConfig, ModuleMode, OscSettings, Project, Transition, DEFAULT_COLORS,
@@ -140,6 +140,8 @@ pub struct Controller {
     midi_retry: Instant,
     /// Écoute de la console Yamaha.
     pub console: Option<ConsoleClient>,
+    /// Reprise en douceur des volumes, par correspondance.
+    pickup: HashMap<usize, Pickup>,
     /// Correspondance en attente d'apprentissage.
     pub learn: Option<usize>,
     /// Dernier message reçu d'une télécommande, pour les préférences.
@@ -193,6 +195,7 @@ impl Controller {
             midi_error: None,
             midi_retry: Instant::now(),
             console: None,
+            pickup: HashMap::new(),
             learn: None,
             last_input: None,
             last_trigger: HashMap::new(),
@@ -1123,6 +1126,7 @@ impl Controller {
 
     pub fn add_mapping(&mut self, mapping: Mapping) {
         self.project.preferences.mappings.push(mapping);
+        self.pickup.clear();
         self.mark_dirty();
     }
 
@@ -1130,6 +1134,7 @@ impl Controller {
         if let Some(m) = self.project.preferences.mappings.get_mut(i) {
             if *m != mapping {
                 *m = mapping;
+                self.pickup.clear();
                 self.mark_dirty();
             }
         }
@@ -1138,6 +1143,7 @@ impl Controller {
     pub fn remove_mapping(&mut self, i: usize) {
         if i < self.project.preferences.mappings.len() {
             self.project.preferences.mappings.remove(i);
+            self.pickup.clear();
             self.learn = match self.learn {
                 Some(l) if l == i => None,
                 Some(l) if l > i => Some(l - 1),
@@ -1186,13 +1192,14 @@ impl Controller {
             }
             return;
         }
-        let commands: Vec<OscCommand> = self
+        let commands: Vec<(usize, OscCommand)> = self
             .project
             .preferences
             .mappings
             .iter()
-            .filter(|m| m.matches(&ev))
-            .filter_map(|m| {
+            .enumerate()
+            .filter(|(_, m)| m.matches(&ev))
+            .filter_map(|(i, m)| {
                 m.command(&ev, |module, flag| {
                     let pl = &self.project.modules[module].playlist;
                     match flag {
@@ -1200,11 +1207,31 @@ impl Controller {
                         Flag::Loop => pl.looping,
                     }
                 })
+                .map(|c| (i, c))
             })
             .collect();
-        for cmd in commands {
+        for (i, cmd) in commands {
+            let current = match cmd {
+                OscCommand::ModuleVolume(m, _) => Some(self.project.modules[m].volume_db),
+                OscCommand::JingleVolume(m, s, _) => self.project.modules[m].jingles[s].as_ref().map(|j| j.volume_db),
+                _ => None,
+            };
+            let target = match cmd {
+                OscCommand::ModuleVolume(_, db) | OscCommand::JingleVolume(_, _, db) => db,
+                _ => 0.0,
+            };
+            if let Some(current) = current {
+                if !self.pickup.entry(i).or_default().take(current, target) {
+                    continue;
+                }
+            }
             self.handle_command(source, cmd);
         }
+    }
+
+    /// Volume que le fader de la correspondance `i` doit rejoindre avant d'agir.
+    pub fn pickup_waiting(&self, i: usize) -> Option<f32> {
+        self.pickup.get(&i).and_then(|p| p.waiting)
     }
 
     /// État courant, publié par OSCQuery.

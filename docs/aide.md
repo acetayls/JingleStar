@@ -349,6 +349,14 @@ choisissent le morceau : program 1 → morceau 1, program 2 → morceau 2…
 
 Les actions de jingle sont ignorées si le module est en mode playlist, et inversement.
 
+### Reprise en douceur des volumes
+
+Un fader (console ou contrôleur MIDI) affecté à un volume ne prend la main qu'une fois arrivé au
+volume actuel de JingleStar, à 1 dB près ou en le franchissant : pas de saut de volume si les
+deux ne sont pas au même endroit. Tant que ce n'est pas le cas, la ligne de la correspondance
+affiche **amener le fader à … dB**. Si le volume est ensuite changé à la souris ou en OSC, le
+fader doit le rejoindre de nouveau.
+
 ## Pilotage depuis une console Yamaha
 
 JingleStar écoute directement une console Yamaha sur le réseau (QL, CL, TF, DM7, Rivage), sans
@@ -382,9 +390,10 @@ leur liaison) et branchez-le sur le port réseau de contrôle, jamais sur les po
   (entrée inutilisée, par exemple placée dans une banque de faders personnalisée) devient ainsi
   un bouton. Si votre console permet d'affecter une touche **USER DEFINED** au ON de ce canal,
   cette touche devient un bouton de JingleStar.
-- **Fader** : règle un volume de module ou de jingle (le niveau du fader en dB est repris tel
-  quel, -∞ donne le minimum). Pour un bouton (lancer, arrêter…), l'action part quand le fader
-  quitte -∞.
+- **Fader** : règle un volume de module (donc aussi celui de la playlist d'un module en mode
+  playlist) ou de jingle. Le niveau en dB affiché sur la console est repris tel quel : 0 dB sur
+  la console = 0 dB dans JingleStar, la courbe du fader Yamaha est donc respectée ; -∞ donne le
+  minimum. Pour un bouton (lancer, arrêter…), l'action part quand le fader quitte -∞.
 - **Rappel de scène** : déclenche l'action de la scène apprise. Avec **Playlist : morceau n°**,
   toute scène rappelée lance le morceau du même numéro.
 

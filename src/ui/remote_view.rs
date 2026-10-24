@@ -178,6 +178,13 @@ fn mappings(ui: &mut Ui, ctrl: &mut Controller) {
                         ctrl.learn = if learning { None } else { Some(i) };
                     }
                     ui.label(m.trigger.label());
+                    if let Some(v) = ctrl.pickup_waiting(i) {
+                        ui.label(RichText::new(format!("{} {v:.1} dB", tr("amener le fader à", "bring the fader to"))).small().color(ACCENT))
+                            .on_hover_text(tr(
+                                "Reprise en douceur : le fader agit quand il atteint le volume actuel, pour éviter un saut.",
+                                "Soft takeover: the fader takes effect once it reaches the current volume, to avoid a jump.",
+                            ));
+                    }
                 });
                 egui::ComboBox::from_id_salt(("map-action", i)).selected_text(m.action.label()).width(220.0).show_ui(ui, |ui| {
                     for a in ActionKind::ALL {
