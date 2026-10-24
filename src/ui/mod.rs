@@ -1038,8 +1038,9 @@ impl JingleStarApp {
 
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button(tr("Appliquer", "Apply")).clicked() {
+                    if ui.button(tr("Appliquer", "Apply")).on_hover_text(tr("Applique les réglages et ferme la fenêtre", "Applies the settings and closes the window")).clicked() {
                         apply = true;
+                        close = true;
                     }
                     if ui.button(tr("Fermer", "Close")).clicked() {
                         close = true;

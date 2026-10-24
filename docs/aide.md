@@ -213,7 +213,7 @@ Chaque module sort sur une **paire stéréo** : 1-2, 3-4, 5-6… Le choix se fai
 ## Les préférences
 
 **⚙ Préférences** ouvre la fenêtre des réglages. Les réglages **Audio** et **OSC** prennent effet
-avec **Appliquer** ; la langue et l'anti-veille s'appliquent tout de suite.
+avec **Appliquer**, qui ferme aussi la fenêtre ; la langue et l'anti-veille s'appliquent tout de suite.
 
 ### Audio
 
