@@ -68,6 +68,8 @@ pub struct SlotView<'a> {
     pub selected: bool,
     pub edit_mode: bool,
     pub drop_hover: bool,
+    /// Égaliseur actif sur ce jingle.
+    pub eq: bool,
 }
 
 pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
@@ -103,6 +105,9 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
         }
         if v.looping {
             p.text(rect.right_top() + vec2(-6.0, 7.0), Align2::RIGHT_TOP, "🔁", FontId::proportional(11.0), TEXT_DIM);
+        }
+        if v.eq {
+            p.text(rect.left_bottom() + vec2(6.0, -5.0), Align2::LEFT_BOTTOM, "EQ", FontId::proportional(9.0), ACCENT);
         }
         if v.loading {
             p.text(rect.right_bottom() - vec2(6.0, 5.0), Align2::RIGHT_BOTTOM, "…", FontId::proportional(14.0), TEXT_DIM);

@@ -562,6 +562,29 @@ mod tests {
     }
 
     #[test]
+    fn slot_and_module_eq_are_applied() {
+        use crate::audio::eq::EqSettings;
+        let mut eq = EqSettings::default();
+        eq.low_cut.on = true;
+        eq.low_cut.freq = 50.0;
+        // Signal continu : un coupe-bas le fait tendre vers 0.
+        let buf = Arc::new(AudioBuffer::from_planar(vec![0.5; 1000], vec![0.5; 1000], 1000));
+        let region = Region::full(&buf);
+        for on_module in [false, true] {
+            let (mut mx, tx, _) = setup(2);
+            let slot_eq = if on_module { EqCoeffs::flat() } else { eq.coeffs(1000) };
+            if on_module {
+                tx.send(Command::SetModuleEq { module: 0, eq: eq.coeffs(1000) }).unwrap();
+            }
+            tx.send(Command::Play { module: 0, slot: 0, id: 1, region, buffer: buf.clone(), gain: 1.0, eq: slot_eq }).unwrap();
+            let mut out = vec![0.0; 2 * 500];
+            mx.process(&mut out);
+            assert!(out[0] > 0.3, "la transitoire passe");
+            assert!(out[499 * 2].abs() < 0.01, "continu retiré (EQ du module : {on_module}) : {}", out[499 * 2]);
+        }
+    }
+
+    #[test]
     fn fade_in_and_out() {
         let (mut mx, tx, _) = setup(2);
         let buf = Arc::new(AudioBuffer::from_planar(vec![1.0; 100], vec![1.0; 100], 1000));

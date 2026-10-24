@@ -13,8 +13,8 @@ use crate::audio::buffer::{db_to_gain, AudioBuffer};
 use crate::audio::decode::decode_file;
 use crate::audio::engine::{AudioEngine, DeviceInfo};
 use crate::audio::eq::{EqCoeffs, EqSettings};
-use crate::i18n::{set_lang, tr, Lang};
 use crate::audio::mixer::{is_playlist_slot, Command, Event, Queued, Region, MAX_MODULES, PLAYLIST_SLOTS};
+use crate::i18n::{set_lang, tr, Lang};
 use crate::project::{autosave_path, AudioSettings, JingleSlot, ModuleConfig, ModuleMode, Project, Transition, DEFAULT_COLORS};
 
 #[derive(Debug, Clone, Copy)]

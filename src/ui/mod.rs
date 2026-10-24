@@ -1,6 +1,7 @@
 //! Interface principale.
 
 mod theme;
+mod eq_view;
 mod widgets;
 
 use std::path::PathBuf;
@@ -35,6 +36,8 @@ pub struct JingleStarApp {
     selected: Option<(usize, usize)>,
     /// Module dont la suppression attend confirmation.
     confirm_delete: Option<usize>,
+    /// Module dont l'égaliseur est ouvert.
+    module_eq: Option<usize>,
     settings: Option<SettingsDraft>,
     /// Niveaux affichés (dB), avec retombée progressive.
     meters: [[f32; 2]; MAX_MODULES],
@@ -51,6 +54,7 @@ impl JingleStarApp {
             edit_mode: [false; MAX_MODULES],
             selected: None,
             confirm_delete: None,
+            module_eq: None,
             settings: None,
             meters: [[-120.0; 2]; MAX_MODULES],
             last_frame: Instant::now(),
@@ -195,6 +199,7 @@ impl JingleStarApp {
         self.ctrl.remove_module(m);
         self.confirm_delete = None;
         self.selected = None;
+        self.module_eq = None;
         // Les modes édition suivent les modules qui remontent.
         for i in m..MAX_MODULES - 1 {
             self.edit_mode[i] = self.edit_mode[i + 1];
@@ -234,6 +239,16 @@ impl JingleStarApp {
                     if editing && self.selected.map(|(sm, _)| sm == m).unwrap_or(false) {
                         self.selected = None;
                     }
+                }
+                let eq_on = !self.ctrl.project.modules[m].eq.is_flat();
+                let eq_text = RichText::new("EQ").color(if eq_on { ACCENT } else { TEXT_DIM }).strong();
+                if editing {
+                    let open = self.module_eq == Some(m);
+                    if ui.selectable_label(open, eq_text).on_hover_text(tr("Égaliseur du module", "Module equalizer")).clicked() {
+                        self.module_eq = if open { None } else { Some(m) };
+                    }
+                } else if eq_on {
+                    ui.label(eq_text.small()).on_hover_text(tr("Égaliseur du module actif", "Module equalizer on"));
                 }
                 self.output_combo(ui, m);
             });
@@ -350,6 +365,7 @@ impl JingleStarApp {
                 selected: self.selected == Some((m, s)),
                 edit_mode: self.edit_mode[m],
                 drop_hover: hover_pos.map(|p| rect.contains(p)).unwrap_or(false),
+                eq: slot.as_ref().map(|j| !j.eq.is_flat()).unwrap_or(false),
             };
             let resp = jingle_button(ui, rect, &view);
             if resp.clicked() {
@@ -522,6 +538,17 @@ impl JingleStarApp {
                 }
 
                 ui.add_space(6.0);
+                let eq_title = if j2.eq.is_flat() {
+                    RichText::new(tr("Égaliseur", "Equalizer"))
+                } else {
+                    RichText::new(tr("Égaliseur (actif)", "Equalizer (on)")).color(ACCENT)
+                };
+                egui::CollapsingHeader::new(eq_title).id_salt(("jingle-eq", m, s)).default_open(!j.eq.is_flat()).show(ui, |ui| {
+                    let rate = self.ctrl.sample_rate();
+                    eq_view::eq_editor(ui, ("jingle", m, s), &mut j2.eq, rate);
+                });
+
+                ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     let playing = self.ctrl.is_jingle_playing(m, s);
                     let (label, col) = if playing { (tr("■ Stop", "■ Stop"), STOP) } else { (tr("▶ Écouter", "▶ Play"), GO) };
@@ -542,6 +569,35 @@ impl JingleStarApp {
             });
         if !open {
             self.selected = None;
+        }
+    }
+
+    fn module_eq_window(&mut self, ctx: &egui::Context) {
+        let Some(m) = self.module_eq else { return };
+        if m >= self.ctrl.project.module_count {
+            self.module_eq = None;
+            return;
+        }
+        let mut open = true;
+        let mut eq = self.ctrl.project.modules[m].eq;
+        let rate = self.ctrl.sample_rate();
+        egui::Window::new(format!("{} — {}", tr("Égaliseur", "Equalizer"), self.ctrl.project.modules[m].name))
+            .id(egui::Id::unique("module-eq"))
+            .open(&mut open)
+            .default_width(640.0)
+            .resizable(true)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                ui.label(RichText::new(tr(
+                    "S'applique à tout le module : jingles et playlist.",
+                    "Applies to the whole module: jingles and playlist.",
+                )).small().color(TEXT_DIM));
+                if eq_view::eq_editor(ui, ("module", m), &mut eq, rate) {
+                    self.ctrl.set_module_eq(m, eq);
+                }
+            });
+        if !open {
+            self.module_eq = None;
         }
     }
 
@@ -832,6 +888,7 @@ impl eframe::App for JingleStarApp {
             .show(ui, |ui| self.modules_grid(ui));
 
         self.jingle_editor(&ctx);
+        self.module_eq_window(&ctx);
         self.settings_window(&ctx);
         self.handle_drops(&ctx);
 
