@@ -129,8 +129,10 @@ src/
   audio/
     engine.rs        périphérique cpal (thread dédié), choix de la config multicanal
     mixer.rs         mixeur temps réel sans allocation : voix, boucles, fondus, EQ, routage par paire
-    eq.rs            égaliseur : réglages, coefficients biquad, filtrage
+    eq.rs            égaliseur : réglages, coefficients biquad, filtrage, changements en fondu
+    limiter.rs       limiteur de sécurité des sorties (transparent sous 0 dBFS)
     loudness.rs      mesure LUFS / crête / crête vraie / RMS, gain de normalisation, cache
+    quality_tests.rs banc d'essai hors ligne de la qualité audio
     decode.rs        décodage symphonia + rééchantillonnage rubato
     buffer.rs        son en mémoire + aperçu de forme d'onde
   ui/
@@ -140,4 +142,17 @@ src/
     help.rs          fenêtre d'aide (affiche docs/aide.md ou docs/help.md)
     theme.rs         thème sombre façon QLab
 ```
+
+## Qualité audio
+
+Le chemin audio est vérifié hors ligne par `cargo test` (rendu du mixeur dans des
+tampons, sans carte son) :
+
+- à 0 dB sans EQ, la sortie est le fichier au bit près (sortie 16, 24, 32 bits ou flottante) ;
+- aucun changement en marche d'escalier : volumes lissés, EQ et changement de sortie en fondu
+  de 20 et 10 ms, relance d'un jingle avec fondu court de l'ancien son, rampe de 3 ms quand le
+  point de début ou de fin tombe au milieu du fichier, fondu de 4 ms aux points de boucle ;
+- limiteur de sécurité par paire de sorties (prévision 1,5 ms) : la somme de plusieurs sons
+  n'écrête jamais, et le signal est intact tant qu'il reste sous 0 dBFS ;
+- aucune allocation ni verrou dans le callback, fichiers vides ou abîmés refusés sans blocage.
 

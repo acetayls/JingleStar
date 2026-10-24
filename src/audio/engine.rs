@@ -6,12 +6,12 @@ use std::sync::Arc;
 use std::thread;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{BufferSize, SampleFormat, SizedSample, FromSample, StreamConfig};
+use cpal::{BufferSize, SampleFormat, SizedSample, StreamConfig};
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 
 use super::buffer::AudioBuffer;
 use crate::i18n::tr;
-use super::mixer::{Command, Event, Mixer, Telemetry};
+use super::mixer::{Command, Event, Mixer, Telemetry, MAX_BLOCK};
 
 #[derive(Debug, Clone)]
 pub struct DeviceInfo {
@@ -113,7 +113,8 @@ pub struct AudioEngine {
 
 impl AudioEngine {
     pub fn new() -> Self {
-        let (cmd_tx, cmd_rx) = unbounded::<Command>();
+        // File bornée : le callback lit sans jamais allouer ni libérer de mémoire.
+        let (cmd_tx, cmd_rx) = bounded::<Command>(4096);
         let (ev_tx, ev_rx) = bounded::<Event>(1024);
         let (err_tx, err_rx) = bounded::<String>(64);
         let (garbage_tx, garbage_rx) = bounded::<Arc<AudioBuffer>>(1024);
@@ -166,8 +167,10 @@ impl AudioEngine {
         Self { commands: cmd_tx, events: ev_rx, stream_errors: err_rx, telemetry, host_tx }
     }
 
+    /// N'attend jamais : si le flux est arrêté et la file pleine, la commande est perdue
+    /// (les réglages sont renvoyés à la réouverture, les départs périmés sont ignorés).
     pub fn send(&self, cmd: Command) {
-        let _ = self.commands.send(cmd);
+        let _ = self.commands.try_send(cmd);
     }
 
     /// Ouvre (ou rouvre) le périphérique. Bloquant le temps de l'ouverture.
@@ -245,9 +248,9 @@ fn build_typed<T>(
     on_err: impl FnMut(cpal::Error) + Send + 'static,
 ) -> Result<cpal::Stream, String>
 where
-    T: SizedSample + FromSample<f32>,
+    T: SizedSample + OutputSample,
 {
-    let mut scratch = vec![0f32; 16384];
+    let mut scratch = vec![0f32; MAX_BLOCK * config.channels.max(1) as usize];
     device
         .build_output_stream::<T, _, _>(
             config,
@@ -257,12 +260,96 @@ where
                 }
                 let buf = &mut scratch[..data.len()];
                 mixer.process(buf);
-                for (o, s) in data.iter_mut().zip(buf.iter()) {
-                    *o = T::from_sample(s.clamp(-1.0, 1.0));
+                for (o, &s) in data.iter_mut().zip(buf.iter()) {
+                    *o = T::from_f32(s);
                 }
             },
             on_err,
             None,
         )
         .map_err(|e| format!("{} : {e}", tr("ouverture du flux impossible", "cannot open stream")))
+}
+
+/// Conversion vers le format du pilote : écrêtage à la pleine échelle, arrondi au plus
+/// proche (pas de troncature, qui ajoute une distorsion d'un bit) et silence pour un NaN.
+///
+/// Les conversions de cpal débordent à +1,0 en 24 bits (8 388 608 ne tient pas dans un
+/// I24 : la crête positive devient la crête négative, un claquement à pleine échelle).
+pub trait OutputSample: Sized {
+    fn from_f32(s: f32) -> Self;
+}
+
+#[inline]
+fn to_int(s: f32, scale: f64) -> i64 {
+    let s = if s.is_finite() { s as f64 } else { 0.0 };
+    (s * scale).round().clamp(-scale, scale - 1.0) as i64
+}
+
+impl OutputSample for f32 {
+    fn from_f32(s: f32) -> Self {
+        if s.is_finite() { s.clamp(-1.0, 1.0) } else { 0.0 }
+    }
+}
+
+impl OutputSample for f64 {
+    fn from_f32(s: f32) -> Self {
+        f32::from_f32(s) as f64
+    }
+}
+
+impl OutputSample for i16 {
+    fn from_f32(s: f32) -> Self {
+        to_int(s, 32_768.0) as i16
+    }
+}
+
+impl OutputSample for cpal::I24 {
+    fn from_f32(s: f32) -> Self {
+        cpal::I24::new(to_int(s, 8_388_608.0) as i32).unwrap_or(<cpal::I24 as cpal::Sample>::EQUILIBRIUM)
+    }
+}
+
+impl OutputSample for i32 {
+    fn from_f32(s: f32) -> Self {
+        to_int(s, 2_147_483_648.0) as i32
+    }
+}
+
+impl OutputSample for u16 {
+    fn from_f32(s: f32) -> Self {
+        (to_int(s, 32_768.0) + 32_768) as u16
+    }
+}
+
+impl OutputSample for u8 {
+    fn from_f32(s: f32) -> Self {
+        (to_int(s, 128.0) + 128) as u8
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn integer_output_never_wraps_and_rounds() {
+        assert_eq!(cpal::I24::from_f32(1.0).inner(), 8_388_607);
+        assert_eq!(cpal::I24::from_f32(1.5).inner(), 8_388_607);
+        assert_eq!(cpal::I24::from_f32(-1.0).inner(), -8_388_608);
+        assert_eq!(i16::from_f32(1.0), i16::MAX);
+        assert_eq!(i16::from_f32(-1.0), i16::MIN);
+        assert_eq!(i32::from_f32(1.0), i32::MAX);
+        assert_eq!(u16::from_f32(0.0), 32_768);
+        assert_eq!(u8::from_f32(1.0), 255);
+        assert_eq!(i16::from_f32(f32::NAN), 0);
+        assert_eq!(f32::from_f32(f32::INFINITY), 0.0);
+        // Arrondi au plus proche, symétrique.
+        assert_eq!(i16::from_f32(0.6 / 32_768.0), 1);
+        assert_eq!(i16::from_f32(-0.6 / 32_768.0), -1);
+        // Un fichier 16 bits ressort au bit près.
+        for v in [-32_768i16, -12_345, -1, 0, 1, 23_456, 32_767] {
+            assert_eq!(i16::from_f32(v as f32 / 32_768.0), v);
+            assert_eq!(cpal::I24::from_f32(v as f32 / 32_768.0).inner(), v as i32 * 256);
+        }
+    }
 }
