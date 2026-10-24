@@ -10,6 +10,7 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
 use super::buffer::AudioBuffer;
+use super::loudness::{Loudness, Meter};
 
 pub const AUDIO_EXTENSIONS: &[&str] = &[
     "wav", "wave", "aif", "aiff", "mp3", "flac", "ogg", "oga", "m4a", "aac", "mp4", "caf",
@@ -24,6 +25,27 @@ pub fn is_audio_file(path: &Path) -> bool {
 
 /// Décode un fichier complet en mémoire, converti en stéréo et rééchantillonné à `target_rate`.
 pub fn decode_file(path: &Path, target_rate: u32) -> Result<AudioBuffer> {
+    let (mut left, mut right, src_rate) = decode_planar(path)?;
+    if src_rate != target_rate {
+        let (l, r) = resample(&left, &right, src_rate, target_rate)?;
+        left = l;
+        right = r;
+    }
+    Ok(AudioBuffer::from_planar(left, right, target_rate))
+}
+
+/// Mesure le niveau d'un fichier à son taux d'origine (sonie, crêtes, RMS).
+pub fn analyze_file(path: &Path) -> Result<Loudness> {
+    let (left, right, rate) = decode_planar(path)?;
+    let mut meter = Meter::new(rate);
+    for (l, r) in left.iter().zip(right.iter()) {
+        meter.push(*l, *r);
+    }
+    Ok(meter.finish())
+}
+
+/// Décode un fichier en stéréo planaire, à son taux d'origine.
+fn decode_planar(path: &Path) -> Result<(Vec<f32>, Vec<f32>, u32)> {
     let file = std::fs::File::open(path)?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
@@ -43,7 +65,7 @@ pub fn decode_file(path: &Path, target_rate: u32) -> Result<AudioBuffer> {
         .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
         .ok_or_else(|| anyhow!("aucune piste audio dans {}", path.display()))?;
     let track_id = track.id;
-    let mut src_rate = track.codec_params.sample_rate.unwrap_or(target_rate);
+    let mut src_rate = track.codec_params.sample_rate.unwrap_or(48_000);
     let mut decoder =
         symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())?;
 
@@ -88,12 +110,7 @@ pub fn decode_file(path: &Path, target_rate: u32) -> Result<AudioBuffer> {
     if left.is_empty() {
         return Err(anyhow!("fichier vide ou illisible : {}", path.display()));
     }
-    if src_rate != target_rate {
-        let (l, r) = resample(&left, &right, src_rate, target_rate)?;
-        left = l;
-        right = r;
-    }
-    Ok(AudioBuffer::from_planar(left, right, target_rate))
+    Ok((left, right, src_rate))
 }
 
 fn resample(left: &[f32], right: &[f32], from: u32, to: u32) -> Result<(Vec<f32>, Vec<f32>)> {

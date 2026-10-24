@@ -10,14 +10,15 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
 use crate::audio::buffer::{db_to_gain, AudioBuffer};
-use crate::audio::decode::decode_file;
+use crate::audio::decode::{analyze_file, decode_file};
+use crate::audio::loudness::{analyze_interleaved, Loudness, LoudnessCache};
 use crate::audio::engine::{AudioEngine, DeviceInfo};
 use crate::audio::eq::{EqCoeffs, EqSettings};
 use crate::audio::mixer::{is_playlist_slot, Command, Event, Queued, Region, MAX_MODULES, PLAYLIST_SLOTS};
 use crate::i18n::{set_lang, tr, Lang};
 use crate::osc::{self, OscCommand, OscServer};
 use crate::project::{
-    autosave_path, AudioSettings, JingleSlot, ModuleConfig, ModuleMode, OscSettings, Project, Transition, DEFAULT_COLORS,
+    autosave_path, loudness_cache_path, AudioSettings, JingleSlot, ModuleConfig, ModuleMode, OscSettings, Project, Transition, DEFAULT_COLORS,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -31,6 +32,8 @@ struct LoadJob {
     path: PathBuf,
     rate: u32,
     kind: LoadKind,
+    /// Mesure aussi le niveau du son décodé (morceau lancé avant la fin de son analyse).
+    analyze: bool,
 }
 
 struct LoadDone {
@@ -38,6 +41,43 @@ struct LoadDone {
     rate: u32,
     kind: LoadKind,
     result: Result<Arc<AudioBuffer>, String>,
+    loudness: Option<Loudness>,
+}
+
+struct AnalysisDone {
+    path: PathBuf,
+    result: Result<Loudness, String>,
+}
+
+/// Mesure du niveau d'un morceau de playlist.
+#[derive(Debug, Clone)]
+pub enum Analysis {
+    Pending,
+    Done(Loudness),
+    Failed(String),
+}
+
+/// Gain d'équilibrage d'un morceau, pour l'affichage.
+#[derive(Debug, Clone)]
+pub enum TrackGain {
+    /// Normalisation désactivée.
+    Off,
+    Pending,
+    /// Gain appliqué (dB), réduit ou non par la limite de crête vraie, et la mesure.
+    Ready { db: f32, limited: bool, loudness: Loudness },
+    /// Son muet ou trop court : pas de gain calculable.
+    Unmeasurable(Loudness),
+    Failed(String),
+}
+
+impl TrackGain {
+    /// Gain linéaire à appliquer à la lecture.
+    pub fn linear(&self) -> f32 {
+        match self {
+            TrackGain::Ready { db, .. } => 10f32.powf(db / 20.0),
+            _ => 1.0,
+        }
+    }
 }
 
 /// État de lecture d'une playlist (non sauvegardé).
@@ -80,6 +120,13 @@ pub struct Controller {
     keep_awake: Option<keepawake::KeepAwake>,
     rng: u64,
     repaint: Arc<dyn Fn() + Send + Sync>,
+    /// Mesures de niveau des morceaux de playlist, et leur cache disque.
+    analysis: HashMap<PathBuf, Analysis>,
+    loudness_cache: LoudnessCache,
+    cache_dirty: bool,
+    last_cache_save: Instant,
+    analysis_jobs: Sender<PathBuf>,
+    analysis_done: Receiver<AnalysisDone>,
     /// Pilotage OSC, s'il est activé dans les préférences.
     pub osc: Option<OscServer>,
     last_osc_publish: Instant,
@@ -93,6 +140,7 @@ impl Controller {
             .unwrap_or_default();
         let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(repaint);
         let (jobs, done) = spawn_loaders(repaint.clone());
+        let (analysis_jobs, analysis_done) = spawn_analyzers(repaint.clone());
         let mut c = Self {
             project,
             engine: AudioEngine::new(),
@@ -116,6 +164,12 @@ impl Controller {
                 .map(|d| d.as_nanos() as u64 | 1)
                 .unwrap_or(0x9E37_79B9_7F4A_7C15),
             repaint,
+            analysis: HashMap::new(),
+            loudness_cache: loudness_cache_path().map(|p| LoudnessCache::load(&p)).unwrap_or_default(),
+            cache_dirty: false,
+            last_cache_save: Instant::now(),
+            analysis_jobs,
+            analysis_done,
             osc: None,
             last_osc_publish: Instant::now(),
         };
@@ -125,6 +179,7 @@ impl Controller {
         set_lang(c.project.preferences.language);
         c.open_device();
         c.restart_osc();
+        c.analyze_playlists();
         c
     }
 
@@ -203,7 +258,7 @@ impl Controller {
         }
         self.loading.insert(path.to_path_buf());
         self.load_errors.remove(path);
-        let _ = self.jobs.send(LoadJob { path: path.to_path_buf(), rate: self.rate(), kind: LoadKind::Jingle });
+        let _ = self.jobs.send(LoadJob { path: path.to_path_buf(), rate: self.rate(), kind: LoadKind::Jingle, analyze: false });
     }
 
     pub fn is_loading(&self, path: &Path) -> bool {
@@ -222,6 +277,12 @@ impl Controller {
     pub fn poll(&mut self) {
         while let Ok(done) = self.done.try_recv() {
             self.on_loaded(done);
+        }
+        while let Ok(done) = self.analysis_done.try_recv() {
+            self.on_analyzed(done.path, done.result);
+        }
+        if self.cache_dirty && self.last_cache_save.elapsed() > Duration::from_secs(3) {
+            self.save_loudness_cache();
         }
         while let Ok(ev) = self.engine.events.try_recv() {
             self.on_event(ev);
@@ -242,6 +303,9 @@ impl Controller {
     }
 
     fn on_loaded(&mut self, done: LoadDone) {
+        if let Some(l) = done.loudness {
+            self.on_analyzed(done.path.clone(), Ok(l));
+        }
         if done.rate != self.rate() {
             // Périphérique changé entre-temps : on relance au bon taux.
             if let LoadKind::Jingle = done.kind {
@@ -303,6 +367,7 @@ impl Controller {
                 if !rt.playing {
                     return;
                 }
+                let gain = self.track_gain(module, index).linear();
                 let id = self.voice_id();
                 let rt = &mut self.playlists[module];
                 if start || rt.voice.is_none() {
@@ -312,7 +377,7 @@ impl Controller {
                     rt.duration = Some(buf.duration_secs());
                     let region = Region::full(&buf);
                     let slot = rt.slot;
-                    self.engine.send(Command::Play { module, slot, id, buffer: buf, gain: 1.0, region, eq: EqCoeffs::flat() });
+                    self.engine.send(Command::Play { module, slot, id, buffer: buf, gain, region, eq: EqCoeffs::flat() });
                     self.preload_next(module);
                 } else {
                     rt.queued = Some((index, id));
@@ -321,7 +386,7 @@ impl Controller {
                         Transition::Gapless => 0,
                         Transition::Crossfade => (pl.crossfade_secs.max(0.0) as f64 * buf.sample_rate as f64) as usize,
                     };
-                    let next = Queued { buffer: buf, gain: 1.0, id, crossfade };
+                    let next = Queued { buffer: buf, gain, id, crossfade };
                     self.engine.send(Command::QueueNext { module, next: Some(next) });
                 }
             }
@@ -543,18 +608,38 @@ impl Controller {
         pl.rescan();
         self.playlists[m].current = None;
         self.mark_dirty();
+        self.analyze_playlist(m);
     }
 
     pub fn rescan_playlist(&mut self, m: usize) {
+        // Les fichiers ont pu changer : on revérifie les mesures (le cache disque reste valable
+        // pour ceux qui n'ont pas bougé).
+        for p in &self.project.modules[m].playlist.tracks {
+            if !matches!(self.analysis.get(p), Some(Analysis::Pending)) {
+                self.analysis.remove(p);
+            }
+        }
         self.project.modules[m].playlist.rescan();
         self.mark_dirty();
+        self.analyze_playlist(m);
     }
 
     /// Modifie les options de lecture de la playlist (enchaînement, boucle, aléatoire, transition).
     pub fn update_playlist(&mut self, m: usize, f: impl FnOnce(&mut crate::project::PlaylistConfig)) {
         let pl = &mut self.project.modules[m].playlist;
+        let old_norm = pl.normalize.clone();
         f(pl);
+        let norm_changed = pl.normalize != old_norm;
         self.mark_dirty();
+        if norm_changed {
+            self.analyze_playlist(m);
+            // Le morceau en cours prend tout de suite son nouveau gain (lissé par le mixeur).
+            let rt = &self.playlists[m];
+            if let (Some(cur), Some(_)) = (rt.current, rt.voice) {
+                let gain = self.track_gain(m, cur).linear();
+                self.engine.send(Command::SetSlotGain { module: m, slot: rt.slot, gain });
+            }
+        }
         // Recalcule le morceau en file selon les nouvelles options.
         let rt = &mut self.playlists[m];
         if rt.playing && rt.voice.is_some() {
@@ -564,6 +649,89 @@ impl Controller {
             self.engine.send(Command::QueueNext { module: m, next: None });
             self.preload_next(m);
         }
+    }
+
+    // -------------------------------------------------------- normalisation
+
+    /// Lance la mesure des morceaux de toutes les playlists dont la normalisation est active.
+    fn analyze_playlists(&mut self) {
+        for m in 0..self.project.module_count {
+            self.analyze_playlist(m);
+        }
+    }
+
+    /// Mesure en arrière-plan les morceaux pas encore connus (cache disque d'abord).
+    fn analyze_playlist(&mut self, m: usize) {
+        let pl = &self.project.modules[m].playlist;
+        if !pl.normalize.enabled {
+            return;
+        }
+        for path in pl.tracks.clone() {
+            if self.analysis.contains_key(&path) {
+                continue;
+            }
+            match self.loudness_cache.get(&path) {
+                Some(l) => {
+                    self.analysis.insert(path, Analysis::Done(l));
+                }
+                None => {
+                    self.analysis.insert(path.clone(), Analysis::Pending);
+                    let _ = self.analysis_jobs.send(path);
+                }
+            }
+        }
+    }
+
+    fn on_analyzed(&mut self, path: PathBuf, result: Result<Loudness, String>) {
+        match result {
+            Ok(l) => {
+                self.loudness_cache.insert(&path, l);
+                self.cache_dirty = true;
+                self.analysis.insert(path, Analysis::Done(l));
+            }
+            // Une mesure déjà obtenue (au chargement du morceau) prime sur un échec.
+            Err(e) => {
+                if !matches!(self.analysis.get(&path), Some(Analysis::Done(_))) {
+                    self.analysis.insert(path, Analysis::Failed(e));
+                }
+            }
+        }
+    }
+
+    fn save_loudness_cache(&mut self) {
+        self.cache_dirty = false;
+        self.last_cache_save = Instant::now();
+        if let Some(p) = loudness_cache_path() {
+            if let Err(e) = self.loudness_cache.save(&p) {
+                self.status = Some(format!("{} : {e}", tr("Cache des niveaux non enregistré", "Loudness cache not saved")));
+            }
+        }
+    }
+
+    /// Gain d'équilibrage du morceau `index` de la playlist du module `m`.
+    pub fn track_gain(&self, m: usize, index: usize) -> TrackGain {
+        let pl = &self.project.modules[m].playlist;
+        if !pl.normalize.enabled {
+            return TrackGain::Off;
+        }
+        let Some(path) = pl.tracks.get(index) else { return TrackGain::Off };
+        match self.analysis.get(path) {
+            None | Some(Analysis::Pending) => TrackGain::Pending,
+            Some(Analysis::Failed(e)) => TrackGain::Failed(e.clone()),
+            Some(Analysis::Done(l)) => match pl.normalize.gain_db(l) {
+                Some((db, limited)) => TrackGain::Ready { db, limited, loudness: *l },
+                None => TrackGain::Unmeasurable(*l),
+            },
+        }
+    }
+
+    /// Nombre de morceaux encore en cours de mesure dans la playlist du module `m`.
+    pub fn pending_analyses(&self, m: usize) -> usize {
+        let pl = &self.project.modules[m].playlist;
+        if !pl.normalize.enabled {
+            return 0;
+        }
+        pl.tracks.iter().filter(|p| !matches!(self.analysis.get(*p), Some(Analysis::Done(_) | Analysis::Failed(_)))).count()
     }
 
     fn random(&mut self) -> u64 {
@@ -607,10 +775,12 @@ impl Controller {
 
     fn load_track(&mut self, m: usize, index: usize, start: bool) {
         let Some(path) = self.project.modules[m].playlist.tracks.get(index).cloned() else { return };
+        let analyze = self.project.modules[m].playlist.normalize.enabled
+            && !matches!(self.analysis.get(&path), Some(Analysis::Done(_) | Analysis::Failed(_)));
         let rt = &mut self.playlists[m];
         rt.loading = true;
         let kind = LoadKind::Playlist { module: m, index, generation: rt.generation, start };
-        let _ = self.jobs.send(LoadJob { path, rate: self.rate(), kind });
+        let _ = self.jobs.send(LoadJob { path, rate: self.rate(), kind, analyze });
     }
 
     fn preload_next(&mut self, m: usize) {
@@ -848,6 +1018,7 @@ impl Controller {
                     self.apply_mixer_params();
                     self.preload_jingles();
                 }
+                self.analyze_playlists();
                 self.status = Some(tr("Projet ouvert", "Project opened").into());
             }
             Err(e) => self.status = Some(format!("{} : {e}", tr("Ouverture impossible", "Cannot open"))),
@@ -870,6 +1041,9 @@ impl Controller {
             let _ = self.project.save(&p);
         }
         self.dirty = false;
+        if self.cache_dirty {
+            self.save_loudness_cache();
+        }
     }
 }
 
@@ -901,11 +1075,39 @@ fn spawn_loaders(repaint: Arc<dyn Fn() + Send + Sync>) -> (Sender<LoadJob>, Rece
             .spawn(move || {
                 for job in job_rx {
                     let result = decode_file(&job.path, job.rate).map(Arc::new).map_err(|e| e.to_string());
-                    let _ = done_tx.send(LoadDone { path: job.path, rate: job.rate, kind: job.kind, result });
+                    let loudness = match (&result, job.analyze) {
+                        (Ok(buf), true) => Some(analyze_interleaved(&buf.samples, buf.sample_rate)),
+                        _ => None,
+                    };
+                    let _ = done_tx.send(LoadDone { path: job.path, rate: job.rate, kind: job.kind, result, loudness });
                     repaint();
                 }
             })
             .expect("thread de décodage");
+    }
+    (job_tx, done_rx)
+}
+
+/// Threads de mesure du niveau des morceaux, séparés du décodage pour ne jamais
+/// retarder le chargement d'un son à jouer.
+fn spawn_analyzers(repaint: Arc<dyn Fn() + Send + Sync>) -> (Sender<PathBuf>, Receiver<AnalysisDone>) {
+    let (job_tx, job_rx) = unbounded::<PathBuf>();
+    let (done_tx, done_rx) = unbounded::<AnalysisDone>();
+    let workers = std::thread::available_parallelism().map(|n| n.get() / 2).unwrap_or(1).clamp(1, 2);
+    for i in 0..workers {
+        let job_rx = job_rx.clone();
+        let done_tx = done_tx.clone();
+        let repaint = repaint.clone();
+        std::thread::Builder::new()
+            .name(format!("loudness-{i}"))
+            .spawn(move || {
+                for path in job_rx {
+                    let result = analyze_file(&path).map_err(|e| e.to_string());
+                    let _ = done_tx.send(AnalysisDone { path, result });
+                    repaint();
+                }
+            })
+            .expect("thread de mesure");
     }
     (job_tx, done_rx)
 }

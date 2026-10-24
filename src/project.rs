@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::audio::decode::is_audio_file;
 use crate::audio::eq::EqSettings;
+use crate::audio::loudness::NormalizeSettings;
 use crate::i18n::Lang;
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 
@@ -106,6 +107,8 @@ pub struct PlaylistConfig {
     pub shuffle: bool,
     pub transition: Transition,
     pub crossfade_secs: f32,
+    /// Équilibrage du niveau des morceaux (gain de lecture, fichiers intacts).
+    pub normalize: NormalizeSettings,
 }
 
 impl Default for PlaylistConfig {
@@ -118,6 +121,7 @@ impl Default for PlaylistConfig {
             shuffle: false,
             transition: Transition::Gapless,
             crossfade_secs: 3.0,
+            normalize: NormalizeSettings::default(),
         }
     }
 }
@@ -278,6 +282,11 @@ impl Project {
         std::fs::rename(tmp, path)?;
         Ok(())
     }
+}
+
+/// Cache des mesures de niveau des morceaux.
+pub fn loudness_cache_path() -> Option<PathBuf> {
+    directories::ProjectDirs::from("com", "acetayls", "JingleStar").map(|d| d.cache_dir().join("loudness.json"))
 }
 
 /// Fichier de session restauré automatiquement au lancement.
