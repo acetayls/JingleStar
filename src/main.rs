@@ -14,7 +14,11 @@ fn main() -> eframe::Result {
             .with_title("JingleStar")
             .with_inner_size([1360.0, 860.0])
             .with_min_inner_size([960.0, 600.0])
-            .with_drag_and_drop(true),
+            .with_drag_and_drop(true)
+            .with_icon(
+                eframe::icon_data::from_png_bytes(include_bytes!("../assets/icons/jinglestar-256.png"))
+                    .expect("icône PNG valide"),
+            ),
         ..Default::default()
     };
     eframe::run_native(

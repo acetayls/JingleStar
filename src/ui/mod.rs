@@ -91,7 +91,7 @@ impl JingleStarApp {
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_centered(|ui| {
-            ui.label(RichText::new("JingleStar").font(FontId::proportional(20.0)).strong().color(Color32::WHITE));
+            logo(ui, 26.0);
             ui.add_space(16.0);
             let n = self.ctrl.project.module_count;
             let add = ui

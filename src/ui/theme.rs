@@ -44,6 +44,15 @@ pub fn apply(ctx: &egui::Context) {
         s.corner_radius = CornerRadius::same(4);
     }
     ctx.set_visuals(v);
+
+    // Police du logotype (Barlow Condensed SemiBold, licence OFL).
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "barlow".into(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../assets/fonts/BarlowCondensed-SemiBold.ttf"))),
+    );
+    fonts.families.insert(egui::FontFamily::Name("logo".into()), vec!["barlow".into()]);
+    ctx.set_fonts(fonts);
     ctx.all_styles_mut(|s| {
         s.spacing.item_spacing = egui::vec2(6.0, 6.0);
         s.spacing.button_padding = egui::vec2(8.0, 4.0);

@@ -66,6 +66,16 @@ Télécharger le SDK ASIO de Steinberg, définir `CPAL_ASIO_DIR` vers son dossie
 cargo run --release --features asio
 ```
 
+### Icônes
+
+L'icône est intégrée à l'exécutable Windows à la compilation (`build.rs`) et appliquée à la
+fenêtre sur tous les systèmes. Pour une application macOS avec son icône :
+
+```sh
+cargo install cargo-bundle
+cargo bundle --release
+```
+
 ## Pilotage OSC et OSCQuery
 
 À activer dans **Préférences → OSC** puis « Appliquer ». Réglages : port UDP de réception
@@ -138,6 +148,11 @@ src/
     widgets.rs       boutons, vumètres, éditeur de forme d'onde
     eq_view.rs       courbe d'égaliseur éditable
     help.rs          fenêtre d'aide (affiche docs/aide.md ou docs/help.md)
-    theme.rs         thème sombre façon QLab
+    theme.rs         thème sombre façon QLab, police du logo
+assets/
+  icons/             icônes d'application (.ico Windows, .icns macOS, PNG)
+  logo/              logo et symbole en SVG, versions claire et sombre
+  fonts/             Barlow Condensed (logotype, licence OFL)
+build.rs             icône de l'exécutable Windows
 ```
 
