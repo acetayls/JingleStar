@@ -145,7 +145,7 @@ pub struct ModuleConfig {
 }
 
 impl ModuleConfig {
-    fn numbered(i: usize) -> Self {
+    pub fn numbered(i: usize) -> Self {
         Self { name: format!("Module {}", i + 1), ..Default::default() }
     }
 }
@@ -198,7 +198,7 @@ impl Default for Project {
     fn default() -> Self {
         Self {
             version: 1,
-            module_count: 4,
+            module_count: 1,
             modules: (0..MAX_MODULES).map(ModuleConfig::numbered).collect(),
             audio: AudioSettings::default(),
             preferences: Preferences::default(),

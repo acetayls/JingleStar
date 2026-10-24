@@ -13,7 +13,7 @@ use crate::audio::buffer::{db_to_gain, AudioBuffer};
 use crate::audio::decode::decode_file;
 use crate::audio::engine::{AudioEngine, DeviceInfo};
 use crate::audio::mixer::{is_playlist_slot, Command, Event, Queued, Region, MAX_MODULES, PLAYLIST_SLOTS};
-use crate::project::{autosave_path, AudioSettings, JingleSlot, ModuleMode, Project, Transition, DEFAULT_COLORS};
+use crate::project::{autosave_path, AudioSettings, JingleSlot, ModuleConfig, ModuleMode, Project, Transition, DEFAULT_COLORS};
 
 #[derive(Debug, Clone, Copy)]
 enum LoadKind {
@@ -343,12 +343,42 @@ impl Controller {
 
     // -------------------------------------------------------------- modules
 
-    pub fn set_module_count(&mut self, n: usize) {
-        let n = n.clamp(1, MAX_MODULES);
-        for m in n..self.project.module_count {
-            self.stop_module(m);
+    /// Ajoute un module vierge à la fin. Renvoie son index.
+    pub fn add_module(&mut self) -> Option<usize> {
+        let n = self.project.module_count;
+        if n >= MAX_MODULES {
+            return None;
         }
-        self.project.module_count = n;
+        self.stop_module(n);
+        self.project.modules[n] = ModuleConfig::numbered(n);
+        self.project.module_count = n + 1;
+        self.playlists[n] = PlaylistRuntime { slot: PLAYLIST_SLOTS[0], ..Default::default() };
+        self.apply_mixer_params();
+        self.mark_dirty();
+        Some(n)
+    }
+
+    /// Supprime un module ; les suivants remontent d'un rang.
+    pub fn remove_module(&mut self, m: usize) {
+        let n = self.project.module_count;
+        if n <= 1 || m >= n {
+            return;
+        }
+        // Les modules décalés changent d'index dans le mixeur : on les arrête.
+        for i in m..n {
+            self.stop_module(i);
+        }
+        self.project.modules.remove(m);
+        self.project.modules.push(ModuleConfig::numbered(MAX_MODULES - 1));
+        self.project.module_count = n - 1;
+        for i in m..MAX_MODULES {
+            self.playlists[i] = PlaylistRuntime {
+                slot: PLAYLIST_SLOTS[0],
+                generation: self.playlists[i].generation + 1,
+                ..Default::default()
+            };
+        }
+        self.apply_mixer_params();
         self.mark_dirty();
     }
 

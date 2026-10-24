@@ -32,6 +32,8 @@ pub struct JingleStarApp {
     edit_mode: [bool; MAX_MODULES],
     /// Jingle ouvert dans l'éditeur.
     selected: Option<(usize, usize)>,
+    /// Module dont la suppression attend confirmation.
+    confirm_delete: Option<usize>,
     settings: Option<SettingsDraft>,
     /// Niveaux affichés (dB), avec retombée progressive.
     meters: [[f32; 2]; MAX_MODULES],
@@ -47,6 +49,7 @@ impl JingleStarApp {
             ctrl: Controller::new(move || ctx.request_repaint()),
             edit_mode: [false; MAX_MODULES],
             selected: None,
+            confirm_delete: None,
             settings: None,
             meters: [[-120.0; 2]; MAX_MODULES],
             last_frame: Instant::now(),
@@ -79,13 +82,16 @@ impl JingleStarApp {
         ui.horizontal_centered(|ui| {
             ui.label(RichText::new("JingleStar").font(FontId::proportional(20.0)).strong().color(Color32::WHITE));
             ui.add_space(16.0);
-            ui.label(RichText::new("Modules").color(TEXT_DIM));
-            for n in 1..=MAX_MODULES {
-                let sel = self.ctrl.project.module_count == n;
-                if ui.selectable_label(sel, format!("{n}")).clicked() {
-                    self.ctrl.set_module_count(n);
+            let n = self.ctrl.project.module_count;
+            let add = ui
+                .add_enabled(n < MAX_MODULES, egui::Button::new("＋ Ajouter un module"))
+                .on_disabled_hover_text("8 modules au maximum");
+            if add.clicked() {
+                if let Some(m) = self.ctrl.add_module() {
+                    self.edit_mode[m] = true;
                 }
             }
+            ui.label(RichText::new(format!("{n}/{MAX_MODULES}")).color(TEXT_DIM));
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let panic = egui::Button::new(RichText::new("■  TOUT ARRÊTER").strong().color(Color32::WHITE))
@@ -146,7 +152,8 @@ impl JingleStarApp {
         let rows = n.div_ceil(4);
         let area = ui.available_rect_before_wrap();
         let gap = 8.0;
-        let cw = (area.width() - gap * (cols as f32 - 1.0)) / cols as f32;
+        // Largeur bornée : un module seul ne s'étire pas sur tout l'écran.
+        let cw = ((area.width() - gap * (cols as f32 - 1.0)) / cols as f32).min(460.0);
         let rh = (area.height() - gap * (rows as f32 - 1.0)) / rows as f32;
         for m in 0..n {
             let (r, c) = (m / 4, m % 4);
@@ -183,6 +190,18 @@ impl JingleStarApp {
         });
     }
 
+    fn remove_module(&mut self, m: usize) {
+        self.ctrl.remove_module(m);
+        self.confirm_delete = None;
+        self.selected = None;
+        // Les modes édition suivent les modules qui remontent.
+        for i in m..MAX_MODULES - 1 {
+            self.edit_mode[i] = self.edit_mode[i + 1];
+            self.meters[i] = self.meters[i + 1];
+        }
+        self.edit_mode[MAX_MODULES - 1] = false;
+    }
+
     fn module_header(&mut self, ui: &mut egui::Ui, m: usize) {
         ui.horizontal(|ui| {
             let badge = RichText::new(format!(" {} ", m + 1)).strong().color(Color32::BLACK).background_color(ACCENT);
@@ -197,9 +216,20 @@ impl JingleStarApp {
                 ui.label(RichText::new(&self.ctrl.project.modules[m].name).strong());
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if editing && self.ctrl.project.module_count > 1 {
+                    if self.confirm_delete == Some(m) {
+                        if ui.add(egui::Button::new(RichText::new("Supprimer ?").color(Color32::WHITE)).fill(STOP)).clicked() {
+                            self.remove_module(m);
+                            return;
+                        }
+                    } else if ui.button("🗑").on_hover_text("Supprimer le module").clicked() {
+                        self.confirm_delete = Some(m);
+                    }
+                }
                 let edit = ui.selectable_label(editing, "✏").on_hover_text("Mode édition");
                 if edit.clicked() {
                     self.edit_mode[m] = !editing;
+                    self.confirm_delete = None;
                     if editing && self.selected.map(|(sm, _)| sm == m).unwrap_or(false) {
                         self.selected = None;
                     }
@@ -329,6 +359,9 @@ impl JingleStarApp {
                     self.selected = Some((m, s));
                 } else if slot.is_some() {
                     self.ctrl.trigger_jingle(m, s);
+                } else {
+                    // Bouton vide : on propose directement de choisir un son.
+                    self.pick_jingle_file(m, s);
                 }
             }
             resp.context_menu(|ui| {

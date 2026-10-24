@@ -6,7 +6,8 @@ audio cpal, décodage symphonia).
 
 ## Fonctionnalités
 
-- **1 à 8 modules**, chacun en mode **Jingles** ou **Playlist**, avec son propre volume et son vumètre.
+- **Modules dynamiques** : on démarre avec un seul, on en ajoute jusqu'à 8 (« ＋ Ajouter un module »)
+  et on les supprime en mode édition (🗑). Chacun en mode **Jingles** ou **Playlist**, avec son propre volume et son vumètre.
 - **Routage** : chaque module sort sur une paire stéréo (1-2, 3-4, 5-6…). Multipiste avec une carte
   multicanal, ou tous les modules sur 1-2.
 - **Jingles** : 12 boutons par module. Clic = lecture, second clic = arrêt.
