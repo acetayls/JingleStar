@@ -90,6 +90,8 @@ impl TrackGain {
 pub struct PlaylistRuntime {
     pub current: Option<usize>,
     pub playing: bool,
+    /// En pause : le morceau garde sa place et reprend sans clic.
+    pub paused: bool,
     /// Identifiant de la voix en cours dans le mixeur, et son emplacement.
     voice: Option<u64>,
     pub slot: usize,
@@ -433,6 +435,7 @@ impl Controller {
                     return;
                 }
                 rt.voice = None;
+                rt.paused = false;
                 // Si le suivant est encore en chargement, il démarrera à son arrivée.
                 if !rt.loading {
                     rt.playing = false;
@@ -544,6 +547,7 @@ impl Controller {
         let rt = &mut self.playlists[m];
         rt.generation += 1;
         rt.playing = false;
+        rt.paused = false;
         rt.loading = false;
         rt.queued = None;
     }
@@ -948,6 +952,7 @@ impl Controller {
             rt.played.clear();
         }
         rt.playing = true;
+        rt.paused = false;
         rt.queued = None;
         rt.current = Some(index);
         rt.duration = None;
@@ -955,10 +960,31 @@ impl Controller {
         self.load_track(m, index, true);
     }
 
-    /// Lecture : reprend au morceau sélectionné, ou au premier.
+    /// Lecture : reprend après une pause, sinon lance le morceau sélectionné, ou le premier.
     pub fn playlist_go(&mut self, m: usize) {
+        if self.playlists[m].paused {
+            self.playlist_set_paused(m, false);
+            return;
+        }
         let idx = self.playlists[m].current.unwrap_or(0);
         self.playlist_play(m, idx);
+    }
+
+    /// Pause ou reprise de la playlist en cours (les deux voix d'un fondu enchaîné comprises).
+    pub fn playlist_set_paused(&mut self, m: usize, paused: bool) {
+        let rt = &mut self.playlists[m];
+        if paused == rt.paused || (paused && (!rt.playing || rt.voice.is_none())) {
+            return;
+        }
+        rt.paused = paused;
+        for slot in PLAYLIST_SLOTS {
+            self.engine.send(Command::SetPaused { module: m, slot, paused });
+        }
+    }
+
+    pub fn playlist_toggle_pause(&mut self, m: usize) {
+        let paused = self.playlists[m].paused;
+        self.playlist_set_paused(m, !paused);
     }
 
     pub fn playlist_stop(&mut self, m: usize) {
@@ -969,6 +995,7 @@ impl Controller {
         let rt = &mut self.playlists[m];
         rt.generation += 1;
         rt.playing = false;
+        rt.paused = false;
         rt.loading = false;
         rt.queued = None;
     }
@@ -1114,6 +1141,10 @@ impl Controller {
                 None => self.playlist_go(m),
             },
             OscCommand::PlaylistStop(m) if m < n && mode(self, m) == ModuleMode::Playlist => self.playlist_stop(m),
+            OscCommand::PlaylistPause(m, state) if m < n && mode(self, m) == ModuleMode::Playlist => match state {
+                Some(p) => self.playlist_set_paused(m, p),
+                None => self.playlist_toggle_pause(m),
+            },
             OscCommand::PlaylistStep(m, d) if m < n && mode(self, m) == ModuleMode::Playlist => self.playlist_step(m, d),
             OscCommand::PlaylistShuffle(m, on) if m < n => self.update_playlist(m, |p| p.shuffle = on),
             OscCommand::PlaylistLoop(m, on) if m < n => self.update_playlist(m, |p| p.looping = on),
@@ -1299,6 +1330,7 @@ impl Controller {
                         tracks: cfg.playlist.tracks.len(),
                         current: rt.current,
                         playing: rt.playing,
+                        paused: rt.paused,
                         shuffle: cfg.playlist.shuffle,
                         looping: cfg.playlist.looping,
                     },

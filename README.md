@@ -117,6 +117,8 @@ ci-dessous sont données avec le préfixe par défaut.
 | `/jinglestar/module/<m>/playlist/play` | — ou int | Lecture (au morceau sélectionné, ou au morceau n°) |
 | `/jinglestar/module/<m>/playlist/track` | int | Lance le morceau n° |
 | `/jinglestar/module/<m>/playlist/stop` | — | Arrête la playlist |
+| `/jinglestar/module/<m>/playlist/pause` | — | Pause / reprise |
+| `/jinglestar/module/<m>/playlist/paused` | bool | Met en pause (1) ou reprend (0) |
 | `/jinglestar/module/<m>/playlist/next` | — | Morceau suivant |
 | `/jinglestar/module/<m>/playlist/previous` | — | Morceau précédent |
 | `/jinglestar/module/<m>/playlist/shuffle` | bool | Aléatoire |

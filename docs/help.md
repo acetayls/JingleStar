@@ -137,7 +137,8 @@ A module in **Playlist** mode plays the audio files of a folder, sorted by name.
 ### Transport
 
 - **⏮** / **⏭**: previous / next track (playback continues if it was running).
-- **▶ GO**: starts playback at the selected track, or the first one.
+- **▶ GO**: starts playback at the selected track, or the first one. When paused, resumes playback.
+- **⏸**: pause. The track fades out in 10 ms and resumes at exactly the same spot, click-free, with ⏸ or GO. The button stays lit in amber and "PAUSED" is shown while paused.
 - **■**: stops the playlist.
 - **Progress bar**: click or drag to move within the current track (applied on release, with a micro-fade to avoid clicks).
 - **Click** a track: selects it (when stopped). **Double-click**: plays it right away.
@@ -296,6 +297,8 @@ default prefix.
 | `/jinglestar/module/<m>/playlist/play` | — or int | Play (selected track, or track no.) |
 | `/jinglestar/module/<m>/playlist/track` | int | Plays track no. |
 | `/jinglestar/module/<m>/playlist/stop` | — | Stops the playlist |
+| `/jinglestar/module/<m>/playlist/pause` | — | Pause / resume |
+| `/jinglestar/module/<m>/playlist/paused` | bool | Pauses (1) or resumes (0) |
 | `/jinglestar/module/<m>/playlist/next` | — | Next track |
 | `/jinglestar/module/<m>/playlist/previous` | — | Previous track |
 | `/jinglestar/module/<m>/playlist/shuffle` | bool | Shuffle |

@@ -139,7 +139,8 @@ Un module en mode **Playlist** lit les fichiers audio d'un dossier, triés par n
 ### Transport
 
 - **⏮** / **⏭** : morceau précédent / suivant (la lecture continue si elle était en cours).
-- **▶ GO** : lance la lecture au morceau sélectionné, ou au premier.
+- **▶ GO** : lance la lecture au morceau sélectionné, ou au premier. En pause, reprend la lecture.
+- **⏸** : pause. Le morceau s'éteint en 10 ms et reprend exactement au même endroit, sans clic, avec ⏸ ou GO. Le bouton reste allumé en ambre et « EN PAUSE » s'affiche tant que la pause dure.
 - **■** : arrête la playlist.
 - **Barre de lecture** : un clic ou un glisser déplace la lecture dans le morceau en cours (appliqué au relâché, avec un micro-fondu pour éviter les clics).
 - **Clic** sur un morceau : le sélectionne (à l'arrêt). **Double-clic** : le lance immédiatement.
@@ -301,6 +302,8 @@ données avec le préfixe par défaut.
 | `/jinglestar/module/<m>/playlist/play` | — ou int | Lecture (au morceau sélectionné, ou au morceau n°) |
 | `/jinglestar/module/<m>/playlist/track` | int | Lance le morceau n° |
 | `/jinglestar/module/<m>/playlist/stop` | — | Arrête la playlist |
+| `/jinglestar/module/<m>/playlist/pause` | — | Pause / reprise |
+| `/jinglestar/module/<m>/playlist/paused` | bool | Met en pause (1) ou reprend (0) |
 | `/jinglestar/module/<m>/playlist/next` | — | Morceau suivant |
 | `/jinglestar/module/<m>/playlist/previous` | — | Morceau précédent |
 | `/jinglestar/module/<m>/playlist/shuffle` | bool | Aléatoire |

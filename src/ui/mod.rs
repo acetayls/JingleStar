@@ -790,8 +790,15 @@ impl JingleStarApp {
         let pos = self.ctrl.playlist_position(m);
         egui::Frame::new().fill(Color32::from_rgb(0x1c, 0x1c, 0x20)).corner_radius(4).inner_margin(6).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            let col = if rt.playing { GO } else { TEXT };
-            ui.label(RichText::new(&current_name).strong().size(15.0).color(col));
+            let col = if rt.paused { ACCENT } else if rt.playing { GO } else { TEXT };
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(&current_name).strong().size(15.0).color(col));
+                if rt.paused {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(RichText::new(tr("EN PAUSE", "PAUSED")).strong().small().color(ACCENT));
+                    });
+                }
+            });
             let (mut t, len) = pos.map(|(p, l)| (p as f64 / rate, l as f64 / rate)).unwrap_or((0.0, 0.0));
             // Barre de lecture : un clic ou un glisser (appliqué au relâché) déplace la lecture.
             let (hit, bar_resp) = ui.allocate_exact_size(vec2(ui.available_width(), 14.0), egui::Sense::click_and_drag());
@@ -834,17 +841,17 @@ impl JingleStarApp {
             });
         });
 
-        // Transport : précédent, GO, stop, suivant sur toute la largeur.
+        // Transport : précédent, GO, pause, stop, suivant sur toute la largeur.
         let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), egui::Sense::hover());
-        let (gap, side, stop_w) = (4.0, 40.0, 56.0);
-        let go_w = (row.width() - 2.0 * side - stop_w - 3.0 * gap).max(40.0);
+        let (gap, side, stop_w) = (4.0, 40.0, 48.0);
+        let go_w = (row.width() - 2.0 * side - 2.0 * stop_w - 4.0 * gap).max(40.0);
         let mut x = row.left();
         let mut cell = |w: f32| {
             let r = Rect::from_min_size(egui::pos2(x, row.top()), vec2(w, row.height()));
             x += w + gap;
             r
         };
-        let (prev_r, go_r, stop_r, next_r) = (cell(side), cell(go_w), cell(stop_w), cell(side));
+        let (prev_r, go_r, pause_r, stop_r, next_r) = (cell(side), cell(go_w), cell(stop_w), cell(stop_w), cell(side));
         if transport_button(ui, prev_r, ("pl-prev", m), TransportIcon::Prev, None, PANEL_HI, TEXT)
             .on_hover_text(tr("Morceau précédent", "Previous track"))
             .clicked()
@@ -852,10 +859,25 @@ impl JingleStarApp {
             self.ctrl.playlist_step(m, -1);
         }
         if transport_button(ui, go_r, ("pl-go", m), TransportIcon::Play, Some("GO"), GO, Color32::from_rgb(0x0c, 0x1a, 0x0e))
-            .on_hover_text(tr("Lancer le morceau sélectionné", "Play the selected track"))
+            .on_hover_text(if rt.paused {
+                tr("Reprendre là où le morceau s'est arrêté", "Resume where the track was paused")
+            } else {
+                tr("Lancer le morceau sélectionné", "Play the selected track")
+            })
             .clicked()
         {
             self.ctrl.playlist_go(m);
+        }
+        let (pause_fill, pause_fg) = if rt.paused { (ACCENT, Color32::BLACK) } else { (PANEL_HI, TEXT) };
+        if transport_button(ui, pause_r, ("pl-pause", m), TransportIcon::Pause, None, pause_fill, pause_fg)
+            .on_hover_text(if rt.paused {
+                tr("Reprendre", "Resume")
+            } else {
+                tr("Pause : le morceau reprendra au même endroit", "Pause: the track will resume at the same spot")
+            })
+            .clicked()
+        {
+            self.ctrl.playlist_toggle_pause(m);
         }
         if transport_button(ui, stop_r, ("pl-stop", m), TransportIcon::Stop, None, STOP.gamma_multiply(0.75), Color32::WHITE)
             .on_hover_text(tr("Arrêter", "Stop"))
@@ -935,7 +957,7 @@ impl JingleStarApp {
             for (i, path) in pl.tracks.iter().enumerate() {
                 let name = path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 let is_cur = rt.current == Some(i);
-                let color = if !is_cur { TEXT } else if rt.playing { GO } else { ACCENT };
+                let color = if !is_cur { TEXT } else if rt.playing && !rt.paused { GO } else { ACCENT };
                 let tg = self.ctrl.track_gain(m, i);
                 let manual = matches!(tg, TrackGain::Manual(_));
                 let (gtxt, gcol, gtip, gdb) = gain_label(&tg);

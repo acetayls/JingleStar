@@ -330,6 +330,7 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
 pub enum TransportIcon {
     Prev,
     Play,
+    Pause,
     Stop,
     Next,
 }
@@ -341,6 +342,11 @@ fn paint_transport_icon(p: &egui::Painter, c: Pos2, s: f32, icon: TransportIcon,
     match icon {
         TransportIcon::Play => {
             p.add(tri(vec![pos2(c.x - h * 0.7, c.y - h), pos2(c.x + h * 0.9, c.y), pos2(c.x - h * 0.7, c.y + h)]));
+        }
+        TransportIcon::Pause => {
+            let bar = |x0: f32| Rect::from_min_max(pos2(x0, c.y - h * 0.85), pos2(x0 + h * 0.6, c.y + h * 0.85));
+            p.rect_filled(bar(c.x - h * 0.75), CornerRadius::same(1), col);
+            p.rect_filled(bar(c.x + h * 0.15), CornerRadius::same(1), col);
         }
         TransportIcon::Stop => {
             p.rect_filled(Rect::from_center_size(c, vec2(s * 0.8, s * 0.8)), CornerRadius::same(1), col);
