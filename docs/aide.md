@@ -45,7 +45,7 @@ Chaque module a, de haut en bas :
 - le bouton **EQ** (égaliseur du module) ;
 - le bouton **✏** (mode édition) ;
 - le choix du mode : **Jingles** ou **Playlist** ;
-- à droite, le **fader** de volume (-∞ à +10 dB), le **vumètre** stéréo et le bouton **■** qui arrête le module.
+- à droite, le **fader** de volume (-∞ à +10 dB) avec sa valeur en dB en dessous, le **vumètre** stéréo et le bouton **■** qui arrête le module.
 
 Le cadre du module devient vert quand un son y joue.
 
@@ -59,7 +59,7 @@ Le cadre du module devient vert quand un son y joue.
 Le crayon bascule le module entre le mode **lecture** et le mode **édition** :
 
 - en lecture, un clic sur un jingle le lance ou l'arrête ;
-- en édition, un clic sur un jingle ouvre son éditeur (et propose un fichier si le bouton est vide), le nom du module devient modifiable, et les boutons **EQ** et **🗑** apparaissent ; en mode Playlist, le réglage de transition est aussi affiché.
+- en édition, un clic sur un jingle ouvre son éditeur (et propose un fichier si le bouton est vide), le nom du module devient modifiable, et les boutons **EQ** et **🗑** apparaissent ; en mode Playlist, les réglages de transition et d'équilibrage du niveau sont aussi affichés.
 
 En fermant l'éditeur d'un jingle (**✓ Terminé** ou la croix), le module repasse en mode lecture.
 
@@ -68,8 +68,8 @@ En fermant l'éditeur d'un jingle (**✓ Terminé** ou la croix), le module repa
 Un module en mode **Jingles** offre 12 boutons (3 colonnes, 4 rangées). Chaque bouton montre son
 numéro, le nom du son, sa couleur et sa durée. Pendant la lecture, une barre de progression
 indique le temps écoulé et le temps restant ; un jingle en boucle affiche **⟳** à la place du
-temps restant. Des repères complètent le bouton : **🔁** en haut à droite pour un jingle en
-boucle, **EQ** en bas à gauche si son égaliseur est actif, **…** pendant le chargement du son et
+temps restant. Le volume du jingle est affiché en haut à droite (en orange s'il n'est pas à
+0 dB). Des repères complètent le bouton : **🔁** à côté du volume pour un jingle en boucle, **EQ** en bas à gauche si son égaliseur est actif, **…** pendant le chargement du son et
 **⚠** si le fichier est introuvable ou illisible.
 
 - **Clic** : lance le son depuis son point de début ; un second clic l'arrête (avec son fondu de sortie s'il en a un).
@@ -144,6 +144,25 @@ En mode édition (ou quand le fondu enchaîné est choisi), la ligne **Transitio
 
 - **Fin de fichier** : le morceau suivant démarre exactement à la fin du précédent, sans blanc ;
 - **Fondu enchaîné** : le suivant démarre en fondu pendant que le précédent s'efface, sur une durée réglable de 0,5 à 20 s (3 s par défaut).
+
+### Équilibrage du niveau
+
+Pour que tous les morceaux sonnent au même niveau, passez en mode édition et cochez **Équilibrer le
+niveau**. Chaque morceau est mesuré en arrière-plan, puis lu avec le gain qui l'amène à la cible.
+Les fichiers ne sont jamais modifiés.
+
+- **Mode de mesure** : **Sonie (LUFS)** (sonie intégrée ITU-R BS.1770 / EBU R128, le plus proche de l'oreille), **Crête**, **Crête vraie** (dBTP) ou **RMS**.
+- **Cible** : le niveau visé. Par défaut -16 LUFS ; repères : -23 LUFS pour la radio et la télévision (EBU R128), -14 à -16 LUFS pour le streaming et la sonorisation.
+- **Max** (activé par défaut, -1 dBTP) : si le gain ferait dépasser ce plafond de crête vraie à un morceau, son gain est réduit pour ne jamais saturer.
+
+Le gain appliqué s'affiche à droite de chaque morceau et à côté du morceau en cours : en gris
+normalement, en **orange** s'il a été réduit par le plafond, **…** pendant la mesure, **—** pour un
+morceau muet ou trop court (gain inchangé), **⚠** si la mesure a échoué. Au survol, une infobulle
+donne les mesures détaillées (sonie, crête, crête vraie, RMS). Pendant les mesures, un indicateur
+affiche leur avancement. Les mesures sont gardées en mémoire et refaites seulement si le fichier
+change.
+
+Hors mode édition, une ligne **Équilibrage** rappelle le réglage en cours.
 
 ## L'égaliseur
 

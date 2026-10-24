@@ -44,7 +44,7 @@ Each module has, from top to bottom:
 - the **EQ** button (module equalizer);
 - the **✏** button (edit mode);
 - the mode selector: **Jingles** or **Playlist**;
-- on the right, the volume **fader** (-∞ to +10 dB), the stereo **meter** and the **■** button that stops the module.
+- on the right, the volume **fader** (-∞ to +10 dB) with its dB value below, the stereo **meter** and the **■** button that stops the module.
 
 The module frame turns green while something is playing in it.
 
@@ -58,7 +58,7 @@ The module frame turns green while something is playing in it.
 The pencil switches the module between **play** mode and **edit** mode:
 
 - in play mode, clicking a jingle plays or stops it;
-- in edit mode, clicking a jingle opens its editor (and asks for a file if the button is empty), the module name becomes editable, and the **EQ** and **🗑** buttons appear; in Playlist mode, the transition setting is shown as well.
+- in edit mode, clicking a jingle opens its editor (and asks for a file if the button is empty), the module name becomes editable, and the **EQ** and **🗑** buttons appear; in Playlist mode, the transition and level normalization settings are shown as well.
 
 When you close a jingle editor (**✓ Done** or the close cross), the module goes back to play mode.
 
@@ -66,8 +66,9 @@ When you close a jingle editor (**✓ Done** or the close cross), the module goe
 
 A module in **Jingles** mode has 12 buttons (3 columns, 4 rows). Each button shows its number, the
 sound name, its color and its duration. While playing, a progress bar shows elapsed and remaining
-time; a looping jingle shows **⟳** instead of the remaining time. Extra marks complete the button:
-**🔁** at the top right for a looping jingle, **EQ** at the bottom left when its equalizer is on,
+time; a looping jingle shows **⟳** instead of the remaining time. The jingle volume is shown at the
+top right (orange when it is not 0 dB). Extra marks complete the button: **🔁** next to the volume
+for a looping jingle, **EQ** at the bottom left when its equalizer is on,
 **…** while the sound is loading and **⚠** if the file is missing or unreadable.
 
 - **Click**: plays the sound from its start point; a second click stops it (with its fade-out, if any).
@@ -142,6 +143,24 @@ In edit mode (or when crossfade is selected), the **Transition** row offers:
 
 - **End of file**: the next track starts exactly when the previous one ends, gapless;
 - **Crossfade**: the next track fades in while the previous one fades out, over an adjustable time from 0.5 to 20 s (3 s by default).
+
+### Level normalization
+
+To make every track play at the same level, switch to edit mode and tick **Normalize level**. Each
+track is measured in the background, then played with the gain that brings it to the target. Files
+are never modified.
+
+- **Measurement**: **Loudness (LUFS)** (integrated loudness, ITU-R BS.1770 / EBU R128, closest to what the ear hears), **Peak**, **True peak** (dBTP) or **RMS**.
+- **Target**: the level to reach. -16 LUFS by default; for reference: -23 LUFS for radio and TV (EBU R128), -14 to -16 LUFS for streaming and live sound.
+- **Max** (on by default, -1 dBTP): if the gain would push a track's true peak above this ceiling, its gain is lowered so nothing clips.
+
+The applied gain is shown to the right of each track and next to the current track: grey normally,
+**orange** when lowered by the ceiling, **…** while measuring, **—** for a silent or too short
+track (gain unchanged), **⚠** if the measurement failed. Hovering shows the detailed measurements
+(loudness, peak, true peak, RMS). While measuring, an indicator shows the progress. Measurements
+are cached and only redone when the file changes.
+
+Outside edit mode, a **Normalize** row reminds you of the current setting.
 
 ## The equalizer
 
