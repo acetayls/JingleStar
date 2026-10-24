@@ -16,11 +16,13 @@ audio cpal, décodage symphonia).
     poignée de début (verte), traits de début et de fin de boucle (orange), poignée de fin (rouge).
   - **Fondus** d'entrée et de sortie.
   - **Égaliseur** par jingle (dans l'éditeur du jingle).
-  - Glisser-déposer de fichiers sur les boutons (plusieurs fichiers remplissent les boutons suivants).
+  - Glisser-déposer de fichiers sur les boutons (plusieurs fichiers remplissent les boutons suivants),
+    ou d'un morceau de playlist vers un bouton de jingle.
 - **Égaliseur** sur chaque jingle et sur chaque module (bouton « EQ » en mode édition) :
   coupe-bas 12 ou 24 dB/oct, shelf grave, deux bandes paramétriques, shelf aigu. Courbe éditable
   à la souris (glisser = fréquence et gain, molette = Q, double-clic = activer/désactiver).
-- **Playlist** : un dossier, enchaînement automatique, **aléatoire**, **boucle**, transition
+- **Playlist** : un dossier, ou une liste libre de fichiers et de dossiers glissés-déposés (ou ajoutés avec ＋),
+  enchaînement automatique, **aléatoire**, **boucle**, transition
   **fin de fichier** (sans blanc) ou **fondu enchaîné** réglable.
 - **Équilibrage du niveau** des morceaux de la playlist (l'équivalent de « Normalize items » de REAPER),
   en mode édition : « Équilibrer le niveau ». Chaque morceau est mesuré en arrière-plan puis lu avec
@@ -35,8 +37,14 @@ audio cpal, décodage symphonia).
 - **Volumes en dB** affichés en permanence : faders des modules, volume de chaque jingle, gain des morceaux.
 - **Préférences** : pilote audio (WASAPI, CoreAudio, ALSA, ASIO en option), périphérique,
   taille de buffer, et **anti-veille** pendant la lecture.
-- **Échap** : tout arrêter.
+- **Échap** : arrête tous les jingles ; les playlists aussi si l'option est cochée (Préférences → Système).
+  Le bouton « TOUT ARRÊTER » arrête tout.
+- **Anti double-GO** : un second clic sur le même jingle dans le délai choisi (300 ms par défaut) est ignoré.
 - **Pilotage OSC** avec description **OSCQuery** et annonce mDNS (voir plus bas).
+- **Pilotage MIDI** : notes, CC et program change affectés aux actions, avec mode apprendre
+  (bouton **Télécommandes**, voir l'aide intégrée).
+- **Pilotage depuis une console Yamaha** (QL, CL, TF…) par le réseau, sans matériel en plus :
+  touches ON, faders et rappels de scène affectés aux actions (protocole TCP 49280).
 - **Langue** : français ou anglais (Préférences → Système).
 - **Aide intégrée** (bouton « ? Aide » ou **F1**), dans la langue choisie. Le manuel est aussi dans
   [`docs/aide.md`](docs/aide.md) (français) et [`docs/help.md`](docs/help.md) (anglais).
@@ -138,8 +146,10 @@ src/
   audio/
     engine.rs        périphérique cpal (thread dédié), choix de la config multicanal
     mixer.rs         mixeur temps réel sans allocation : voix, boucles, fondus, EQ, routage par paire
-    eq.rs            égaliseur : réglages, coefficients biquad, filtrage
+    eq.rs            égaliseur : réglages, coefficients biquad, filtrage, changements en fondu
+    limiter.rs       limiteur de sécurité des sorties (transparent sous 0 dBFS)
     loudness.rs      mesure LUFS / crête / crête vraie / RMS, gain de normalisation, cache
+    quality_tests.rs banc d'essai hors ligne de la qualité audio
     decode.rs        décodage symphonia + rééchantillonnage rubato
     buffer.rs        son en mémoire + aperçu de forme d'onde
   ui/
@@ -149,9 +159,22 @@ src/
     help.rs          fenêtre d'aide (affiche docs/aide.md ou docs/help.md)
     theme.rs         thème sombre façon QLab, police du logo
 assets/
-  icons/             icônes d'application (.ico Windows, .icns macOS, PNG)
+  icons/             icônes d'application (.ico Windows avec miniatures 16 à 48 px, .icns macOS, PNG)
   logo/              logo et symbole en SVG, versions claire et sombre
   fonts/             Barlow Condensed (logotype, licence OFL)
 build.rs             icône de l'exécutable Windows
 ```
+
+## Qualité audio
+
+Le chemin audio est vérifié hors ligne par `cargo test` (rendu du mixeur dans des
+tampons, sans carte son) :
+
+- à 0 dB sans EQ, la sortie est le fichier au bit près (sortie 16, 24, 32 bits ou flottante) ;
+- aucun changement en marche d'escalier : volumes lissés, EQ et changement de sortie en fondu
+  de 20 et 10 ms, relance d'un jingle avec fondu court de l'ancien son, rampe de 3 ms quand le
+  point de début ou de fin tombe au milieu du fichier, fondu de 4 ms aux points de boucle ;
+- limiteur de sécurité par paire de sorties (prévision 1,5 ms) : la somme de plusieurs sons
+  n'écrête jamais, et le signal est intact tant qu'il reste sous 0 dBFS ;
+- aucune allocation ni verrou dans le callback, fichiers vides ou abîmés refusés sans blocage.
 

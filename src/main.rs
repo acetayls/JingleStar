@@ -2,10 +2,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod audio;
+mod console;
 mod controller;
 mod i18n;
+mod midi;
 mod osc;
 mod project;
+mod remote;
 mod ui;
 
 fn main() -> eframe::Result {
@@ -16,7 +19,7 @@ fn main() -> eframe::Result {
             .with_min_inner_size([960.0, 600.0])
             .with_drag_and_drop(true)
             .with_icon(
-                eframe::icon_data::from_png_bytes(include_bytes!("../assets/icons/jinglestar-256.png"))
+                eframe::icon_data::from_png_bytes(include_bytes!("../assets/icons/jinglestar-fenetre-256.png"))
                     .expect("icône PNG valide"),
             ),
         ..Default::default()

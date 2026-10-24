@@ -8,6 +8,7 @@ use crate::audio::decode::is_audio_file;
 use crate::audio::eq::EqSettings;
 use crate::audio::loudness::NormalizeSettings;
 use crate::i18n::Lang;
+use crate::remote::Mapping;
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 
 pub const DEFAULT_COLORS: [[u8; 3]; 8] = [
@@ -189,11 +190,54 @@ pub struct Preferences {
     /// Largeur des modules en points ; `None` = ils remplissent la fenêtre.
     pub module_width: Option<f32>,
     pub osc: OscSettings,
+    pub midi: MidiSettings,
+    pub console: ConsoleSettings,
+    /// Correspondances des télécommandes (MIDI, console) vers les actions.
+    pub mappings: Vec<Mapping>,
+    /// Échap arrête aussi les playlists (sinon seulement les jingles).
+    pub escape_stops_playlist: bool,
+    /// Délai anti double-GO : un second déclenchement du même jingle dans ce délai est ignoré.
+    pub double_go_ms: u32,
 }
 
 impl Default for Preferences {
     fn default() -> Self {
-        Self { prevent_sleep: true, language: Lang::Fr, module_width: None, osc: OscSettings::default() }
+        Self {
+            prevent_sleep: true,
+            language: Lang::Fr,
+            module_width: None,
+            osc: OscSettings::default(),
+            midi: MidiSettings::default(),
+            console: ConsoleSettings::default(),
+            mappings: Vec::new(),
+            escape_stops_playlist: false,
+            double_go_ms: 300,
+        }
+    }
+}
+
+/// Entrée MIDI.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct MidiSettings {
+    pub enabled: bool,
+    /// Nom du port ; `None` = le premier disponible.
+    pub port: Option<String>,
+}
+
+/// Écoute d'une console Yamaha sur le réseau (protocole texte, TCP 49280).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct ConsoleSettings {
+    pub enabled: bool,
+    /// Adresse IP de la console.
+    pub host: String,
+    pub port: u16,
+}
+
+impl Default for ConsoleSettings {
+    fn default() -> Self {
+        Self { enabled: false, host: "192.168.0.128".into(), port: 49280 }
     }
 }
 

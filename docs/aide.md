@@ -26,6 +26,7 @@ Formats lus : WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 - **＋ Ajouter un module** : ajoute un module à la fin (8 au maximum). Le compteur indique le nombre de modules.
 - **⤢ Remplir** : les modules se partagent la largeur de la fenêtre (4 par rangée au plus). Décochez-le pour régler une largeur fixe avec le curseur qui apparaît ; il y a alors autant de modules par rangée qu'il en tient.
 - **Ouvrir…** / **Enregistrer sous…** : ouvre ou enregistre un projet (fichier `.jinglestar`).
+- **Télécommandes** : pilotage MIDI et console Yamaha, correspondances et mode apprendre. Voir [Pilotage MIDI](#pilotage-midi) et [Pilotage depuis une console Yamaha](#pilotage-depuis-une-console-yamaha).
 - **⚙ Préférences** : audio, langue, anti-veille et OSC.
 - **? Aide** : ouvre cette aide (touche **F1**).
 - **■ TOUT ARRÊTER** : arrête tous les sons de tous les modules (touche **Échap**).
@@ -310,6 +311,78 @@ oscsend localhost 8000 /jinglestar/module/1/jingle/3/play
 oscsend localhost 8000 /jinglestar/module/2/volume f -6
 curl http://localhost:8001/jinglestar/module/2/volume?VALUE
 ```
+
+## Pilotage MIDI
+
+JingleStar se pilote avec un clavier, un contrôleur à pads ou à faders, ou la sortie MIDI d'une
+console (par exemple une Yamaha QL avec une interface USB-MIDI). Les notes, les CC et les
+program change déclenchent les mêmes actions que l'OSC.
+
+### Brancher
+
+Cliquez sur **Télécommandes** dans la barre du haut, cochez **Activer l'entrée MIDI** et
+choisissez le port (ou « Premier port disponible »). Les réglages s'appliquent tout de suite.
+Si le contrôleur est débranché, JingleStar le reconnecte seul quand il revient ; **⟳** relit la
+liste des ports.
+
+### Apprendre une correspondance
+
+1. Cliquez sur **＋ Ajouter et apprendre** : une ligne apparaît, en attente.
+2. Appuyez sur la touche, le pad, ou bougez le fader du contrôleur : il est affecté à la ligne.
+3. Choisissez l'action, le module et, pour un jingle, son numéro.
+
+**Apprendre** sur une ligne existante la réaffecte. Une nouvelle ligne reprend l'action de la
+précédente au jingle suivant : pour un pad de 12 touches, enchaînez **＋ Ajouter et apprendre**
+puis la touche suivante. **Dernier message reçu** montre ce qui arrive, pour vérifier un
+branchement.
+
+### Comment les messages agissent
+
+| Message | Boutons (lancer, arrêter, suivant…) | Volumes | Aléatoire, boucle | Morceau n° |
+|---|---|---|---|---|
+| Note | à l'appui (le relâché est ignoré) | vélocité | bascule | — |
+| CC | quand la valeur passe à 64 ou plus | 0 → minimum, 127 → maximum | 64 ou plus = activé | valeur |
+| Program change | à chaque message | — | bascule | numéro du program |
+
+Pour **Playlist : morceau n°** sur un program change, tous les program change du canal appris
+choisissent le morceau : program 1 → morceau 1, program 2 → morceau 2…
+
+Les actions de jingle sont ignorées si le module est en mode playlist, et inversement.
+
+## Pilotage depuis une console Yamaha
+
+JingleStar écoute directement une console Yamaha sur le réseau (QL, CL, TF, DM7, Rivage), sans
+matériel en plus : branchez l'ordinateur sur le même réseau que la console. JingleStar ne fait
+qu'**écouter** les changements de la console ; il ne modifie jamais rien sur celle-ci.
+
+### Se connecter
+
+Dans **Télécommandes**, section **Console Yamaha (réseau)**, saisissez l'**IP** de la console
+(réglée sur la console dans SETUP → NETWORK), laissez le port **49280** et cliquez sur
+**Connecter**. Le modèle de la console s'affiche quand la connexion est établie. Si la console
+est éteinte ou débranchée, JingleStar retente seul toutes les quelques secondes. La ligne
+**Reçu** montre le dernier message envoyé par la console.
+
+### Ce qui peut déclencher une action
+
+- **Touche ON d'un canal** : chaque appui bascule le ON et déclenche l'action. Un canal libre
+  (entrée inutilisée, par exemple placée dans une banque de faders personnalisée) devient ainsi
+  un bouton. Si votre console permet d'affecter une touche **USER DEFINED** au ON de ce canal,
+  cette touche devient un bouton de JingleStar.
+- **Fader** : règle un volume de module ou de jingle (le niveau du fader en dB est repris tel
+  quel, -∞ donne le minimum). Pour un bouton (lancer, arrêter…), l'action part quand le fader
+  quitte -∞.
+- **Rappel de scène** : déclenche l'action de la scène apprise. Avec **Playlist : morceau n°**,
+  toute scène rappelée lance le morceau du même numéro.
+
+Pour les options de playlist (aléatoire, boucle), le ON d'un canal impose l'état :
+ON allumé = option activée.
+
+### Apprendre
+
+Comme en MIDI : **＋ Ajouter et apprendre**, puis appuyez sur le ON, bougez le fader ou rappelez la
+scène sur la console. Le déclencheur s'affiche, par exemple **QL · InCh/Fader/On 32** (touche ON
+du canal 32) ou **QL · Scène 12**.
 
 ## Raccourcis clavier et souris
 
