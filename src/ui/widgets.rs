@@ -173,7 +173,8 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
 
 /// Ligne de la liste des morceaux : numéro et nom à gauche (tronqué), gain d'équilibrage à droite.
 pub fn track_row(ui: &mut Ui, label: &str, color: Color32, selected: bool, gain: Option<(String, Color32)>) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::click());
+    // Glissable : un morceau peut être déposé sur un bouton de jingle.
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::click_and_drag());
     let p = ui.painter_at(rect);
     if selected {
         p.rect_filled(rect, CornerRadius::same(3), ACCENT.gamma_multiply(0.18));

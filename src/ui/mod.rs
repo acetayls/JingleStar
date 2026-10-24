@@ -20,6 +20,9 @@ use crate::project::{AudioSettings, ModuleMode, OscSettings, Transition, DEFAULT
 use theme::*;
 use widgets::*;
 
+/// Morceau de playlist en cours de glisser vers un bouton de jingle.
+struct TrackPayload(PathBuf);
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum DropTarget {
     Jingle(usize, usize),
@@ -409,11 +412,18 @@ impl JingleStarApp {
                 looping: slot.as_ref().map(|j| j.looping).unwrap_or(false),
                 selected: self.selected == Some((m, s)),
                 edit_mode: self.edit_mode[m],
-                drop_hover: hover_pos.map(|p| rect.contains(p)).unwrap_or(false),
+                drop_hover: hover_pos.map(|p| rect.contains(p)).unwrap_or(false)
+                    || (egui::DragAndDrop::has_payload_of_type::<TrackPayload>(ui.ctx())
+                        && ui.ctx().pointer_hover_pos().is_some_and(|p| rect.contains(p))),
                 eq: slot.as_ref().map(|j| !j.eq.is_flat()).unwrap_or(false),
                 volume_db: slot.as_ref().map(|j| j.volume_db).unwrap_or(0.0),
             };
             let resp = jingle_button(ui, rect, &view);
+            // Morceau glissé depuis une playlist : il devient le son de ce bouton.
+            if let Some(track) = resp.dnd_release_payload::<TrackPayload>() {
+                self.ctrl.assign_jingle(m, s, track.0.clone());
+                continue;
+            }
             if resp.clicked() {
                 if self.edit_mode[m] {
                     if slot.is_none() {
@@ -796,6 +806,7 @@ impl JingleStarApp {
                 } else if resp.clicked() {
                     self.ctrl.select_track(m, i);
                 }
+                resp.dnd_set_drag_payload(TrackPayload(path.clone()));
                 resp.context_menu(|ui| {
                     if ui.button(tr("Lire", "Play")).clicked() {
                         self.ctrl.playlist_play(m, i);
@@ -1197,6 +1208,15 @@ impl eframe::App for JingleStarApp {
             .frame(egui::Frame::new().fill(BG).inner_margin(10))
             .show(ui, |ui| self.modules_grid(ui));
 
+        // Étiquette qui suit le pointeur pendant le glisser d'un morceau.
+        if let (Some(track), Some(p)) = (egui::DragAndDrop::payload::<TrackPayload>(&ctx), ctx.pointer_interact_pos()) {
+            let name = track.0.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("track-drag")));
+            let galley = painter.layout_no_wrap(format!("♪ {name}"), FontId::proportional(13.0), Color32::WHITE);
+            let r = Rect::from_min_size(p + vec2(12.0, 8.0), galley.size() + vec2(12.0, 6.0));
+            painter.rect_filled(r, CornerRadius::same(4), EDIT.gamma_multiply(0.9));
+            painter.galley(r.min + vec2(6.0, 3.0), galley, Color32::WHITE);
+        }
         self.jingle_editor(&ctx);
         self.module_eq_window(&ctx);
         self.settings_window(&ctx);

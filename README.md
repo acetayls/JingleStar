@@ -16,7 +16,8 @@ audio cpal, décodage symphonia).
     poignée de début (verte), traits de début et de fin de boucle (orange), poignée de fin (rouge).
   - **Fondus** d'entrée et de sortie.
   - **Égaliseur** par jingle (dans l'éditeur du jingle).
-  - Glisser-déposer de fichiers sur les boutons (plusieurs fichiers remplissent les boutons suivants).
+  - Glisser-déposer de fichiers sur les boutons (plusieurs fichiers remplissent les boutons suivants),
+    ou d'un morceau de playlist vers un bouton de jingle.
 - **Égaliseur** sur chaque jingle et sur chaque module (bouton « EQ » en mode édition) :
   coupe-bas 12 ou 24 dB/oct, shelf grave, deux bandes paramétriques, shelf aigu. Courbe éditable
   à la souris (glisser = fréquence et gain, molette = Q, double-clic = activer/désactiver).
