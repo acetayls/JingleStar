@@ -15,7 +15,11 @@ audio cpal, décodage symphonia).
   - Lecture **une fois** ou **en boucle**, avec un éditeur de forme d'onde façon QLab :
     poignée de début (verte), traits de début et de fin de boucle (orange), poignée de fin (rouge).
   - **Fondus** d'entrée et de sortie.
+  - **Égaliseur** par jingle (dans l'éditeur du jingle).
   - Glisser-déposer de fichiers sur les boutons (plusieurs fichiers remplissent les boutons suivants).
+- **Égaliseur** sur chaque jingle et sur chaque module (bouton « EQ » en mode édition) :
+  coupe-bas 12 ou 24 dB/oct, shelf grave, deux bandes paramétriques, shelf aigu. Courbe éditable
+  à la souris (glisser = fréquence et gain, molette = Q, double-clic = activer/désactiver).
 - **Playlist** : un dossier, enchaînement automatique, **aléatoire**, **boucle**, transition
   **fin de fichier** (sans blanc) ou **fondu enchaîné** réglable.
 - **Préférences** : pilote audio (WASAPI, CoreAudio, ALSA, ASIO en option), périphérique,
@@ -57,12 +61,14 @@ src/
   project.rs         modèle sauvegardé (JSON)
   audio/
     engine.rs        périphérique cpal (thread dédié), choix de la config multicanal
-    mixer.rs         mixeur temps réel sans allocation : voix, boucles, fondus, routage par paire
+    mixer.rs         mixeur temps réel sans allocation : voix, boucles, fondus, EQ, routage par paire
+    eq.rs            égaliseur : réglages, coefficients biquad, filtrage
     decode.rs        décodage symphonia + rééchantillonnage rubato
     buffer.rs        son en mémoire + aperçu de forme d'onde
   ui/
     mod.rs           interface (modules, éditeur de jingle, préférences)
     widgets.rs       boutons, vumètres, éditeur de forme d'onde
+    eq_view.rs       courbe d'égaliseur éditable
     theme.rs         thème sombre façon QLab
 ```
 
