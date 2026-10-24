@@ -128,6 +128,9 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
     resp
 }
 
+/// Marge horizontale de la forme d'onde, pour saisir les poignées aux extrémités.
+const HANDLE_PAD: f32 = 14.0;
+
 /// Points d'édition d'un jingle, en secondes.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Markers {
@@ -160,7 +163,7 @@ pub fn waveform_editor(
 ) -> bool {
     let size = vec2(ui.available_width(), 150.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click_and_drag());
-    let wave = rect.shrink2(vec2(8.0, 14.0));
+    let wave = rect.shrink2(vec2(HANDLE_PAD, 14.0));
     let p = ui.painter_at(rect);
     p.rect_filled(rect, CornerRadius::same(4), Color32::from_rgb(0x12, 0x12, 0x14));
     if duration <= 0.0 {
@@ -223,8 +226,6 @@ pub fn waveform_editor(
         let dir = if left { 1.0 } else { -1.0 };
         let tri = vec![pos2(x, rect.bottom()), pos2(x + 10.0 * dir, rect.bottom()), pos2(x, rect.bottom() - 12.0)];
         p.add(Shape::convex_polygon(tri, col, Stroke::NONE));
-        let tri = vec![pos2(x, rect.top()), pos2(x + 10.0 * dir, rect.top()), pos2(x, rect.top() + 12.0)];
-        p.add(Shape::convex_polygon(tri, col, Stroke::NONE));
     }
 
     if let Some(t) = playhead {
@@ -232,21 +233,28 @@ pub fn waveform_editor(
         p.line_segment([pos2(x, rect.top()), pos2(x, rect.bottom())], Stroke::new(1.0, Color32::WHITE));
     }
 
-    // Glisser les poignées.
-    let handles: Vec<(Handle, f64)> = {
-        let mut h = vec![(Handle::Start, m.start), (Handle::End, m.end)];
-        if looping {
-            h.push((Handle::LoopStart, m.loop_start));
-            h.push((Handle::LoopEnd, m.loop_end));
-        }
-        h
-    };
+    // Glisser les poignées. Les points de boucle se saisissent dans la moitié haute,
+    // le début et la fin dans la moitié basse : ils restent séparables même superposés.
     let nearest = |pos: Pos2| {
+        let top = pos.y < rect.center().y;
+        let mut handles = vec![(Handle::Start, m.start), (Handle::End, m.end)];
+        if looping {
+            let lp = [(Handle::LoopStart, m.loop_start), (Handle::LoopEnd, m.loop_end)];
+            if top {
+                handles.splice(0..0, lp);
+            } else {
+                handles.extend(lp);
+            }
+        }
         handles
-            .iter()
-            .map(|(h, t)| (*h, (x_of(*t) - pos.x).abs()))
-            .filter(|(_, d)| *d < 10.0)
-            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .into_iter()
+            .map(|(h, t)| (h, (x_of(t) - pos.x).abs()))
+            .filter(|(_, d)| *d < 14.0)
+            // À distance égale, le premier de la liste (priorité selon la zone) l'emporte.
+            .fold(None::<(Handle, f32)>, |best, (h, d)| match best {
+                Some((_, bd)) if bd <= d => best,
+                _ => Some((h, d)),
+            })
             .map(|(h, _)| h)
     };
     let drag_id = resp.id.with("handle");
@@ -256,7 +264,9 @@ pub fn waveform_editor(
         }
     }
     if resp.drag_started() {
-        let h = resp.interact_pointer_pos().and_then(nearest);
+        // On choisit la poignée là où le bouton a été enfoncé, pas après le seuil de glisser.
+        let origin = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos());
+        let h = origin.and_then(nearest);
         ui.data_mut(|d| d.insert_temp(drag_id, h));
     }
     let mut changed = false;
@@ -284,4 +294,85 @@ pub fn waveform_editor(
     }
     resp.on_hover_text("Glisser les poignées : début (vert), fin (rouge), boucle (orange)");
     changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{Event, Modifiers, PointerButton, RawInput};
+
+    /// Simule un glisser de `from` vers `to` sur l'éditeur placé dans une fenêtre, comme dans l'appli.
+    fn drag(from: Pos2, to: Pos2, looping: bool) -> Markers {
+        let ctx = egui::Context::default();
+        let mut m = Markers { start: 0.0, loop_start: 0.0, loop_end: 10.0, end: 10.0 };
+        let overview = vec![0.5f32; 500];
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(1000.0, 700.0));
+        let mut frame = |events: Vec<Event>, m: &mut Markers| {
+            let input = RawInput { screen_rect: Some(screen), events, ..Default::default() };
+            let mut wave_rect = Rect::NOTHING;
+            let mut out = ctx.run_ui(input, |ui| {
+                egui::Window::new("t").fixed_pos(pos2(0.0, 0.0)).default_width(620.0).resizable(true).show(ui.ctx(), |ui| {
+                    waveform_editor(ui, &overview, 10.0, m, looping, 0.0, 0.0, None);
+                    wave_rect = ui.min_rect();
+                });
+            });
+            out.textures_delta.clear();
+            wave_rect
+        };
+        let r = frame(vec![], &mut m);
+        let _ = frame(vec![], &mut m);
+        println!("zone {r:?}");
+        let ev = |p: Pos2, pressed: Option<bool>| match pressed {
+            Some(pr) => Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: pr, modifiers: Modifiers::NONE },
+            None => Event::PointerMoved(p),
+        };
+        frame(vec![ev(from, None)], &mut m);
+        frame(vec![ev(from, Some(true))], &mut m);
+        for i in 1..=10 {
+            let p = from + (to - from) * (i as f32 / 10.0);
+            frame(vec![ev(p, None)], &mut m);
+        }
+        frame(vec![ev(to, Some(false))], &mut m);
+        m
+    }
+
+    #[test]
+    fn handles_are_draggable() {
+        // Géométrie : fenêtre en (0,0), marge interne, éditeur pleine largeur.
+        let probe = drag(pos2(-50.0, -50.0), pos2(-50.0, -50.0), false);
+        assert_eq!(probe.end, 10.0);
+        let ctx_rect = {
+            let ctx = egui::Context::default();
+            let mut r = Rect::NOTHING;
+            let overview = vec![0.5f32; 500];
+            for _ in 0..2 {
+                let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1000.0, 700.0))), ..Default::default() };
+                let mut out = ctx.run_ui(input, |ui| {
+                    egui::Window::new("t").fixed_pos(pos2(0.0, 0.0)).default_width(620.0).resizable(true).show(ui.ctx(), |ui| {
+                        let mut m = Markers { start: 0.0, loop_start: 0.0, loop_end: 10.0, end: 10.0 };
+                        waveform_editor(ui, &overview, 10.0, &mut m, true, 0.0, 0.0, None);
+                        r = ui.min_rect();
+                    });
+                });
+                out.textures_delta.clear();
+            }
+            r
+        };
+        let wave = ctx_rect.shrink2(vec2(HANDLE_PAD, 14.0));
+        let y_low = ctx_rect.bottom() - 20.0;
+        let y_top = ctx_rect.top() + 10.0;
+        let mid_x = wave.center().x;
+
+        let m = drag(pos2(wave.right(), y_low), pos2(mid_x, y_low), false);
+        assert!((m.end - 5.0).abs() < 0.3, "fin déplacée : {m:?}");
+
+        let m = drag(pos2(wave.left(), y_low), pos2(mid_x, y_low), false);
+        assert!((m.start - 5.0).abs() < 0.3, "début déplacé : {m:?}");
+
+        let m = drag(pos2(wave.right(), y_top), pos2(mid_x, y_top), true);
+        assert!((m.loop_end - 5.0).abs() < 0.3 && m.end == 10.0, "fin de boucle seule : {m:?}");
+
+        let m = drag(pos2(wave.left(), y_top), pos2(mid_x, y_top), true);
+        assert!((m.loop_start - 5.0).abs() < 0.3 && m.start == 0.0, "début de boucle seul : {m:?}");
+    }
 }
