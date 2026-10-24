@@ -1,0 +1,29 @@
+[package]
+name = "jinglestar"
+version = "0.1.0"
+description = "Lecteur de jingles et de playlists multi-sorties (Windows, macOS, Linux)"
+authors = ["Pierrick"]
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+eframe = "0.37"
+egui = "0.37"
+rfd = "0.17"
+cpal = "0.18"
+symphonia = { version = "0.5", features = ["all"] }
+rubato = "0.16"
+crossbeam-channel = "0.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+directories = "6"
+anyhow = "1"
+keepawake = "0.6"
+
+[features]
+# Support ASIO sous Windows (nécessite le SDK ASIO de Steinberg, voir README).
+asio = ["cpal/asio"]
+
+[profile.release]
+lto = true
+codegen-units = 1
