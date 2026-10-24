@@ -81,6 +81,24 @@ cargo run --release
 Les exécutables Windows, macOS et Linux sont aussi produits à chaque push par GitHub Actions
 (onglet *Actions* → dernier build → *Artifacts*).
 
+### macOS
+
+La CI produit deux images disque : `jinglestar-macos-intel` (Mac Intel, x86_64) et
+`jinglestar-macos-apple-silicon` (M1 et suivants). Ouvrir le `.dmg`, glisser JingleStar dans
+*Applications*. L'app n'est signée qu'en ad hoc (pas de compte développeur Apple) : au premier
+lancement, faire clic droit sur l'app → *Ouvrir* → *Ouvrir*, ou, si macOS refuse, lancer :
+
+```sh
+xattr -dr com.apple.quarantine /Applications/JingleStar.app
+```
+
+Pour construire le bundle soi-même sur un Mac :
+
+```sh
+cargo build --release --target x86_64-apple-darwin
+packaging/macos/bundle.sh x86_64-apple-darwin dist
+```
+
 ### ASIO (Windows, optionnel)
 
 Télécharger le SDK ASIO de Steinberg, définir `CPAL_ASIO_DIR` vers son dossier, puis :
