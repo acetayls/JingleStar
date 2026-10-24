@@ -478,8 +478,9 @@ impl Mixer {
         let frames = self.ramps.stop;
         if let Some(v) = self.modules[module].voices[slot].as_mut() {
             if v.fade_left.is_none() {
-                // Arrêt manuel : on reprend le fondu de sortie du son, 10 ms au minimum.
-                v.fade_len = v.region.fade_out.max(frames);
+                // Arrêt manuel : on reprend le fondu de sortie du son, entre 10 ms et 1 s
+                // pour que l'arrêt reste franc même avec un long fondu.
+                v.fade_len = v.region.fade_out.min(frames * 100).max(frames);
                 v.fade_left = Some(v.fade_len);
             }
         }

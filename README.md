@@ -20,7 +20,8 @@ audio cpal, décodage symphonia).
 - **Égaliseur** sur chaque jingle et sur chaque module (bouton « EQ » en mode édition) :
   coupe-bas 12 ou 24 dB/oct, shelf grave, deux bandes paramétriques, shelf aigu. Courbe éditable
   à la souris (glisser = fréquence et gain, molette = Q, double-clic = activer/désactiver).
-- **Playlist** : un dossier, enchaînement automatique, **aléatoire**, **boucle**, transition
+- **Playlist** : un dossier, ou une liste libre de fichiers et de dossiers glissés-déposés (ou ajoutés avec ＋),
+  enchaînement automatique, **aléatoire**, **boucle**, transition
   **fin de fichier** (sans blanc) ou **fondu enchaîné** réglable.
 - **Équilibrage du niveau** des morceaux de la playlist (l'équivalent de « Normalize items » de REAPER),
   en mode édition : « Équilibrer le niveau ». Chaque morceau est mesuré en arrière-plan puis lu avec
@@ -35,7 +36,9 @@ audio cpal, décodage symphonia).
 - **Volumes en dB** affichés en permanence : faders des modules, volume de chaque jingle, gain des morceaux.
 - **Préférences** : pilote audio (WASAPI, CoreAudio, ALSA, ASIO en option), périphérique,
   taille de buffer, et **anti-veille** pendant la lecture.
-- **Échap** : tout arrêter.
+- **Échap** : arrête tous les jingles ; les playlists aussi si l'option est cochée (Préférences → Système).
+  Le bouton « TOUT ARRÊTER » arrête tout.
+- **Anti double-GO** : un second clic sur le même jingle dans le délai choisi (300 ms par défaut) est ignoré.
 - **Pilotage OSC** avec description **OSCQuery** et annonce mDNS (voir plus bas).
 - **Pilotage MIDI** : notes, CC et program change affectés aux actions, avec mode apprendre
   (bouton **Télécommandes**, voir l'aide intégrée).

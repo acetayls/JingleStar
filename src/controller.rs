@@ -120,6 +120,7 @@ pub struct Controller {
     last_change: Instant,
     pub project_path: Option<PathBuf>,
     keep_awake: Option<keepawake::KeepAwake>,
+    keep_awake_failed: Option<Instant>,
     rng: u64,
     repaint: Arc<dyn Fn() + Send + Sync>,
     /// Mesures de niveau des morceaux de playlist, et leur cache disque.
@@ -140,6 +141,8 @@ pub struct Controller {
     pub learn: Option<usize>,
     /// Dernier message reçu d'une télécommande, pour les préférences.
     pub last_input: Option<String>,
+    /// Dernier déclenchement de chaque jingle, pour le délai anti double-GO.
+    last_trigger: HashMap<(usize, usize), Instant>,
 }
 
 impl Controller {
@@ -169,6 +172,7 @@ impl Controller {
             last_change: Instant::now(),
             project_path: None,
             keep_awake: None,
+            keep_awake_failed: None,
             rng: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos() as u64 | 1)
@@ -187,6 +191,7 @@ impl Controller {
             midi_retry: Instant::now(),
             learn: None,
             last_input: None,
+            last_trigger: HashMap::new(),
         };
         for rt in c.playlists.iter_mut() {
             rt.slot = PLAYLIST_SLOTS[0];
@@ -535,6 +540,35 @@ impl Controller {
         }
     }
 
+    /// Arrête tous les jingles, sans toucher aux playlists.
+    pub fn stop_all_jingles(&mut self) {
+        for m in 0..MAX_MODULES {
+            for slot in 0..crate::audio::mixer::JINGLE_SLOTS {
+                self.engine.send(Command::Stop { module: m, slot });
+            }
+        }
+        self.pending_play.clear();
+    }
+
+    /// Touche Échap : les jingles, et les playlists si l'option est active.
+    pub fn escape(&mut self) {
+        if self.project.preferences.escape_stops_playlist {
+            self.stop_all();
+        } else {
+            self.stop_all_jingles();
+        }
+    }
+
+    pub fn set_escape_stops_playlist(&mut self, on: bool) {
+        self.project.preferences.escape_stops_playlist = on;
+        self.mark_dirty();
+    }
+
+    pub fn set_double_go_ms(&mut self, ms: u32) {
+        self.project.preferences.double_go_ms = ms;
+        self.mark_dirty();
+    }
+
     // -------------------------------------------------------------- jingles
 
     pub fn jingle(&self, m: usize, s: usize) -> Option<&JingleSlot> {
@@ -547,6 +581,12 @@ impl Controller {
 
     /// Clic sur un bouton : lance le son, ou l'arrête s'il joue déjà.
     pub fn trigger_jingle(&mut self, m: usize, s: usize) {
+        // Anti double-GO : un second déclenchement trop rapproché est ignoré.
+        let guard = Duration::from_millis(self.project.preferences.double_go_ms as u64);
+        if self.last_trigger.get(&(m, s)).is_some_and(|t| t.elapsed() < guard) {
+            return;
+        }
+        self.last_trigger.insert((m, s), Instant::now());
         if self.is_jingle_playing(m, s) {
             self.engine.send(Command::Stop { module: m, slot: s });
         } else if self.pending_play.remove(&(m, s)) {
@@ -626,6 +666,57 @@ impl Controller {
         self.playlists[m].current = None;
         self.mark_dirty();
         self.analyze_playlist(m);
+    }
+
+    /// Ajoute des fichiers à la playlist ; un dossier ajoute ses fichiers audio (sous-dossiers compris).
+    /// La liste devient une liste libre, sans dossier de référence.
+    pub fn add_playlist_files(&mut self, m: usize, paths: Vec<PathBuf>) {
+        let mut added = Vec::new();
+        for p in paths {
+            if p.is_dir() {
+                collect_audio(&p, &mut added);
+            } else if crate::audio::decode::is_audio_file(&p) {
+                added.push(p);
+            }
+        }
+        let pl = &mut self.project.modules[m].playlist;
+        pl.folder = None;
+        for p in added {
+            if !pl.tracks.contains(&p) {
+                pl.tracks.push(p);
+            }
+        }
+        self.mark_dirty();
+        self.analyze_playlist(m);
+    }
+
+    pub fn remove_track(&mut self, m: usize, index: usize) {
+        let rt = &self.playlists[m];
+        if rt.playing && rt.current == Some(index) {
+            self.playlist_stop(m);
+        }
+        let pl = &mut self.project.modules[m].playlist;
+        if index < pl.tracks.len() {
+            pl.tracks.remove(index);
+            pl.folder = None;
+            let rt = &mut self.playlists[m];
+            rt.current = rt.current.and_then(|c| match c.cmp(&index) {
+                std::cmp::Ordering::Less => Some(c),
+                std::cmp::Ordering::Equal => None,
+                std::cmp::Ordering::Greater => Some(c - 1),
+            });
+            rt.played.clear();
+            self.mark_dirty();
+        }
+    }
+
+    pub fn clear_playlist(&mut self, m: usize) {
+        self.stop_module(m);
+        let pl = &mut self.project.modules[m].playlist;
+        pl.tracks.clear();
+        pl.folder = None;
+        self.playlists[m].current = None;
+        self.mark_dirty();
     }
 
     pub fn rescan_playlist(&mut self, m: usize) {
@@ -891,7 +982,11 @@ impl Controller {
     /// Bloque la mise en veille tant qu'un son joue (si l'option est active).
     fn update_keep_awake(&mut self) {
         let want = self.project.preferences.prevent_sleep && self.anything_playing();
-        if want && self.keep_awake.is_none() {
+        // Après un échec (pas de D-Bus, etc.), on ne réessaie qu'au bout de 30 s :
+        // la tentative est lente et bloquerait l'interface à chaque image.
+        let may_retry = self.keep_awake_failed.map(|t| t.elapsed() > Duration::from_secs(30)).unwrap_or(true);
+        if want && self.keep_awake.is_none() && may_retry {
+            self.keep_awake_failed = Some(Instant::now());
             self.keep_awake = keepawake::Builder::default()
                 .idle(true)
                 .sleep(true)
@@ -901,6 +996,9 @@ impl Controller {
                 .create()
                 .map_err(|e| self.status = Some(format!("{} : {e}", tr("Anti-veille indisponible", "Sleep prevention unavailable"))))
                 .ok();
+            if self.keep_awake.is_some() {
+                self.keep_awake_failed = None;
+            }
         } else if !want {
             self.keep_awake = None;
         }
@@ -1189,6 +1287,20 @@ pub fn jingle_region(j: &JingleSlot, buf: &AudioBuffer) -> Region {
         looping: j.looping.then(|| (f(ls), f(le))),
         fade_in: f(j.fade_in.max(0.0)),
         fade_out: f(j.fade_out.max(0.0)),
+    }
+}
+
+/// Fichiers audio d'un dossier et de ses sous-dossiers, triés par nom dans chaque dossier.
+fn collect_audio(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let mut entries: Vec<PathBuf> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
+    entries.sort_by_key(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()));
+    for p in entries {
+        if p.is_dir() {
+            collect_audio(&p, out);
+        } else if crate::audio::decode::is_audio_file(&p) {
+            out.push(p);
+        }
     }
 }
 

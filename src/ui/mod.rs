@@ -49,6 +49,8 @@ pub struct JingleStarApp {
     meters: [[f32; 2]; MAX_MODULES],
     last_frame: Instant,
     drop_targets: Vec<(Rect, DropTarget)>,
+    /// Position du curseur pendant un glisser-déposer de fichiers.
+    drag_pos: Option<egui::Pos2>,
 }
 
 impl JingleStarApp {
@@ -67,6 +69,7 @@ impl JingleStarApp {
             meters: [[-120.0; 2]; MAX_MODULES],
             last_frame: Instant::now(),
             drop_targets: Vec::new(),
+            drag_pos: None,
         }
     }
 
@@ -128,7 +131,7 @@ impl JingleStarApp {
                 let panic = egui::Button::new(RichText::new(tr("■  TOUT ARRÊTER", "■  STOP ALL")).strong().color(Color32::WHITE))
                     .fill(STOP)
                     .min_size(vec2(150.0, 32.0));
-                if ui.add(panic).on_hover_text(tr("Échap", "Esc")).clicked() {
+                if ui.add(panic).on_hover_text(tr("Arrête jingles et playlists", "Stops jingles and playlists")).clicked() {
                     self.ctrl.stop_all();
                 }
                 ui.add_space(8.0);
@@ -367,7 +370,7 @@ impl JingleStarApp {
         let gap = 6.0;
         let w = (area.width() - gap * (cols as f32 - 1.0)) / cols as f32;
         let h = (area.height() - gap * (rows as f32 - 1.0)) / rows as f32;
-        let hover_pos = ui.ctx().input(|i| (!i.raw.hovered_files.is_empty()).then(|| i.pointer.hover_pos()).flatten());
+        let hover_pos = self.drag_pos;
         for s in 0..JINGLE_SLOTS {
             let (r, c) = (s / cols, s % cols);
             let rect = Rect::from_min_size(area.min + vec2(c as f32 * (w + gap), r as f32 * (h + gap)), vec2(w, h));
@@ -664,15 +667,28 @@ impl JingleStarApp {
                     self.ctrl.set_playlist_folder(m, dir);
                 }
             }
+            if ui.button("＋").on_hover_text(tr("Ajouter des fichiers", "Add files")).clicked() {
+                if let Some(files) = rfd::FileDialog::new()
+                    .add_filter("Audio", crate::audio::decode::AUDIO_EXTENSIONS)
+                    .pick_files()
+                {
+                    self.ctrl.add_playlist_files(m, files);
+                }
+            }
             if pl.folder.is_some() && ui.button("⟳").on_hover_text(tr("Relire le dossier", "Rescan folder")).clicked() {
                 self.ctrl.rescan_playlist(m);
+            }
+            if editing && !pl.tracks.is_empty() && ui.button("🗑").on_hover_text(tr("Vider la liste", "Clear list")).clicked() {
+                self.ctrl.clear_playlist(m);
             }
             let name = pl
                 .folder
                 .as_ref()
                 .and_then(|f| f.file_name())
                 .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| tr("Aucun dossier", "No folder").into());
+                .unwrap_or_else(|| {
+                    if pl.tracks.is_empty() { tr("Aucun dossier", "No folder") } else { tr("Liste libre", "Custom list") }.into()
+                });
             ui.label(RichText::new(name).color(TEXT_DIM));
         });
 
@@ -758,9 +774,13 @@ impl JingleStarApp {
         // Liste des morceaux, avec le gain d'équilibrage de chacun.
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             if pl.tracks.is_empty() {
-                ui.label(RichText::new(tr("Choisissez un dossier ou glissez-le ici.", "Choose a folder or drop it here.")).color(TEXT_DIM));
+                ui.label(RichText::new(tr(
+                    "Choisissez un dossier, ou glissez ici des fichiers ou des dossiers.",
+                    "Choose a folder, or drop files or folders here.",
+                )).color(TEXT_DIM));
             }
             ui.spacing_mut().item_spacing.y = 1.0;
+            let mut remove = None;
             for (i, path) in pl.tracks.iter().enumerate() {
                 let name = path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 let is_cur = rt.current == Some(i);
@@ -776,6 +796,19 @@ impl JingleStarApp {
                 } else if resp.clicked() {
                     self.ctrl.select_track(m, i);
                 }
+                resp.context_menu(|ui| {
+                    if ui.button(tr("Lire", "Play")).clicked() {
+                        self.ctrl.playlist_play(m, i);
+                        ui.close();
+                    }
+                    if ui.button(tr("Retirer de la liste", "Remove from list")).clicked() {
+                        remove = Some(i);
+                        ui.close();
+                    }
+                });
+            }
+            if let Some(i) = remove {
+                self.ctrl.remove_track(m, i);
             }
         });
     }
@@ -924,6 +957,28 @@ impl JingleStarApp {
                 if lang != self.ctrl.project.preferences.language {
                     self.ctrl.set_language(lang);
                 }
+                let mut esc = self.ctrl.project.preferences.escape_stops_playlist;
+                if ui
+                    .checkbox(&mut esc, tr("Échap arrête aussi les playlists", "Esc also stops playlists"))
+                    .on_hover_text(tr("Sinon Échap n'arrête que les jingles", "Otherwise Esc only stops jingles"))
+                    .changed()
+                {
+                    self.ctrl.set_escape_stops_playlist(esc);
+                }
+                ui.horizontal(|ui| {
+                    let mut ms = self.ctrl.project.preferences.double_go_ms;
+                    ui.label(tr("Anti double-GO", "Double-GO protection"));
+                    if ui
+                        .add(egui::DragValue::new(&mut ms).range(0..=2000).speed(10).suffix(" ms"))
+                        .on_hover_text(tr(
+                            "Un second clic sur le même jingle dans ce délai est ignoré (0 = désactivé)",
+                            "A second click on the same jingle within this delay is ignored (0 = off)",
+                        ))
+                        .changed()
+                    {
+                        self.ctrl.set_double_go_ms(ms);
+                    }
+                });
                 let mut ps = self.ctrl.project.preferences.prevent_sleep;
                 if ui.checkbox(&mut ps, tr("Empêcher la mise en veille pendant la lecture", "Prevent sleep during playback")).changed() {
                     self.ctrl.set_prevent_sleep(ps);
@@ -965,9 +1020,10 @@ impl JingleStarApp {
     // ---------------------------------------------------------- glisser-déposer
 
     fn handle_drops(&mut self, ctx: &egui::Context) {
-        let (files, pos): (Vec<PathBuf>, _) = ctx.input(|i| {
-            (i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect(), i.pointer.hover_pos())
+        let files: Vec<PathBuf> = ctx.input(|i| {
+            i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect()
         });
+        let pos = self.drag_pos;
         if files.is_empty() {
             return;
         }
@@ -985,9 +1041,8 @@ impl JingleStarApp {
                 }
             }
             Some(DropTarget::Playlist(m)) => {
-                if let Some(dir) = files.iter().find(|p| p.is_dir()).cloned().or_else(|| files[0].parent().map(|p| p.to_path_buf())) {
-                    self.ctrl.set_playlist_folder(m, dir);
-                }
+                // Fichiers de plusieurs dossiers ou dossiers entiers : ajoutés à la suite de la liste.
+                self.ctrl.add_playlist_files(m, files);
             }
             None => {}
         }
@@ -1074,21 +1129,57 @@ fn gain_label(g: &TrackGain) -> Option<(String, Color32, String)> {
     }
 }
 
+/// Position du curseur quand des fichiers sont survolés ou déposés.
+/// Sous Windows, winit ne transmet pas le mouvement de la souris pendant un glisser-déposer :
+/// on lit directement la position du curseur système.
+fn file_drag_pos(ctx: &egui::Context, frame: &eframe::Frame) -> Option<egui::Pos2> {
+    let dragging = ctx.input(|i| !i.raw.hovered_files.is_empty() || !i.raw.dropped_files.is_empty());
+    if !dragging {
+        return None;
+    }
+    os_cursor_pos(ctx, frame).or_else(|| ctx.input(|i| i.pointer.latest_pos()))
+}
+
+#[cfg(windows)]
+fn os_cursor_pos(ctx: &egui::Context, frame: &eframe::Frame) -> Option<egui::Pos2> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::Graphics::Gdi::ScreenToClient;
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+    let RawWindowHandle::Win32(h) = frame.window_handle().ok()?.as_raw() else { return None };
+    let mut pt = POINT { x: 0, y: 0 };
+    // SAFETY : appels Win32 simples sur la fenêtre de l'application et une structure locale.
+    unsafe {
+        if GetCursorPos(&mut pt) == 0 || ScreenToClient(h.hwnd.get() as _, &mut pt) == 0 {
+            return None;
+        }
+    }
+    let ppp = ctx.pixels_per_point();
+    Some(egui::pos2(pt.x as f32 / ppp, pt.y as f32 / ppp))
+}
+
+#[cfg(not(windows))]
+fn os_cursor_pos(_ctx: &egui::Context, _frame: &eframe::Frame) -> Option<egui::Pos2> {
+    None
+}
+
 fn fmt_secs(t: f64) -> String {
     let t = t.max(0.0);
     format!("{}:{:05.2}", (t / 60.0) as u64, t % 60.0)
 }
 
 impl eframe::App for JingleStarApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.drag_pos = file_drag_pos(&ctx, frame);
         self.ctrl.poll();
         self.update_meters();
         self.drop_targets.clear();
 
         let typing = ctx.egui_wants_keyboard_input();
         if !typing && ctx.input(|i| i.key_pressed(Key::Escape)) {
-            self.ctrl.stop_all();
+            self.ctrl.escape();
         }
         if ctx.input(|i| i.key_pressed(Key::F1)) {
             self.help.toggle();

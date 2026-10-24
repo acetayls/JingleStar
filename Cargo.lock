@@ -2011,6 +2011,7 @@ dependencies = [
  "keepawake",
  "mdns-sd",
  "midir",
+ "raw-window-handle",
  "rfd",
  "rosc",
  "rubato",
@@ -2018,6 +2019,7 @@ dependencies = [
  "serde_json",
  "symphonia",
  "tiny_http",
+ "windows-sys 0.59.0",
  "winresource",
 ]
 

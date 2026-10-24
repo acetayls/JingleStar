@@ -196,6 +196,10 @@ pub struct Preferences {
     pub midi: MidiSettings,
     /// Correspondances des télécommandes (MIDI, console) vers les actions.
     pub mappings: Vec<Mapping>,
+    /// Échap arrête aussi les playlists (sinon seulement les jingles).
+    pub escape_stops_playlist: bool,
+    /// Délai anti double-GO : un second déclenchement du même jingle dans ce délai est ignoré.
+    pub double_go_ms: u32,
 }
 
 impl Default for Preferences {
@@ -207,6 +211,8 @@ impl Default for Preferences {
             osc: OscSettings::default(),
             midi: MidiSettings::default(),
             mappings: Vec::new(),
+            escape_stops_playlist: false,
+            double_go_ms: 300,
         }
     }
 }

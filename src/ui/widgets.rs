@@ -126,8 +126,14 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
         if let Some((prog, elapsed, remaining)) = &v.progress {
             let fill = Rect::from_min_size(bar.min, vec2(bar.width() * prog.clamp(0.0, 1.0), bar.height()));
             p.rect_filled(fill, CornerRadius::same(2), GO);
-            p.text(pos2(bar.left(), text_y), Align2::LEFT_BOTTOM, elapsed, font.clone(), Color32::WHITE);
-            p.text(pos2(bar.right(), text_y), Align2::RIGHT_BOTTOM, remaining, font, Color32::WHITE);
+            // Le temps restant prime : sur un bouton étroit, il s'affiche seul, centré.
+            let both = p.layout_no_wrap(format!("{elapsed} {remaining}"), font.clone(), Color32::WHITE).size().x + 8.0;
+            if both <= bar.width() {
+                p.text(pos2(bar.left(), text_y), Align2::LEFT_BOTTOM, elapsed, font.clone(), TEXT);
+                p.text(pos2(bar.right(), text_y), Align2::RIGHT_BOTTOM, remaining, FontId::monospace(12.0), Color32::WHITE);
+            } else {
+                p.text(pos2(bar.center().x, text_y), Align2::CENTER_BOTTOM, remaining, FontId::monospace(12.0), Color32::WHITE);
+            }
         } else if let Some(d) = &v.duration_label {
             p.text(pos2(rect.center().x, text_y), Align2::CENTER_BOTTOM, d, font, TEXT_DIM);
         }

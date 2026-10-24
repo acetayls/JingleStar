@@ -23,6 +23,11 @@ rosc = "0.11"
 tiny_http = "0.12"
 mdns-sd = "0.21"
 midir = "0.11"
+raw-window-handle = "0.6"
+
+[target.'cfg(windows)'.dependencies]
+# Position du curseur pendant un glisser-déposer (winit ne la transmet pas sous Windows).
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging"] }
 
 [build-dependencies]
 # Icône et métadonnées de l'exécutable Windows.
