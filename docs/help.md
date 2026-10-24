@@ -352,9 +352,21 @@ to the console's changes; it never changes anything on it.
 ### Connecting
 
 In **Remote**, **Yamaha console (network)** section, enter the console's **IP** (set on the
-console in SETUP → NETWORK), keep port **49280** and click **Connect**. The console model is
-shown once connected. If the console is off or unplugged, JingleStar retries every few seconds
-on its own. The **Received** line shows the last message sent by the console.
+console in SETUP → NETWORK), keep port **49280** and click **Connect**. If the console is off
+or unplugged, JingleStar retries every few seconds on its own. The **Received** line shows the
+last message sent by the console and how long ago.
+
+### Strict listening (console in use)
+
+**Strict listening**, on by default, guarantees that JingleStar writes **not a single byte** to
+the console: it opens the connection and only reads. When off, JingleStar only sends two read
+requests, `devinfo productname` (the model name, then displayed) on connection and
+`devstatus runmode` every 5 seconds, to detect a console that went off. JingleStar contains no
+command that changes anything (`set`, scene recall…).
+
+Before plugging the computer into the network of a console in use, give it a free IP address on
+that network (an address already used by the console, a tablet or a stagebox would disturb
+their link) and plug it into the control network port, never into the Dante ports.
 
 ### What can trigger an action
 

@@ -353,15 +353,28 @@ Les actions de jingle sont ignorées si le module est en mode playlist, et inver
 
 JingleStar écoute directement une console Yamaha sur le réseau (QL, CL, TF, DM7, Rivage), sans
 matériel en plus : branchez l'ordinateur sur le même réseau que la console. JingleStar ne fait
-qu'**écouter** les changements de la console ; il ne modifie jamais rien sur celle-ci.
+qu'**écouter** les changements de la console ; il ne modifie jamais rien sur celle-ci (voir
+[Écoute stricte](#écoute-stricte-console-en-exploitation)).
 
 ### Se connecter
 
 Dans **Télécommandes**, section **Console Yamaha (réseau)**, saisissez l'**IP** de la console
 (réglée sur la console dans SETUP → NETWORK), laissez le port **49280** et cliquez sur
-**Connecter**. Le modèle de la console s'affiche quand la connexion est établie. Si la console
-est éteinte ou débranchée, JingleStar retente seul toutes les quelques secondes. La ligne
-**Reçu** montre le dernier message envoyé par la console.
+**Connecter**. Si la console est éteinte ou débranchée, JingleStar retente seul toutes les
+quelques secondes. La ligne **Reçu** montre le dernier message envoyé par la console et depuis
+combien de temps.
+
+### Écoute stricte (console en exploitation)
+
+**Écoute stricte**, cochée par défaut, garantit que JingleStar n'écrit **aucun octet** vers la
+console : il ouvre la connexion et ne fait que lire. Décochée, JingleStar envoie seulement deux
+requêtes de lecture, `devinfo productname` (le nom du modèle, affiché alors) à la connexion et
+`devstatus runmode` toutes les 5 secondes, pour détecter une console éteinte. Aucune commande de
+modification (`set`, rappel de scène…) n'existe dans JingleStar.
+
+Avant de brancher l'ordinateur sur le réseau d'une console en service, donnez-lui une adresse IP
+libre de ce réseau (une adresse déjà prise par la console, une tablette ou un rack perturberait
+leur liaison) et branchez-le sur le port réseau de contrôle, jamais sur les ports Dante.
 
 ### Ce qui peut déclencher une action
 

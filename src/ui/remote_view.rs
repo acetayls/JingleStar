@@ -107,6 +107,20 @@ impl RemoteWindow {
                 enabled = true;
             }
         });
+        let mut silent = draft.silent;
+        if ui
+            .checkbox(&mut silent, tr("Écoute stricte : n'envoyer aucune donnée à la console (recommandé)", "Strict listening: send no data to the console (recommended)"))
+            .on_hover_text(tr(
+                "Décoché, JingleStar envoie seulement deux requêtes de lecture : le nom du modèle à la connexion \
+                 (devinfo productname) et l'état de la console toutes les 5 s (devstatus runmode).",
+                "When off, JingleStar only sends two read requests: the model name on connection \
+                 (devinfo productname) and the console status every 5 s (devstatus runmode).",
+            ))
+            .changed()
+        {
+            draft.silent = silent;
+            apply = current.enabled;
+        }
         if apply {
             draft.enabled = enabled;
             let settings = draft.clone();
@@ -117,10 +131,10 @@ impl RemoteWindow {
             }
         }
         ui.label(RichText::new(tr(
-            "QL, CL, TF, DM7, Rivage : port 49280. JingleStar ne fait qu'écouter les changements \
-             (ON de canal, fader, rappel de scène) ; il ne modifie rien sur la console.",
-            "QL, CL, TF, DM7, Rivage: port 49280. JingleStar only listens to changes \
-             (channel ON, fader, scene recall); it never changes anything on the console.",
+            "QL, CL, TF, DM7, Rivage : port 49280. JingleStar écoute les changements \
+             (ON de canal, fader, rappel de scène) et n'envoie jamais de commande de modification.",
+            "QL, CL, TF, DM7, Rivage: port 49280. JingleStar listens to changes \
+             (channel ON, fader, scene recall) and never sends any command that changes a setting.",
         )).small().color(TEXT_DIM));
         if let Some(c) = ctrl.console.as_ref() {
             let st = c.status();
@@ -133,7 +147,8 @@ impl RemoteWindow {
                 ui.label(RichText::new(tr("Connexion…", "Connecting…")).small().color(TEXT_DIM));
             }
             if let Some(line) = st.last_line {
-                ui.label(RichText::new(format!("{} : {line}", tr("Reçu", "Received"))).small().monospace().color(TEXT_DIM));
+                let ago = st.last_rx.map(|t| t.elapsed().as_secs()).unwrap_or(0);
+                ui.label(RichText::new(format!("{} ({} {ago} s) : {line}", tr("Reçu", "Received"), tr("il y a", "ago"))).small().monospace().color(TEXT_DIM));
             }
         }
     }
