@@ -22,6 +22,17 @@ audio cpal, décodage symphonia).
   à la souris (glisser = fréquence et gain, molette = Q, double-clic = activer/désactiver).
 - **Playlist** : un dossier, enchaînement automatique, **aléatoire**, **boucle**, transition
   **fin de fichier** (sans blanc) ou **fondu enchaîné** réglable.
+- **Équilibrage du niveau** des morceaux de la playlist (l'équivalent de « Normalize items » de REAPER),
+  en mode édition : « Équilibrer le niveau ». Chaque morceau est mesuré en arrière-plan puis lu avec
+  le gain qui l'amène à la cible ; les fichiers ne sont jamais modifiés.
+  - Cible au choix : **sonie intégrée** en LUFS (ITU-R BS.1770-4 / EBU R128 : pondération K, blocs
+    de 400 ms, portes -70 LUFS et -10 LU), **crête**, **crête vraie** (dBTP) ou **RMS**.
+    Repères : -23 LUFS (EBU R128, radio/TV), -14 à -16 LUFS (streaming, sonorisation).
+  - **Max** (activé par défaut, -1 dBTP) : le gain d'un morceau est réduit si sa crête vraie dépasserait
+    ce plafond, pour ne jamais saturer.
+  - Le gain appliqué s'affiche sur chaque morceau (orange s'il a été réduit par le plafond) ; au survol,
+    les mesures détaillées. Les mesures sont gardées en cache et refaites si le fichier change.
+- **Volumes en dB** affichés en permanence : faders des modules, volume de chaque jingle, gain des morceaux.
 - **Préférences** : pilote audio (WASAPI, CoreAudio, ALSA, ASIO en option), périphérique,
   taille de buffer, et **anti-veille** pendant la lecture.
 - **Échap** : tout arrêter.
@@ -117,6 +128,7 @@ src/
     engine.rs        périphérique cpal (thread dédié), choix de la config multicanal
     mixer.rs         mixeur temps réel sans allocation : voix, boucles, fondus, EQ, routage par paire
     eq.rs            égaliseur : réglages, coefficients biquad, filtrage
+    loudness.rs      mesure LUFS / crête / crête vraie / RMS, gain de normalisation, cache
     decode.rs        décodage symphonia + rééchantillonnage rubato
     buffer.rs        son en mémoire + aperçu de forme d'onde
   ui/
@@ -126,4 +138,3 @@ src/
     theme.rs         thème sombre façon QLab
 ```
 
-À venir : équilibrage du volume entre les morceaux de la playlist.
