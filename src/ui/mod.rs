@@ -97,6 +97,25 @@ impl JingleStarApp {
                 }
             }
             ui.label(RichText::new(format!("{n}/{MAX_MODULES}")).color(TEXT_DIM));
+            ui.separator();
+            // Largeur des modules : remplir la fenêtre, ou largeur fixe réglable.
+            let width = self.ctrl.project.preferences.module_width;
+            let fill = width.is_none();
+            if ui
+                .selectable_label(fill, tr("⤢ Remplir", "⤢ Fill"))
+                .on_hover_text(tr("Les modules remplissent la fenêtre", "Modules fill the window"))
+                .clicked()
+            {
+                self.ctrl.set_module_width(if fill { Some(460.0) } else { None });
+            }
+            if let Some(mut w) = width {
+                let resp = ui
+                    .add(egui::Slider::new(&mut w, 280.0..=1200.0).show_value(false))
+                    .on_hover_text(tr("Largeur des modules", "Module width"));
+                if resp.changed() {
+                    self.ctrl.set_module_width(Some(w));
+                }
+            }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let panic = egui::Button::new(RichText::new(tr("■  TOUT ARRÊTER", "■  STOP ALL")).strong().color(Color32::WHITE))
@@ -153,15 +172,20 @@ impl JingleStarApp {
 
     fn modules_grid(&mut self, ui: &mut egui::Ui) {
         let n = self.ctrl.project.module_count;
-        let cols = n.min(4);
-        let rows = n.div_ceil(4);
         let area = ui.available_rect_before_wrap();
         let gap = 8.0;
-        // Largeur bornée : un module seul ne s'étire pas sur tout l'écran.
-        let cw = ((area.width() - gap * (cols as f32 - 1.0)) / cols as f32).min(460.0);
+        let width = self.ctrl.project.preferences.module_width;
+        // Remplir : 4 modules par rangée au plus. Largeur fixe : autant qu'il en tient.
+        let cols = match width {
+            None => n.min(4),
+            Some(w) => (((area.width() + gap) / (w + gap)).floor() as usize).clamp(1, n),
+        };
+        let rows = n.div_ceil(cols);
+        let fit = (area.width() - gap * (cols as f32 - 1.0)) / cols as f32;
+        let cw = width.map(|w| w.min(fit)).unwrap_or(fit);
         let rh = (area.height() - gap * (rows as f32 - 1.0)) / rows as f32;
         for m in 0..n {
-            let (r, c) = (m / 4, m % 4);
+            let (r, c) = (m / cols, m % cols);
             let rect = Rect::from_min_size(
                 area.min + vec2(c as f32 * (cw + gap), r as f32 * (rh + gap)),
                 vec2(cw, rh),
@@ -335,18 +359,20 @@ impl JingleStarApp {
             let slot = self.ctrl.jingle(m, s).cloned();
             let pos = self.ctrl.engine.telemetry.position(m, s);
             let rate = self.ctrl.device.as_ref().map(|d| d.sample_rate).unwrap_or(48_000) as f64;
-            let (progress, time_label) = match (&slot, pos) {
+            let (progress, duration_label) = match (&slot, pos) {
                 (Some(j), Some((p, len))) => {
-                    let dur = len as f64 / rate;
-                    let (_, _, _, end) = j.markers(dur);
+                    let (start, _, _, end) = j.markers(len as f64 / rate);
                     let t = p as f64 / rate;
-                    let label = if j.looping { format!("⟳ {}", fmt_time(t)) } else { format!("-{}", fmt_time(end - t)) };
-                    (Some((t / end.max(1e-6)) as f32), Some(label))
+                    let span = (end - start).max(1e-6);
+                    let elapsed = fmt_tenths(t - start);
+                    // En boucle, la fin n'arrive qu'à l'arrêt : on l'indique par ⟳.
+                    let remaining = if j.looping { "⟳".to_string() } else { format!("-{}", fmt_tenths((end - t).max(0.0) + 0.099)) };
+                    (Some((((t - start) / span) as f32, elapsed, remaining)), None)
                 }
                 (Some(j), None) => {
                     let label = self.ctrl.duration_of(&j.path).map(|d| {
                         let (st, _, _, end) = j.markers(d);
-                        fmt_time(end - st)
+                        fmt_tenths(end - st)
                     });
                     (None, label)
                 }
@@ -358,7 +384,7 @@ impl JingleStarApp {
                 color: slot.as_ref().map(|j| j.color).unwrap_or(DEFAULT_COLORS[0]),
                 playing: pos.is_some(),
                 progress,
-                time_label,
+                duration_label,
                 loading: slot.as_ref().map(|j| self.ctrl.is_loading(&j.path)).unwrap_or(false),
                 error: slot.as_ref().map(|j| self.ctrl.load_errors.contains_key(&j.path)).unwrap_or(false),
                 looping: slot.as_ref().map(|j| j.looping).unwrap_or(false),

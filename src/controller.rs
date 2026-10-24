@@ -667,6 +667,11 @@ impl Controller {
         self.mark_dirty();
     }
 
+    pub fn set_module_width(&mut self, width: Option<f32>) {
+        self.project.preferences.module_width = width;
+        self.mark_dirty();
+    }
+
     pub fn set_prevent_sleep(&mut self, on: bool) {
         self.project.preferences.prevent_sleep = on;
         self.mark_dirty();

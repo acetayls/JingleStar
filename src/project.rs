@@ -185,11 +185,13 @@ pub struct Preferences {
     /// Empêche la mise en veille de l'ordinateur pendant la lecture.
     pub prevent_sleep: bool,
     pub language: Lang,
+    /// Largeur des modules en points ; `None` = ils remplissent la fenêtre.
+    pub module_width: Option<f32>,
 }
 
 impl Default for Preferences {
     fn default() -> Self {
-        Self { prevent_sleep: true, language: Lang::Fr }
+        Self { prevent_sleep: true, language: Lang::Fr, module_width: None }
     }
 }
 

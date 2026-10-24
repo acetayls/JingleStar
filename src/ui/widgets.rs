@@ -17,6 +17,12 @@ pub fn fmt_time(secs: f64) -> String {
     }
 }
 
+/// Temps au dixième de seconde, pour les jingles : 0:03.4
+pub fn fmt_tenths(secs: f64) -> String {
+    let t = (secs.max(0.0) * 10.0).floor() / 10.0;
+    format!("{}:{:04.1}", (t / 60.0) as u64, t % 60.0)
+}
+
 pub fn gain_to_db(g: f32) -> f32 {
     if g <= 1e-6 {
         -120.0
@@ -60,8 +66,10 @@ pub struct SlotView<'a> {
     pub name: Option<&'a str>,
     pub color: [u8; 3],
     pub playing: bool,
-    pub progress: Option<f32>,
-    pub time_label: Option<String>,
+    /// Lecture en cours : progression (0..1), temps écoulé et temps restant.
+    pub progress: Option<(f32, String, String)>,
+    /// À l'arrêt : durée de la zone jouée.
+    pub duration_label: Option<String>,
     pub loading: bool,
     pub error: bool,
     pub looping: bool,
@@ -85,23 +93,30 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
         p.text(rect.center(), Align2::CENTER_CENTER, label, FontId::proportional(22.0), TEXT_DIM);
     } else {
         p.rect_filled(rect, r, slot_fill(v.color, v.playing));
-        if let Some(prog) = v.progress {
-            let w = rect.width() * prog.clamp(0.0, 1.0);
-            let pr = Rect::from_min_size(rect.min, vec2(w, rect.height()));
-            p.rect_filled(pr, r, Color32::from_white_alpha(28));
-        }
         // Bandeau de couleur en haut.
         let band = Rect::from_min_size(rect.min, vec2(rect.width(), 4.0));
         p.rect_filled(band, CornerRadius { nw: 5, ne: 5, sw: 0, se: 0 }, rgb(v.color));
 
         let name = v.name.unwrap_or_default();
         let galley = p.layout(name.to_owned(), FontId::proportional(14.0), TEXT, rect.width() - 12.0);
-        let gpos = rect.center() - galley.size() / 2.0 - vec2(0.0, 4.0);
+        let gpos = rect.center() - galley.size() / 2.0 - vec2(0.0, 8.0);
         p.galley(gpos, galley, TEXT);
 
-        if let Some(t) = &v.time_label {
-            let col = if v.playing { Color32::WHITE } else { TEXT_DIM };
-            p.text(rect.center_bottom() - vec2(0.0, 6.0), Align2::CENTER_BOTTOM, t, FontId::monospace(12.0), col);
+        // Barre de lecture, temps écoulé à gauche et restant à droite.
+        let bar = Rect::from_min_max(
+            pos2(rect.left() + 7.0, rect.bottom() - 25.0),
+            pos2(rect.right() - 7.0, rect.bottom() - 21.0),
+        );
+        p.rect_filled(bar, CornerRadius::same(2), Color32::from_black_alpha(110));
+        let text_y = rect.bottom() - 5.0;
+        let font = FontId::monospace(11.0);
+        if let Some((prog, elapsed, remaining)) = &v.progress {
+            let fill = Rect::from_min_size(bar.min, vec2(bar.width() * prog.clamp(0.0, 1.0), bar.height()));
+            p.rect_filled(fill, CornerRadius::same(2), GO);
+            p.text(pos2(bar.left(), text_y), Align2::LEFT_BOTTOM, elapsed, font.clone(), Color32::WHITE);
+            p.text(pos2(bar.right(), text_y), Align2::RIGHT_BOTTOM, remaining, font, Color32::WHITE);
+        } else if let Some(d) = &v.duration_label {
+            p.text(pos2(rect.center().x, text_y), Align2::CENTER_BOTTOM, d, font, TEXT_DIM);
         }
         if v.looping {
             p.text(rect.right_top() + vec2(-6.0, 7.0), Align2::RIGHT_TOP, "🔁", FontId::proportional(11.0), TEXT_DIM);
