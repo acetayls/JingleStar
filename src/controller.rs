@@ -12,6 +12,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use crate::audio::buffer::{db_to_gain, AudioBuffer};
 use crate::audio::decode::decode_file;
 use crate::audio::engine::{AudioEngine, DeviceInfo};
+use crate::i18n::{set_lang, tr, Lang};
 use crate::audio::mixer::{is_playlist_slot, Command, Event, Queued, Region, MAX_MODULES, PLAYLIST_SLOTS};
 use crate::project::{autosave_path, AudioSettings, JingleSlot, ModuleConfig, ModuleMode, Project, Transition, DEFAULT_COLORS};
 
@@ -109,6 +110,7 @@ impl Controller {
         for rt in c.playlists.iter_mut() {
             rt.slot = PLAYLIST_SLOTS[0];
         }
+        set_lang(c.project.preferences.language);
         c.open_device();
         c
     }
@@ -218,7 +220,7 @@ impl Controller {
             self.dirty = false;
             if let Some(p) = autosave_path() {
                 if let Err(e) = self.project.save(&p) {
-                    self.status = Some(format!("Sauvegarde automatique impossible : {e}"));
+                    self.status = Some(format!("{} : {e}", tr("Sauvegarde automatique impossible", "Autosave failed")));
                 }
             }
         }
@@ -270,7 +272,8 @@ impl Controller {
                     Ok(b) => b,
                     Err(e) => {
                         self.status = Some(format!(
-                            "Lecture impossible : {} ({e})",
+                            "{} : {} ({e})",
+                            tr("Lecture impossible", "Cannot play"),
                             done.path.file_name().unwrap_or_default().to_string_lossy()
                         ));
                         // On saute le morceau illisible.
@@ -639,6 +642,12 @@ impl Controller {
         (0..MAX_MODULES).any(|m| (0..crate::audio::mixer::SLOTS).any(|s| self.engine.telemetry.position(m, s).is_some()))
     }
 
+    pub fn set_language(&mut self, lang: Lang) {
+        self.project.preferences.language = lang;
+        set_lang(lang);
+        self.mark_dirty();
+    }
+
     pub fn set_prevent_sleep(&mut self, on: bool) {
         self.project.preferences.prevent_sleep = on;
         self.mark_dirty();
@@ -655,7 +664,7 @@ impl Controller {
                 .app_name("JingleStar")
                 .app_reverse_domain("com.acetayls.jinglestar")
                 .create()
-                .map_err(|e| self.status = Some(format!("Anti-veille indisponible : {e}")))
+                .map_err(|e| self.status = Some(format!("{} : {e}", tr("Anti-veille indisponible", "Sleep prevention unavailable"))))
                 .ok();
         } else if !want {
             self.keep_awake = None;
@@ -670,6 +679,7 @@ impl Controller {
                 self.stop_all();
                 let audio_changed = p.audio != self.project.audio;
                 self.project = p;
+                set_lang(self.project.preferences.language);
                 self.project_path = Some(path);
                 self.playlists = Default::default();
                 self.pending_play.clear();
@@ -680,19 +690,19 @@ impl Controller {
                     self.apply_mixer_params();
                     self.preload_jingles();
                 }
-                self.status = Some("Projet ouvert".into());
+                self.status = Some(tr("Projet ouvert", "Project opened").into());
             }
-            Err(e) => self.status = Some(format!("Ouverture impossible : {e}")),
+            Err(e) => self.status = Some(format!("{} : {e}", tr("Ouverture impossible", "Cannot open"))),
         }
     }
 
     pub fn save_project_as(&mut self, path: PathBuf) {
         match self.project.save(&path) {
             Ok(()) => {
-                self.status = Some(format!("Projet enregistré : {}", path.display()));
+                self.status = Some(format!("{} : {}", tr("Projet enregistré", "Project saved"), path.display()));
                 self.project_path = Some(path);
             }
-            Err(e) => self.status = Some(format!("Enregistrement impossible : {e}")),
+            Err(e) => self.status = Some(format!("{} : {e}", tr("Enregistrement impossible", "Cannot save"))),
         }
     }
 

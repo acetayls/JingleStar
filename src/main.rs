@@ -3,6 +3,7 @@
 
 mod audio;
 mod controller;
+mod i18n;
 mod project;
 mod ui;
 

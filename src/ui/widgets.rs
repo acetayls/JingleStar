@@ -6,6 +6,7 @@ use egui::{
 };
 
 use super::theme::*;
+use crate::i18n::tr;
 
 pub fn fmt_time(secs: f64) -> String {
     let s = secs.max(0.0).round() as u64;
@@ -210,7 +211,7 @@ pub fn waveform_editor(
 
     // Traits de boucle.
     if looping {
-        for (t, label) in [(m.loop_start, "⟲ début"), (m.loop_end, "fin ⟳")] {
+        for (t, label) in [(m.loop_start, tr("⟲ début", "⟲ start")), (m.loop_end, tr("fin ⟳", "end ⟳"))] {
             let x = x_of(t);
             p.line_segment([pos2(x, rect.top()), pos2(x, rect.bottom())], Stroke::new(2.0, ACCENT));
             let align = if label.starts_with('⟲') { Align2::LEFT_TOP } else { Align2::RIGHT_TOP };
@@ -292,7 +293,10 @@ pub fn waveform_editor(
             changed = *m != before;
         }
     }
-    resp.on_hover_text("Glisser les poignées : début (vert), fin (rouge), boucle (orange)");
+    resp.on_hover_text(tr(
+        "Glisser les poignées : début et fin en bas (vert, rouge), boucle en haut (orange)",
+        "Drag the handles: start and end at the bottom (green, red), loop at the top (orange)",
+    ));
     changed
 }
 

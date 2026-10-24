@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::audio::decode::is_audio_file;
+use crate::i18n::Lang;
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 
 pub const DEFAULT_COLORS: [[u8; 3]; 8] = [
@@ -176,11 +177,12 @@ pub struct AudioSettings {
 pub struct Preferences {
     /// Empêche la mise en veille de l'ordinateur pendant la lecture.
     pub prevent_sleep: bool,
+    pub language: Lang,
 }
 
 impl Default for Preferences {
     fn default() -> Self {
-        Self { prevent_sleep: true }
+        Self { prevent_sleep: true, language: Lang::Fr }
     }
 }
 

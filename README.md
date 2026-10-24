@@ -21,6 +21,7 @@ audio cpal, décodage symphonia).
 - **Préférences** : pilote audio (WASAPI, CoreAudio, ALSA, ASIO en option), périphérique,
   taille de buffer, et **anti-veille** pendant la lecture.
 - **Échap** : tout arrêter.
+- **Langue** : français ou anglais (Préférences → Système).
 - Session sauvegardée automatiquement ; projets enregistrables (`.jinglestar`).
 
 Formats lus : WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.

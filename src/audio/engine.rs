@@ -10,6 +10,7 @@ use cpal::{BufferSize, SampleFormat, SizedSample, FromSample, StreamConfig};
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 
 use super::buffer::AudioBuffer;
+use crate::i18n::tr;
 use super::mixer::{Command, Event, Mixer, Telemetry};
 
 #[derive(Debug, Clone)]
@@ -64,7 +65,7 @@ pub fn list_devices(host: Option<&str>) -> Vec<DeviceDesc> {
 fn pick_config(device: &cpal::Device) -> Result<(StreamConfig, SampleFormat), String> {
     let ranges: Vec<_> = device
         .supported_output_configs()
-        .map_err(|e| format!("configurations indisponibles : {e}"))?
+        .map_err(|e| format!("{} : {e}", tr("configurations indisponibles", "no configuration available")))?
         .collect();
     let best = ranges
         .iter()
@@ -88,7 +89,7 @@ fn pick_config(device: &cpal::Device) -> Result<(StreamConfig, SampleFormat), St
         None => device
             .default_output_config()
             .map(|c| (c.config(), c.sample_format()))
-            .map_err(|e| format!("aucune configuration de sortie : {e}")),
+            .map_err(|e| format!("{} : {e}", tr("aucune configuration de sortie", "no output configuration"))),
     }
 }
 
@@ -179,8 +180,8 @@ impl AudioEngine {
         let (tx, rx) = bounded(1);
         self.host_tx
             .send(HostMsg::Open { host, device, buffer_size, reply: tx })
-            .map_err(|_| "moteur audio arrêté".to_string())?;
-        rx.recv().map_err(|_| "moteur audio arrêté".to_string())?
+            .map_err(|_| tr("moteur audio arrêté", "audio engine stopped").to_string())?;
+        rx.recv().map_err(|_| tr("moteur audio arrêté", "audio engine stopped").to_string())?
     }
 }
 
@@ -195,7 +196,7 @@ fn open_stream(
     let device = device_name
         .and_then(|n| host.output_devices().ok()?.find(|d| d.to_string() == n))
         .or_else(|| host.default_output_device())
-        .ok_or_else(|| "aucun périphérique de sortie".to_string())?;
+        .ok_or_else(|| tr("aucun périphérique de sortie", "no output device").to_string())?;
     let (mut config, format) = pick_config(&device)?;
     let info = DeviceInfo {
         host: host.id().name().to_string(),
@@ -218,7 +219,7 @@ fn open_stream(
             SampleFormat::I32 => build_typed::<i32>(&device, config, mixer, on_err),
             SampleFormat::U16 => build_typed::<u16>(&device, config, mixer, on_err),
             SampleFormat::U8 => build_typed::<u8>(&device, config, mixer, on_err),
-            other => Err(format!("format d'échantillon non géré : {other:?}")),
+            other => Err(format!("{} : {other:?}", tr("format d'échantillon non géré", "unsupported sample format"))),
         }
     };
 
@@ -233,7 +234,7 @@ fn open_stream(
         }
         None => build(config)?,
     };
-    stream.play().map_err(|e| format!("démarrage du flux impossible : {e}"))?;
+    stream.play().map_err(|e| format!("{} : {e}", tr("démarrage du flux impossible", "cannot start stream")))?;
     Ok((stream, info))
 }
 
@@ -263,5 +264,5 @@ where
             on_err,
             None,
         )
-        .map_err(|e| format!("ouverture du flux impossible : {e}"))
+        .map_err(|e| format!("{} : {e}", tr("ouverture du flux impossible", "cannot open stream")))
 }
