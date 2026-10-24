@@ -8,6 +8,7 @@ use crate::audio::decode::is_audio_file;
 use crate::audio::eq::EqSettings;
 use crate::audio::loudness::NormalizeSettings;
 use crate::i18n::Lang;
+use crate::remote::Mapping;
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 
 pub const DEFAULT_COLORS: [[u8; 3]; 8] = [
@@ -192,12 +193,31 @@ pub struct Preferences {
     /// Largeur des modules en points ; `None` = ils remplissent la fenêtre.
     pub module_width: Option<f32>,
     pub osc: OscSettings,
+    pub midi: MidiSettings,
+    /// Correspondances des télécommandes (MIDI, console) vers les actions.
+    pub mappings: Vec<Mapping>,
 }
 
 impl Default for Preferences {
     fn default() -> Self {
-        Self { prevent_sleep: true, language: Lang::Fr, module_width: None, osc: OscSettings::default() }
+        Self {
+            prevent_sleep: true,
+            language: Lang::Fr,
+            module_width: None,
+            osc: OscSettings::default(),
+            midi: MidiSettings::default(),
+            mappings: Vec::new(),
+        }
     }
+}
+
+/// Entrée MIDI.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+pub struct MidiSettings {
+    pub enabled: bool,
+    /// Nom du port ; `None` = le premier disponible.
+    pub port: Option<String>,
 }
 
 /// Pilotage à distance : commandes OSC (UDP) et description OSCQuery (HTTP).

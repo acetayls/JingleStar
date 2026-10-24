@@ -25,6 +25,7 @@ Supported formats: WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 - **＋ Add module**: adds a module at the end (8 maximum). The counter shows the number of modules.
 - **⤢ Fill**: modules share the window width (4 per row at most). Turn it off to set a fixed width with the slider that appears; each row then holds as many modules as fit.
 - **Open…** / **Save as…**: opens or saves a project (`.jinglestar` file).
+- **Remote**: MIDI control, mappings and learn mode. See [MIDI control](#midi-control).
 - **⚙ Preferences**: audio, language, sleep prevention and OSC.
 - **? Help**: opens this help (**F1** key).
 - **■ STOP ALL**: stops every sound in every module (**Esc** key).
@@ -306,6 +307,41 @@ oscsend localhost 8000 /jinglestar/module/1/jingle/3/play
 oscsend localhost 8000 /jinglestar/module/2/volume f -6
 curl http://localhost:8001/jinglestar/module/2/volume?VALUE
 ```
+
+## MIDI control
+
+JingleStar can be driven by a keyboard, a pad or fader controller, or a console's MIDI output
+(for example a Yamaha QL through a USB-MIDI interface). Notes, CCs and program changes trigger
+the same actions as OSC.
+
+### Connecting
+
+Click **Remote** in the top bar, tick **Enable MIDI input** and pick the port (or “First
+available port”). Settings apply immediately. If the controller is unplugged, JingleStar
+reconnects it on its own when it comes back; **⟳** rereads the port list.
+
+### Learning a mapping
+
+1. Click **＋ Add and learn**: a new line appears, waiting.
+2. Press the key or pad, or move the controller's fader: it is assigned to the line.
+3. Choose the action, the module and, for a jingle, its number.
+
+**Learn** on an existing line reassigns it. A new line copies the previous line's action, on
+the next jingle: for a 12-pad controller, repeat **＋ Add and learn** then the next pad.
+**Last message received** shows what comes in, to check the connection.
+
+### How messages act
+
+| Message | Buttons (play, stop, next…) | Volumes | Shuffle, loop, auto-advance | Track no. |
+|---|---|---|---|---|
+| Note | on press (release is ignored) | velocity | toggles | — |
+| CC | when the value reaches 64 or more | 0 → minimum, 127 → maximum | 64 or more = on | value |
+| Program change | on every message | — | toggles | program number |
+
+For **Playlist: track no.** on a program change, every program change on the learned channel
+picks the track: program 1 → track 1, program 2 → track 2…
+
+Jingle actions are ignored when the module is in playlist mode, and vice versa.
 
 ## Keyboard and mouse shortcuts
 

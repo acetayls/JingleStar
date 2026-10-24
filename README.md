@@ -37,6 +37,8 @@ audio cpal, décodage symphonia).
   taille de buffer, et **anti-veille** pendant la lecture.
 - **Échap** : tout arrêter.
 - **Pilotage OSC** avec description **OSCQuery** et annonce mDNS (voir plus bas).
+- **Pilotage MIDI** : notes, CC et program change affectés aux actions, avec mode apprendre
+  (bouton **Télécommandes**, voir l'aide intégrée).
 - **Langue** : français ou anglais (Préférences → Système).
 - **Aide intégrée** (bouton « ? Aide » ou **F1**), dans la langue choisie. Le manuel est aussi dans
   [`docs/aide.md`](docs/aide.md) (français) et [`docs/help.md`](docs/help.md) (anglais).

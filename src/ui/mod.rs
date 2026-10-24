@@ -3,6 +3,7 @@
 mod theme;
 mod eq_view;
 mod help;
+mod remote_view;
 mod widgets;
 
 use std::path::PathBuf;
@@ -43,6 +44,7 @@ pub struct JingleStarApp {
     module_eq: Option<usize>,
     settings: Option<SettingsDraft>,
     help: help::HelpWindow,
+    remote: remote_view::RemoteWindow,
     /// Niveaux affichés (dB), avec retombée progressive.
     meters: [[f32; 2]; MAX_MODULES],
     last_frame: Instant,
@@ -61,6 +63,7 @@ impl JingleStarApp {
             module_eq: None,
             settings: None,
             help: help::HelpWindow::default(),
+            remote: remote_view::RemoteWindow::default(),
             meters: [[-120.0; 2]; MAX_MODULES],
             last_frame: Instant::now(),
             drop_targets: Vec::new(),
@@ -131,6 +134,13 @@ impl JingleStarApp {
                 ui.add_space(8.0);
                 if ui.selectable_label(self.help.open, tr("? Aide", "? Help")).on_hover_text("F1").clicked() {
                     self.help.toggle();
+                }
+                if ui
+                    .selectable_label(self.remote.open, tr("Télécommandes", "Remote"))
+                    .on_hover_text(tr("Pilotage MIDI : correspondances et mode apprendre", "MIDI control: mappings and learn mode"))
+                    .clicked()
+                {
+                    self.remote.toggle();
                 }
                 if ui.button(tr("⚙ Préférences", "⚙ Preferences")).clicked() {
                     self.open_settings();
@@ -1100,6 +1110,7 @@ impl eframe::App for JingleStarApp {
         self.module_eq_window(&ctx);
         self.settings_window(&ctx);
         self.help.show(&ctx);
+        self.remote.show(&ctx, &mut self.ctrl);
         self.handle_drops(&ctx);
 
         let busy = self.ctrl.anything_playing() || self.meters.iter().flatten().any(|d| *d > -100.0);

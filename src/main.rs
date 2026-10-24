@@ -4,8 +4,10 @@
 mod audio;
 mod controller;
 mod i18n;
+mod midi;
 mod osc;
 mod project;
+mod remote;
 mod ui;
 
 fn main() -> eframe::Result {

@@ -26,6 +26,7 @@ Formats lus : WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 - **＋ Ajouter un module** : ajoute un module à la fin (8 au maximum). Le compteur indique le nombre de modules.
 - **⤢ Remplir** : les modules se partagent la largeur de la fenêtre (4 par rangée au plus). Décochez-le pour régler une largeur fixe avec le curseur qui apparaît ; il y a alors autant de modules par rangée qu'il en tient.
 - **Ouvrir…** / **Enregistrer sous…** : ouvre ou enregistre un projet (fichier `.jinglestar`).
+- **Télécommandes** : pilotage MIDI, correspondances et mode apprendre. Voir [Pilotage MIDI](#pilotage-midi).
 - **⚙ Préférences** : audio, langue, anti-veille et OSC.
 - **? Aide** : ouvre cette aide (touche **F1**).
 - **■ TOUT ARRÊTER** : arrête tous les sons de tous les modules (touche **Échap**).
@@ -310,6 +311,43 @@ oscsend localhost 8000 /jinglestar/module/1/jingle/3/play
 oscsend localhost 8000 /jinglestar/module/2/volume f -6
 curl http://localhost:8001/jinglestar/module/2/volume?VALUE
 ```
+
+## Pilotage MIDI
+
+JingleStar se pilote avec un clavier, un contrôleur à pads ou à faders, ou la sortie MIDI d'une
+console (par exemple une Yamaha QL avec une interface USB-MIDI). Les notes, les CC et les
+program change déclenchent les mêmes actions que l'OSC.
+
+### Brancher
+
+Cliquez sur **Télécommandes** dans la barre du haut, cochez **Activer l'entrée MIDI** et
+choisissez le port (ou « Premier port disponible »). Les réglages s'appliquent tout de suite.
+Si le contrôleur est débranché, JingleStar le reconnecte seul quand il revient ; **⟳** relit la
+liste des ports.
+
+### Apprendre une correspondance
+
+1. Cliquez sur **＋ Ajouter et apprendre** : une ligne apparaît, en attente.
+2. Appuyez sur la touche, le pad, ou bougez le fader du contrôleur : il est affecté à la ligne.
+3. Choisissez l'action, le module et, pour un jingle, son numéro.
+
+**Apprendre** sur une ligne existante la réaffecte. Une nouvelle ligne reprend l'action de la
+précédente au jingle suivant : pour un pad de 12 touches, enchaînez **＋ Ajouter et apprendre**
+puis la touche suivante. **Dernier message reçu** montre ce qui arrive, pour vérifier un
+branchement.
+
+### Comment les messages agissent
+
+| Message | Boutons (lancer, arrêter, suivant…) | Volumes | Aléatoire, boucle, enchaînement | Morceau n° |
+|---|---|---|---|---|
+| Note | à l'appui (le relâché est ignoré) | vélocité | bascule | — |
+| CC | quand la valeur passe à 64 ou plus | 0 → minimum, 127 → maximum | 64 ou plus = activé | valeur |
+| Program change | à chaque message | — | bascule | numéro du program |
+
+Pour **Playlist : morceau n°** sur un program change, tous les program change du canal appris
+choisissent le morceau : program 1 → morceau 1, program 2 → morceau 2…
+
+Les actions de jingle sont ignorées si le module est en mode playlist, et inversement.
 
 ## Raccourcis clavier et souris
 

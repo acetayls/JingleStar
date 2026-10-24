@@ -16,9 +16,11 @@ use crate::audio::engine::{AudioEngine, DeviceInfo};
 use crate::audio::eq::{EqCoeffs, EqSettings};
 use crate::audio::mixer::{is_playlist_slot, Command, Event, Queued, Region, MAX_MODULES, PLAYLIST_SLOTS};
 use crate::i18n::{set_lang, tr, Lang};
+use crate::midi::MidiListener;
+use crate::remote::{Flag, InputEvent, Mapping};
 use crate::osc::{self, OscCommand, OscServer};
 use crate::project::{
-    autosave_path, loudness_cache_path, AudioSettings, JingleSlot, ModuleConfig, ModuleMode, OscSettings, Project, Transition, DEFAULT_COLORS,
+    autosave_path, loudness_cache_path, AudioSettings, JingleSlot, MidiSettings, ModuleConfig, ModuleMode, OscSettings, Project, Transition, DEFAULT_COLORS,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -130,6 +132,14 @@ pub struct Controller {
     /// Pilotage OSC, s'il est activé dans les préférences.
     pub osc: Option<OscServer>,
     last_osc_publish: Instant,
+    /// Entrée MIDI ouverte, ou l'erreur d'ouverture.
+    pub midi: Option<MidiListener>,
+    pub midi_error: Option<String>,
+    midi_retry: Instant,
+    /// Correspondance en attente d'apprentissage.
+    pub learn: Option<usize>,
+    /// Dernier message reçu d'une télécommande, pour les préférences.
+    pub last_input: Option<String>,
 }
 
 impl Controller {
@@ -172,6 +182,11 @@ impl Controller {
             analysis_done,
             osc: None,
             last_osc_publish: Instant::now(),
+            midi: None,
+            midi_error: None,
+            midi_retry: Instant::now(),
+            learn: None,
+            last_input: None,
         };
         for rt in c.playlists.iter_mut() {
             rt.slot = PLAYLIST_SLOTS[0];
@@ -179,6 +194,7 @@ impl Controller {
         set_lang(c.project.preferences.language);
         c.open_device();
         c.restart_osc();
+        c.restart_midi();
         c.analyze_playlists();
         c
     }
@@ -291,6 +307,7 @@ impl Controller {
             self.device_error = Some(err);
         }
         self.poll_osc();
+        self.poll_remote();
         self.update_keep_awake();
         if self.dirty && self.last_change.elapsed() > Duration::from_millis(800) {
             self.dirty = false;
@@ -923,7 +940,7 @@ impl Controller {
         }
         let changed = !commands.is_empty();
         for cmd in commands {
-            self.handle_osc(cmd);
+            self.handle_command("OSC", cmd);
         }
         if changed || self.last_osc_publish.elapsed() > Duration::from_millis(200) {
             self.last_osc_publish = Instant::now();
@@ -934,7 +951,8 @@ impl Controller {
         }
     }
 
-    fn handle_osc(&mut self, cmd: OscCommand) {
+    /// Exécute une commande reçue de l'OSC ou d'une télécommande (`source` sert aux messages).
+    fn handle_command(&mut self, source: &str, cmd: OscCommand) {
         let n = self.project.module_count;
         let mode = |c: &Self, m: usize| c.project.modules[m].mode;
         match cmd {
@@ -955,7 +973,115 @@ impl Controller {
             OscCommand::PlaylistShuffle(m, on) if m < n => self.update_playlist(m, |p| p.shuffle = on),
             OscCommand::PlaylistLoop(m, on) if m < n => self.update_playlist(m, |p| p.looping = on),
             OscCommand::PlaylistAutoAdvance(m, on) if m < n => self.update_playlist(m, |p| p.auto_advance = on),
-            other => self.status = Some(format!("OSC : {} ({other:?})", tr("commande ignorée", "command ignored"))),
+            other => self.status = Some(format!("{source} : {} ({other:?})", tr("commande ignorée", "command ignored"))),
+        }
+    }
+
+    // ------------------------------------------------------ MIDI et console
+
+    pub fn set_midi_settings(&mut self, settings: MidiSettings) {
+        if self.project.preferences.midi != settings {
+            self.project.preferences.midi = settings;
+            self.mark_dirty();
+            self.restart_midi();
+        }
+    }
+
+    /// (Ré)ouvre le port MIDI selon les préférences.
+    pub fn restart_midi(&mut self) {
+        self.midi = None;
+        self.midi_error = None;
+        self.midi_retry = Instant::now();
+        let settings = self.project.preferences.midi.clone();
+        if !settings.enabled {
+            return;
+        }
+        match MidiListener::open(settings.port.as_deref(), self.repaint.clone()) {
+            Ok(l) => self.midi = Some(l),
+            Err(e) => self.midi_error = Some(e),
+        }
+    }
+
+    pub fn add_mapping(&mut self, mapping: Mapping) {
+        self.project.preferences.mappings.push(mapping);
+        self.mark_dirty();
+    }
+
+    pub fn update_mapping(&mut self, i: usize, mapping: Mapping) {
+        if let Some(m) = self.project.preferences.mappings.get_mut(i) {
+            if *m != mapping {
+                *m = mapping;
+                self.mark_dirty();
+            }
+        }
+    }
+
+    pub fn remove_mapping(&mut self, i: usize) {
+        if i < self.project.preferences.mappings.len() {
+            self.project.preferences.mappings.remove(i);
+            self.learn = match self.learn {
+                Some(l) if l == i => None,
+                Some(l) if l > i => Some(l - 1),
+                other => other,
+            };
+            self.mark_dirty();
+        }
+    }
+
+    fn poll_remote(&mut self) {
+        let mut events = Vec::new();
+        if let Some(l) = self.midi.as_ref() {
+            events.extend(l.events.try_iter().map(|e| ("MIDI", e)));
+        }
+        // Port débranché puis rebranché : on retente régulièrement.
+        if self.project.preferences.midi.enabled && self.midi_retry.elapsed() > Duration::from_secs(3) {
+            self.midi_retry = Instant::now();
+            let ports = crate::midi::port_names();
+            match self.midi.as_ref().map(|l| l.port.clone()) {
+                Some(port) if !ports.contains(&port) => {
+                    self.midi = None;
+                    self.midi_error = Some(format!("{} : {port}", tr("port MIDI débranché", "MIDI port unplugged")));
+                }
+                None if !ports.is_empty() => self.restart_midi(),
+                _ => {}
+            }
+        }
+        for (source, ev) in events {
+            self.on_input(source, ev);
+        }
+    }
+
+    fn on_input(&mut self, source: &str, ev: InputEvent) {
+        self.last_input = Some(format!("{source} · {}", ev.label()));
+        if let Some(i) = self.learn {
+            if ev.learnable() {
+                if let Some(m) = self.project.preferences.mappings.get(i) {
+                    let learned = Mapping { trigger: ev.trigger(), ..m.clone() };
+                    self.update_mapping(i, learned);
+                }
+                self.learn = None;
+            }
+            return;
+        }
+        let commands: Vec<OscCommand> = self
+            .project
+            .preferences
+            .mappings
+            .iter()
+            .filter(|m| m.matches(&ev))
+            .filter_map(|m| {
+                m.command(&ev, |module, flag| {
+                    let pl = &self.project.modules[module].playlist;
+                    match flag {
+                        Flag::Shuffle => pl.shuffle,
+                        Flag::Loop => pl.looping,
+                        Flag::AutoAdvance => pl.auto_advance,
+                    }
+                })
+            })
+            .collect();
+        for cmd in commands {
+            self.handle_command(source, cmd);
         }
     }
 
@@ -1003,11 +1129,16 @@ impl Controller {
                 self.stop_all();
                 let audio_changed = p.audio != self.project.audio;
                 let osc_changed = p.preferences.osc != self.project.preferences.osc;
+                let midi_changed = p.preferences.midi != self.project.preferences.midi;
                 self.project = p;
                 set_lang(self.project.preferences.language);
                 if osc_changed {
                     self.restart_osc();
                 }
+                if midi_changed {
+                    self.restart_midi();
+                }
+                self.learn = None;
                 self.project_path = Some(path);
                 self.playlists = Default::default();
                 self.pending_play.clear();
