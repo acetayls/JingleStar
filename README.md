@@ -25,6 +25,7 @@ audio cpal, décodage symphonia).
 - **Préférences** : pilote audio (WASAPI, CoreAudio, ALSA, ASIO en option), périphérique,
   taille de buffer, et **anti-veille** pendant la lecture.
 - **Échap** : tout arrêter.
+- **Pilotage OSC** avec description **OSCQuery** et annonce mDNS (voir plus bas).
 - **Langue** : français ou anglais (Préférences → Système).
 - Session sauvegardée automatiquement ; projets enregistrables (`.jinglestar`).
 
@@ -52,6 +53,58 @@ Télécharger le SDK ASIO de Steinberg, définir `CPAL_ASIO_DIR` vers son dossie
 cargo run --release --features asio
 ```
 
+## Pilotage OSC et OSCQuery
+
+À activer dans **Préférences → OSC** puis « Appliquer ». Réglages : port UDP de réception
+(8000 par défaut), préfixe des adresses (`/jinglestar` par défaut, peut être vide), serveur
+OSCQuery et son port HTTP (8001), annonce mDNS / Bonjour et nom annoncé. Les préférences
+affichent l'adresse IP et les ports en écoute.
+
+Les numéros de module (1 à 8), de jingle (1 à 12) et de morceau commencent à 1. Les adresses
+ci-dessous sont données avec le préfixe par défaut.
+
+| Adresse | Argument | Effet |
+|---|---|---|
+| `/jinglestar/stop_all` | — | Arrête tout |
+| `/jinglestar/module/<m>/stop` | — | Arrête le module |
+| `/jinglestar/module/<m>/volume` | float, dB (-60 à +10) | Volume du module |
+| `/jinglestar/module/<m>/mode` | `jingle` ou `playlist` | Change le mode du module |
+| `/jinglestar/module/<m>/jingle/<j>/play` | — | Lance le jingle depuis le début (le relance s'il joue) |
+| `/jinglestar/module/<m>/jingle/<j>/stop` | — | Arrête le jingle |
+| `/jinglestar/module/<m>/jingle/<j>/toggle` | — | Lance ou arrête, comme un clic |
+| `/jinglestar/module/<m>/jingle/<j>/volume` | float, dB (-40 à +10) | Volume du jingle |
+| `/jinglestar/module/<m>/playlist/play` | — ou int | Lecture (au morceau sélectionné, ou au morceau n°) |
+| `/jinglestar/module/<m>/playlist/track` | int | Lance le morceau n° |
+| `/jinglestar/module/<m>/playlist/stop` | — | Arrête la playlist |
+| `/jinglestar/module/<m>/playlist/next` | — | Morceau suivant |
+| `/jinglestar/module/<m>/playlist/previous` | — | Morceau précédent |
+| `/jinglestar/module/<m>/playlist/shuffle` | bool | Aléatoire |
+| `/jinglestar/module/<m>/playlist/loop` | bool | Boucle sur la liste |
+| `/jinglestar/module/<m>/playlist/auto_advance` | bool | Enchaînement automatique |
+
+- Les déclencheurs (`play`, `stop`, `toggle`, `next`…) partent sans argument ou avec une valeur
+  non nulle : un bouton qui envoie 1 à l'appui puis 0 au relâché ne déclenche qu'une fois.
+- Les booléens acceptent `T`/`F`, un entier ou un float (≥ 0,5 = vrai), ou `true`/`false`/`on`/`off`.
+- Les commandes de jingle n'agissent que sur un module en mode Jingles, celles de playlist
+  sur un module en mode Playlist. Les paquets groupés (bundles) sont acceptés.
+
+**OSCQuery** : `http://<ip>:8001/` renvoie l'arborescence en JSON (types, accès, plages et
+valeurs courantes), `/?HOST_INFO` les informations du serveur, et `<chemin>?VALUE` la valeur
+d'un nœud. L'arborescence suit l'état du projet : nombre de modules, mode de chacun, nom des
+jingles. En lecture seule on y trouve aussi `name`, `jingle/<j>/name`, `jingle/<j>/playing`,
+`playlist/playing` et `playlist/tracks`. Le service est annoncé en `_oscjson._tcp` (et
+`_osc._udp`), ce qui permet à Chataigne, TouchOSC, Vezér ou Ossia Score de le trouver seuls.
+Les notifications en direct (WebSocket `LISTEN`) ne sont pas proposées : les clients relisent
+les valeurs en HTTP.
+
+Exemple avec `oscsend` (liblo) :
+
+```sh
+oscsend localhost 8000 /jinglestar/module/1/jingle/3/play
+oscsend localhost 8000 /jinglestar/module/2/volume f -6
+curl http://localhost:8001/jinglestar/module/2/volume?VALUE
+```
+
 ## Architecture
 
 ```
@@ -59,6 +112,7 @@ src/
   main.rs            fenêtre eframe
   controller.rs      logique : projet, chargement des sons, jingles, playlists, anti-veille
   project.rs         modèle sauvegardé (JSON)
+  osc.rs             commandes OSC (UDP), serveur OSCQuery (HTTP), annonce mDNS
   audio/
     engine.rs        périphérique cpal (thread dédié), choix de la config multicanal
     mixer.rs         mixeur temps réel sans allocation : voix, boucles, fondus, EQ, routage par paire
