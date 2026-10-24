@@ -152,7 +152,7 @@ src/
     help.rs          fenêtre d'aide (affiche docs/aide.md ou docs/help.md)
     theme.rs         thème sombre façon QLab, police du logo
 assets/
-  icons/             icônes d'application (.ico Windows, .icns macOS, PNG)
+  icons/             icônes d'application (.ico Windows avec miniatures 16 à 48 px, .icns macOS, PNG)
   logo/              logo et symbole en SVG, versions claire et sombre
   fonts/             Barlow Condensed (logotype, licence OFL)
 build.rs             icône de l'exécutable Windows
