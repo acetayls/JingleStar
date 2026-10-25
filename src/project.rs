@@ -267,13 +267,11 @@ pub struct ConsoleSettings {
     /// Adresse IP de la console.
     pub host: String,
     pub port: u16,
-    /// Écoute stricte : aucun octet n'est envoyé à la console.
-    pub silent: bool,
 }
 
 impl Default for ConsoleSettings {
     fn default() -> Self {
-        Self { enabled: false, host: "192.168.0.128".into(), port: 49280, silent: true }
+        Self { enabled: false, host: "192.168.0.128".into(), port: 49280 }
     }
 }
 

@@ -444,13 +444,11 @@ console in SETUP → NETWORK), keep port **49280** and click **Connect**. If the
 or unplugged, JingleStar retries every few seconds on its own. The **Received** line shows the
 last message sent by the console and how long ago.
 
-### Strict listening (console in use)
+### Console in use
 
-**Strict listening**, on by default, guarantees that JingleStar writes **not a single byte** to
-the console: it opens the connection and only reads. When off, JingleStar only sends two read
-requests, `devinfo productname` (the model name, then displayed) on connection and
-`devstatus runmode` every 5 seconds, to detect a console that went off. JingleStar contains no
-command that changes anything (`set`, scene recall…).
+JingleStar writes **not a single byte** to a Yamaha console: it opens the connection and only
+reads. JingleStar contains no command at all for these consoles, neither changes (`set`, scene
+recall…) nor even information requests.
 
 Before plugging the computer into the network of a console in use, give it a free IP address on
 that network (an address already used by the console, a tablet or a stagebox would disturb
