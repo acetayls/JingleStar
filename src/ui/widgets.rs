@@ -45,18 +45,23 @@ pub fn gain_to_db(g: f32) -> f32 {
 }
 
 /// Lit une valeur en dB tapée au clavier : « -6 », « +3,5 », « -4.5 dB », « -inf ».
-/// `-inf` donne le bas de la plage ; la valeur est ramenée dans la plage.
+/// Sans signe, la valeur est négative (« 6 » donne -6 dB) : on baisse bien plus souvent
+/// qu'on ne monte ; « +3 » pour monter. `-inf` donne le bas de la plage ; la valeur est
+/// ramenée dans la plage.
 pub fn parse_db(text: &str, range: &RangeInclusive<f32>) -> Option<f32> {
     let t = text.trim().to_lowercase().replace(',', ".").replace(' ', "");
     let t = t.strip_suffix("db").unwrap_or(&t);
     let v = match t {
         "-inf" | "-∞" | "inf" | "∞" => *range.start(),
-        _ => t.parse::<f32>().ok().filter(|v| v.is_finite())?,
+        _ => {
+            let v = t.parse::<f32>().ok().filter(|v| v.is_finite())?;
+            if t.starts_with('+') || t.starts_with('-') { v } else { -v.abs() }
+        }
     };
     Some(v.clamp(*range.start(), *range.end()))
 }
 
-/// Valeur en dB affichée en texte. Un double-clic ouvre un champ de saisie :
+/// Valeur en dB affichée en texte. Un clic ouvre un champ de saisie :
 /// Entrée valide, Échap (ou un clic ailleurs) annule. Renvoie la valeur validée.
 #[allow(clippy::too_many_arguments)]
 pub fn db_value(
@@ -138,12 +143,15 @@ pub fn db_value_shown(
     if resp.hovered() {
         ui.painter().rect_stroke(rect, CornerRadius::same(2), Stroke::new(1.0, Color32::from_white_alpha(40)), StrokeKind::Inside);
     }
-    let hint = tr("Double-clic pour saisir une valeur", "Double-click to type a value");
+    let hint = tr(
+        "Clic pour saisir une valeur (sans signe = négatif : 6 donne -6 dB, +3 pour monter)",
+        "Click to type a value (no sign = negative: 6 gives -6 dB, +3 to go up)",
+    );
     let resp = resp.on_hover_text(match tip {
         Some(t) => format!("{t}\n\n{hint}"),
         None => hint.to_string(),
     });
-    if resp.double_clicked() {
+    if resp.clicked() || resp.double_clicked() {
         let start = if db <= floor { "-inf".to_string() } else { format!("{db:.1}") };
         ui.data_mut(|d| d.insert_temp(id, start));
     }
@@ -243,8 +251,6 @@ pub struct SlotView<'a> {
     pub drop_hover: bool,
     /// Égaliseur actif sur ce jingle.
     pub eq: bool,
-    /// Volume du jingle (dB), toujours affiché.
-    pub volume_db: f32,
 }
 
 pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
@@ -292,12 +298,17 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
             p.text(pos2(rect.center().x, text_y), Align2::CENTER_BOTTOM, d, font, TEXT_DIM);
         }
         // Le volume en haut à droite est dessiné (et modifiable) par `jingle_volume`.
+        // En haut à gauche, après le numéro : boucle et égaliseur, bien visibles.
+        let mut x = rect.left() + 6.0 + p.layout_no_wrap(format!("{}", v.index + 1), FontId::monospace(11.0), TEXT).size().x + 6.0;
         if v.looping {
-            let w = p.layout_no_wrap(fmt_db(v.volume_db, -40.0), FontId::monospace(10.0), TEXT).size().x;
-            p.text(rect.right_top() + vec2(-6.0 - w - 7.0, 7.0), Align2::RIGHT_TOP, "🔁", FontId::proportional(11.0), TEXT_DIM);
+            let r = p.text(pos2(x, rect.top() + 5.0), Align2::LEFT_TOP, "🔁", FontId::proportional(14.0), ACCENT);
+            x = r.right() + 5.0;
         }
         if v.eq {
-            p.text(rect.left_bottom() + vec2(6.0, -5.0), Align2::LEFT_BOTTOM, "EQ", FontId::proportional(9.0), ACCENT);
+            let g = p.layout_no_wrap("EQ".into(), FontId::proportional(10.0), Color32::BLACK);
+            let badge = Rect::from_min_size(pos2(x, rect.top() + 7.0), g.size() + vec2(6.0, 2.0));
+            p.rect_filled(badge, CornerRadius::same(2), ACCENT);
+            p.galley(badge.min + vec2(3.0, 1.0), g, Color32::BLACK);
         }
         if v.loading {
             p.text(rect.right_bottom() - vec2(6.0, 5.0), Align2::RIGHT_BOTTOM, "…", FontId::proportional(14.0), TEXT_DIM);
@@ -306,7 +317,9 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
             p.text(rect.right_bottom() - vec2(6.0, 5.0), Align2::RIGHT_BOTTOM, "⚠", FontId::proportional(14.0), STOP);
         }
         let stroke = if v.playing {
-            Stroke::new(2.0, GO)
+            // Cadre vert épais et halo : le jingle qui joue se repère de loin.
+            p.rect_stroke(rect.expand(1.5), CornerRadius::same(6), Stroke::new(3.0, GO.gamma_multiply(0.35)), StrokeKind::Outside);
+            Stroke::new(3.0, GO)
         } else if hovered {
             Stroke::new(1.0, Color32::from_white_alpha(90))
         } else {
@@ -571,13 +584,34 @@ pub fn waveform_editor(
     // Forme d'onde.
     let mid = wave.center().y;
     let cols = wave.width().max(1.0) as usize;
+    // Les fondus se voient sur la forme d'onde : l'amplitude jouée est dessinée avec le gain
+    // du fondu (linéaire, comme le mixeur), le son d'origine reste en filigrane derrière.
+    let fade_gain = |t: f64| {
+        let mut g = 1.0;
+        if *fade_in > 0.0 && t < m.start + *fade_in {
+            g *= ((t - m.start) / *fade_in).clamp(0.0, 1.0);
+        }
+        if !looping && *fade_out > 0.0 && t > m.end - *fade_out {
+            g *= ((m.end - t) / *fade_out).clamp(0.0, 1.0);
+        }
+        g as f32
+    };
     for (c, peak) in peaks(v0, v1, cols).into_iter().enumerate() {
         let x = wave.left() + c as f32 + 0.5;
         let t = t_of(x);
         let inside = t >= m.start && t <= m.end;
         let col = if inside { Color32::from_rgb(0x7f, 0xb8, 0xe8) } else { Color32::from_rgb(0x3a, 0x48, 0x55) };
         let h = peak.min(1.0) * wave.height() / 2.0;
-        p.line_segment([pos2(x, mid - h), pos2(x, mid + h)], Stroke::new(1.0, col));
+        if inside {
+            let g = fade_gain(t);
+            if g < 1.0 {
+                p.line_segment([pos2(x, mid - h), pos2(x, mid + h)], Stroke::new(1.0, col.gamma_multiply(0.22)));
+            }
+            let h = h * g;
+            p.line_segment([pos2(x, mid - h), pos2(x, mid + h)], Stroke::new(1.0, col));
+        } else {
+            p.line_segment([pos2(x, mid - h), pos2(x, mid + h)], Stroke::new(1.0, col));
+        }
     }
 
     // Parties exclues assombries.
@@ -724,13 +758,6 @@ pub fn waveform_editor(
 
     // Zoom : bouton pour tout afficher (ou double-clic) et repère de la partie visible.
     if zoomed {
-        let bar = Rect::from_min_max(pos2(rect.left(), rect.bottom() - 3.0), rect.right_bottom());
-        let part = Rect::from_x_y_ranges(
-            rect.left() + (v0 / duration) as f32 * rect.width()..=rect.left() + (v1 / duration) as f32 * rect.width(),
-            bar.y_range(),
-        );
-        p.rect_filled(bar, CornerRadius::ZERO, Color32::from_white_alpha(20));
-        p.rect_filled(part, CornerRadius::ZERO, Color32::from_white_alpha(110));
         let btn = Rect::from_min_size(rect.right_top() + vec2(-86.0, 16.0), vec2(80.0, 18.0));
         if ui.place(btn, egui::Button::new(egui::RichText::new(tr("Tout afficher", "Show all")).small())).clicked() {
             view = (0.0, duration);
@@ -738,6 +765,27 @@ pub fn waveform_editor(
     }
     if dbl_empty {
         view = (0.0, duration);
+    }
+    // Barre de défilement sous la forme d'onde : la partie visible se glisse le long du son,
+    // un clic à côté y amène la vue.
+    let (sb, sb_resp) = ui.allocate_exact_size(vec2(rect.width(), 10.0), Sense::click_and_drag());
+    let span = view.1 - view.0;
+    let thumb = Rect::from_x_y_ranges(
+        sb.left() + (view.0 / duration) as f32 * sb.width()..=sb.left() + (view.1 / duration) as f32 * sb.width(),
+        sb.y_range(),
+    );
+    let sp = ui.painter();
+    sp.rect_filled(sb, CornerRadius::same(3), Color32::from_white_alpha(14));
+    let hot = sb_resp.hovered() || sb_resp.dragged();
+    sp.rect_filled(thumb, CornerRadius::same(3), Color32::from_white_alpha(if !zoomed { 40 } else if hot { 170 } else { 110 }));
+    if zoomed {
+        if sb_resp.dragged() {
+            let dt = (sb_resp.drag_delta().x / sb.width()) as f64 * duration;
+            view = clamp_view(view.0 + dt, view.1 + dt);
+        } else if let Some(p) = sb_resp.interact_pointer_pos().filter(|_| sb_resp.clicked()) {
+            let c = ((p.x - sb.left()) / sb.width()) as f64 * duration;
+            view = clamp_view(c - span / 2.0, c + span / 2.0);
+        }
     }
     ui.data_mut(|d| d.insert_temp(view_id, (view.0, view.1, duration)));
     resp.on_hover_text(tr(
@@ -823,7 +871,11 @@ mod tests {
         assert_eq!(parse_db("-4.5dB", &r), Some(-4.5));
         assert_eq!(parse_db("-inf", &r), Some(-60.0));
         assert_eq!(parse_db("-∞ dB", &r), Some(-60.0));
-        assert_eq!(parse_db("25", &r), Some(10.0));
+        assert_eq!(parse_db("+25", &r), Some(10.0));
+        assert_eq!(parse_db("6", &r), Some(-6.0), "sans signe : négatif");
+        assert_eq!(parse_db("+6", &r), Some(6.0));
+        assert_eq!(parse_db("0", &r), Some(0.0));
+        assert_eq!(parse_db("80", &r), Some(-60.0));
         assert_eq!(parse_db("abc", &r), None);
         assert_eq!(parse_db("", &r), None);
     }

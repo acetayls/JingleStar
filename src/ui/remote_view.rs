@@ -7,7 +7,7 @@ use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 use crate::controller::Controller;
 use crate::i18n::tr;
 use crate::project::ConsoleSettings;
-use crate::remote::{ActionKind, Mapping};
+use crate::remote::{ActionKind, Mapping, Trigger};
 
 #[derive(Default)]
 pub struct RemoteWindow {
@@ -154,6 +154,85 @@ impl RemoteWindow {
     }
 }
 
+/// Édition à la main d'un déclencheur appris (ou saisi sans apprentissage).
+/// Canaux, programmes et touches de console sont affichés à partir de 1, comme sur le matériel.
+fn trigger_editor(ui: &mut Ui, t: &mut Trigger) {
+    ui.set_min_width(220.0);
+    let kinds = [
+        (tr("Note MIDI", "MIDI note"), Trigger::Note { channel: 0, note: 60 }),
+        ("Control Change (CC)", Trigger::Cc { channel: 0, cc: 1 }),
+        ("Program Change", Trigger::Program { channel: 0, program: 0 }),
+        (tr("Touche de console", "Console key"), Trigger::Console { address: "MIXER:Current/InCh/Fader/On".into(), x: 0, y: 0 }),
+        (tr("Scène de console", "Console scene"), Trigger::Scene { number: 1 }),
+    ];
+    let current = std::mem::discriminant(t);
+    ui.horizontal(|ui| {
+        ui.label(tr("Type", "Type"));
+        let name = kinds.iter().find(|(_, k)| std::mem::discriminant(k) == current).map_or(tr("(non appris)", "(not learned)"), |(n, _)| n);
+        egui::ComboBox::from_id_salt("trigger-kind").selected_text(name).show_ui(ui, |ui| {
+            for (n, k) in &kinds {
+                if ui.selectable_label(std::mem::discriminant(k) == current, *n).clicked() && std::mem::discriminant(k) != current {
+                    *t = k.clone();
+                }
+            }
+        });
+    });
+    let one_based = |ui: &mut Ui, label: &str, v: &mut u8, max: u8| {
+        ui.horizontal(|ui| {
+            ui.label(label);
+            let mut n = *v as u32 + 1;
+            ui.add(egui::DragValue::new(&mut n).range(1..=max as u32 + 1));
+            *v = (n - 1) as u8;
+        });
+    };
+    let raw = |ui: &mut Ui, label: &str, v: &mut u8| {
+        ui.horizontal(|ui| {
+            ui.label(label);
+            ui.add(egui::DragValue::new(v).range(0..=127));
+        });
+    };
+    let channel = tr("Canal", "Channel");
+    match t {
+        Trigger::Unset => {
+            ui.label(RichText::new(tr("Choisissez un type ou utilisez « Apprendre ».", "Pick a type or use “Learn”.")).small().color(TEXT_DIM));
+        }
+        Trigger::Note { channel: c, note } => {
+            one_based(ui, channel, c, 15);
+            raw(ui, "Note", note);
+        }
+        Trigger::Cc { channel: c, cc } => {
+            one_based(ui, channel, c, 15);
+            raw(ui, "CC", cc);
+        }
+        Trigger::Program { channel: c, program } => {
+            one_based(ui, channel, c, 15);
+            one_based(ui, "Program", program, 127);
+        }
+        Trigger::Console { address, x, y } => {
+            ui.horizontal(|ui| {
+                ui.label(tr("Adresse", "Address"));
+                ui.add(egui::TextEdit::singleline(address).desired_width(260.0));
+            });
+            ui.horizontal(|ui| {
+                ui.label(tr("Voie", "Channel"));
+                let mut n = *x + 1;
+                ui.add(egui::DragValue::new(&mut n).range(1..=512));
+                *x = n - 1;
+                ui.label(tr("Index", "Index"));
+                let mut n = *y + 1;
+                ui.add(egui::DragValue::new(&mut n).range(1..=64));
+                *y = n - 1;
+            });
+        }
+        Trigger::Scene { number } => {
+            ui.horizontal(|ui| {
+                ui.label(tr("Scène", "Scene"));
+                ui.add(egui::DragValue::new(number).range(0..=999));
+            });
+        }
+    }
+}
+
 /// Tableau des correspondances, modifié en direct.
 fn mappings(ui: &mut Ui, ctrl: &mut Controller) {
     ui.heading(tr("Correspondances", "Mappings"));
@@ -178,6 +257,9 @@ fn mappings(ui: &mut Ui, ctrl: &mut Controller) {
                         ctrl.learn = if learning { None } else { Some(i) };
                     }
                     ui.label(m.trigger.label());
+                    ui.menu_button("✏", |ui| trigger_editor(ui, &mut m.trigger))
+                        .response
+                        .on_hover_text(tr("Modifier la valeur apprise", "Edit the learned value"));
                     if let Some(v) = ctrl.pickup_waiting(i) {
                         ui.label(RichText::new(format!("{} {v:.1} dB", tr("amener le fader à", "bring the fader to"))).small().color(ACCENT))
                             .on_hover_text(tr(

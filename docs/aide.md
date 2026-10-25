@@ -1,7 +1,7 @@
 # Aide de JingleStar
 
 JingleStar lance des jingles et des playlists sur une ou plusieurs sorties audio. L'écran est
-découpé en **modules** (1 à 8) : chacun est soit une grille de 12 jingles, soit une playlist,
+découpé en **modules** (1 à 4) : chacun est soit une grille de 12 jingles, soit une playlist,
 avec son propre volume, son égaliseur et sa paire de sorties.
 
 ## Prise en main
@@ -23,11 +23,12 @@ Formats lus : WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 
 ### Barre du haut
 
-- **＋ Ajouter un module** : ajoute un module à la fin (8 au maximum). Le compteur indique le nombre de modules.
-- **⤢ Remplir** : les modules se partagent la largeur de la fenêtre (4 par rangée au plus). Décochez-le pour régler une largeur fixe avec le curseur qui apparaît ; il y a alors autant de modules par rangée qu'il en tient.
+- **＋ Ajouter un module** : ajoute un module à la fin (4 au maximum). Le compteur indique le nombre de modules.
+- Les modules sont côte à côte sur une rangée. **Glissez la séparation** entre deux modules pour régler leur largeur ; un **double-clic** sur une séparation remet toutes les largeurs à égalité. Les largeurs sont enregistrées avec le projet.
 - **Ouvrir…** / **Enregistrer sous…** : ouvre ou enregistre un projet (fichier `.jinglestar`).
 - **Télécommandes** : pilotage MIDI et console Yamaha, correspondances et mode apprendre. Voir [Pilotage MIDI](#pilotage-midi) et [Pilotage depuis une console Yamaha](#pilotage-depuis-une-console-yamaha).
 - **⚙ Préférences** : audio, langue, anti-veille et OSC.
+- **? Aide** : ce manuel. Le champ **🔍 Rechercher** en haut (ou **Ctrl+F**) n'affiche que les passages qui contiennent les mots tapés, sans tenir compte des accents ni des majuscules ; **✕** revient au sommaire.
 - **? Aide** : ouvre cette aide (touche **F1**).
 - **■ TOUT ARRÊTER** : arrête tous les sons de tous les modules (touche **Échap**).
 
@@ -50,7 +51,7 @@ Chaque module a, de haut en bas :
 
 Le cadre du module devient vert quand un son y joue.
 
-- **Volume** : glissez le fader. Un **double-clic** sur le fader le remet à 0 dB ; un **double-clic sur la valeur en dB** permet de la taper au clavier (Entrée valide, Échap annule).
+- **Volume** : glissez le fader. Un **double-clic** sur le fader le remet à 0 dB ; un **clic sur la valeur en dB** permet de la taper au clavier (Entrée valide, Échap annule). Un nombre tapé sans signe est négatif : `6` donne -6 dB ; tapez `+3` pour monter au-dessus de 0 dB.
 - **Changer de mode** : cliquez sur **Jingles**, **Playlist**, **GO** ou **Texte**. Le module s'arrête ; les jingles, la playlist, la conduite et le texte sont conservés.
 - **Renommer** : **double-clic sur le nom** du module, tapez le nouveau nom puis Entrée (Échap annule). En mode édition (✏), le nom est aussi modifiable directement.
 - **Module Texte** : un grand champ libre pour écrire sa conduite, sauvegardé avec le projet. Échap y arrête quand même les jingles.
@@ -69,12 +70,12 @@ En fermant l'éditeur d'un jingle (**✓ Terminé** ou la croix), le module repa
 
 Un module en mode **Jingles** offre 12 boutons (3 colonnes, 4 rangées). Chaque bouton montre son
 numéro, le nom du son, sa couleur et sa durée. Pendant la lecture, une barre de progression
-indique le temps écoulé et le temps restant ; un jingle en boucle affiche **⟳** à la place du
-temps restant. Le volume du jingle est affiché en haut à droite (en orange s'il n'est pas à
-0 dB). Des repères complètent le bouton : **🔁** à côté du volume pour un jingle en boucle, **EQ** en bas à gauche si son égaliseur est actif, **…** pendant le chargement du son et
+indique le temps écoulé et le temps restant ; un jingle en boucle affiche **BOUCLE** à la place du
+temps restant. Le jingle qui joue est entouré d'un cadre vert épais. Le volume du jingle est affiché en haut à droite (en orange s'il n'est pas à
+0 dB). Des repères complètent le bouton : en haut à gauche, après le numéro, **🔁** pour un jingle en boucle et **EQ** si son égaliseur est actif ; **…** pendant le chargement du son et
 **⚠** si le fichier est introuvable ou illisible.
 
-- **Clic** : lance le son depuis son point de début ; un second clic l'arrête (avec son fondu de sortie s'il en a un).
+- **Clic** : lance le son depuis son point de début ; un second clic l'arrête avec son fondu de sortie (limité à 1 s pour un jingle joué une fois, complet pour un jingle en boucle).
 - Plusieurs jingles d'un même module peuvent jouer en même temps.
 - **Clic droit** : menu **Choisir un fichier…**, **Éditer…** (ouvre l'éditeur sans passer en mode édition) et **Vider**.
 - **Glisser-déposer** un fichier sur un bouton remplace son son ; plusieurs fichiers remplissent les boutons suivants du module.
@@ -87,13 +88,16 @@ Ouvrez l'éditeur par le mode édition (✏ puis clic sur le bouton) ou par **cl
 - **Fichier** : **Changer…** pour choisir un autre son.
 - **Volume** : de -40 à +10 dB, par pas de 0,5 dB.
 - **Lecture** : **Une fois** ou **En boucle**.
-- **Fondus** : durée du fondu d'**entrée** et de **sortie**, de 0 à 30 s. Le fondu de sortie s'applique aussi quand on arrête le son.
+- **Fondus** : durée du fondu d'**entrée** et de **sortie**, de 0 à 30 s.
+  - Joué **une fois** : le son monte au départ et descend avant sa fin. Arrêté avant la fin, il s'éteint avec son fondu de sortie, limité à 1 s.
+  - **En boucle** : le fondu d'entrée ne joue qu'au premier départ, pas à chaque tour. Le fondu de sortie ne sert qu'à l'arrêt, et en entier : c'est ainsi qu'on fait disparaître lentement un fond sonore.
+  - **Échap**, **TOUT ARRÊTER** et le **■** du module coupent toujours en 1 s au plus.
 - **Couleur** : 8 couleurs au choix.
 - **▶ Écouter / ■ Stop** : pour tester le son depuis l'éditeur.
 - **Vider l'emplacement** : retire le son du bouton.
 - **✓ Terminé** : ferme l'éditeur.
 
-Les changements s'appliquent immédiatement, même pendant la lecture.
+Les changements s'appliquent immédiatement, même pendant la lecture. Si la fenêtre est plus haute que l'écran, une barre de défilement apparaît à droite.
 
 ### Forme d'onde, début, fin et boucle
 
@@ -105,12 +109,14 @@ L'éditeur affiche la forme d'onde du son avec des poignées à faire glisser, f
 
 Les **fondus** d'entrée et de sortie se règlent avec les **carrés blancs** dans la bande au-dessus
 de la forme d'onde : glissez-les vers l'intérieur pour allonger le fondu. La durée s'affiche à côté
-et la partie atténuée est voilée (en boucle, le fondu de sortie ne sert qu'à l'arrêt et se règle
+et la forme d'onde est dessinée **atténuée** sur toute la durée du fondu, comme on l'entendra, avec en
+transparence le son d'origine (en boucle, le fondu de sortie ne sert qu'à l'arrêt et se règle
 dans le champ).
 
 **Zoom** : la molette (ou Ctrl + molette, ou le pincement du pavé tactile) zoome autour du
 pointeur ; le défilement horizontal ou un glisser hors des poignées déplace la vue ; un double-clic
-ou **Tout afficher** revient au son entier. Une barre en bas indique la partie visible.
+ou **Tout afficher** revient au son entier. Zoomé, une **barre de défilement** sous la forme d'onde
+montre la partie visible : glissez-la pour vous promener dans le son, ou cliquez à côté pour y aller.
 
 Les parties exclues sont assombries et les fondus sont dessinés en rampe. Le début et la fin se
 saisissent dans la moitié basse de la forme d'onde, les points de boucle dans la moitié haute : on
@@ -130,22 +136,27 @@ Elle s'affiche en orange avec la mention « actif » quand il modifie le son. Vo
 
 ## La playlist
 
-Un module en mode **Playlist** lit les fichiers audio d'un dossier, triés par nom.
+Un module en mode **Playlist** lit une liste de fichiers audio : un dossier entier, trié par nom,
+ou des fichiers choisis un par un.
 
-- **📁 Dossier…** : choisit le dossier. Vous pouvez aussi glisser un dossier (ou un fichier de ce dossier) sur la playlist.
+- **＋ Ajouter** :
+  - **Des fichiers…** ou **Un dossier…** : ajoute les sons à la fin de la liste en cours ;
+  - **Ouvrir un dossier (remplace la liste)…** : la liste devient le contenu du dossier.
+  Vous pouvez aussi glisser des fichiers ou un dossier sur la playlist.
 - **⟳** : relit le dossier (après y avoir ajouté ou retiré des fichiers).
+- **🗑 Vider** : retire tous les morceaux, après confirmation (**Vider ?** pour confirmer, **Annuler** sinon). Les fichiers ne sont pas effacés.
 - Le cadre du haut affiche le morceau en cours, une barre de progression, le temps écoulé et le temps restant.
 
 ### Transport
 
 - **⏮** / **⏭** : morceau précédent / suivant (la lecture continue si elle était en cours).
-- **▶ GO** : lance la lecture au morceau sélectionné, ou au premier. En pause, reprend la lecture.
+- **▶ GO** : lance la lecture au morceau sélectionné, ou au premier. En pause, reprend la lecture. Après un **■**, relance le morceau arrêté depuis le début ; quand la liste est finie, repart du premier morceau. Le son est préparé à l'avance : le départ est immédiat.
 - **⏸** : pause. Le morceau s'éteint en 10 ms et reprend exactement au même endroit, sans clic, avec ⏸ ou GO. Le bouton reste allumé en ambre et « EN PAUSE » s'affiche tant que la pause dure.
 - **■** : arrête la playlist.
 - **Barre de lecture** : un clic ou un glisser déplace la lecture dans le morceau en cours (appliqué au relâché, avec un micro-fondu pour éviter les clics).
 - **Clic** sur un morceau : le sélectionne (à l'arrêt). **Double-clic** : le lance immédiatement.
 - **Gain d'un morceau** : la valeur en dB à droite de chaque morceau se règle à la main par un
-  **double-clic** (Entrée valide, Échap annule). Un gain manuel s'affiche en bleu et remplace
+  **clic** (Entrée valide, Échap annule). Un gain manuel s'affiche en bleu et remplace
   l'équilibrage automatique ; le morceau en cours le prend tout de suite. Clic droit sur le morceau →
   **Revenir au gain automatique**.
 
@@ -154,11 +165,11 @@ Un module en mode **Playlist** lit les fichiers audio d'un dossier, triés par n
 Les morceaux s'enchaînent toujours automatiquement. Un voyant ambre indique les options actives.
 
 - **Aléatoire** : ordre de lecture au hasard, sans répéter un morceau avant d'avoir joué toute la liste.
-- **Boucle** : reprend au début à la fin de la liste.
+- **Tout boucler** : reprend au début à la fin de la liste.
 
 ### Transition
 
-En mode édition (ou quand le fondu enchaîné est choisi), la ligne **Transition** propose :
+La ligne **Transition** propose :
 
 - **Fin de fichier** : le morceau suivant démarre exactement à la fin du précédent, sans blanc ;
 - **Fondu enchaîné** : le suivant démarre en fondu pendant que le précédent s'efface, sur une durée réglable de 0,5 à 20 s (3 s par défaut).
@@ -200,7 +211,7 @@ Le mode **GO** suit une conduite de spectacle, à la façon de QLab : une liste 
 - **Arrêter** : arrête tous les cues de la conduite ; le cue en attente ne change pas. Pendant
   qu'un cue joue, sa ligne se remplit en vert, affiche le temps restant et un bouton **■** qui
   n'arrête que lui.
-- **Volume** : un **double-clic** sur la valeur en dB d'un cue permet de la taper (Entrée valide).
+- **Volume** : un **clic** sur la valeur en dB d’un cue permet de la taper (Entrée valide ; sans signe, la valeur est négative).
 - **Ordre** : glissez un cue vers le haut ou le bas ; un trait bleu montre où il sera posé. Le
   cue en attente reste le même son.
 - **Clic droit** sur un cue : **Lancer maintenant** (sans changer le cue en attente), **Mettre en
@@ -273,7 +284,7 @@ rien n'a changé dans l'audio, la lecture n'est pas interrompue.
 ### Système
 
 - **Langue** : Français ou English. L'interface et cette aide changent immédiatement.
-- **Empêcher la mise en veille pendant la lecture** : tant qu'un son joue, l'ordinateur et l'écran ne se mettent pas en veille.
+- **Empêcher la mise en veille pendant la lecture** : tant qu'un son joue (ou est en pause), l'ordinateur et l'écran ne se mettent pas en veille. Sous Windows, JingleStar le demande au système (visible avec `powercfg /requests`) ; sous macOS, par une assertion d'alimentation (visible avec `pmset -g assertions`). Un portable qu'on referme se met quand même en veille.
 
 En bas de la fenêtre, la **version de build** (version, commit et date de compilation) permet de
 vérifier quelle mise à jour est installée ; un clic la copie.
@@ -315,7 +326,7 @@ un port est déjà pris.
 
 ### Adresses
 
-Les numéros de module (1 à 8), de jingle (1 à 12) et de morceau commencent à 1. Les adresses sont
+Les numéros de module (1 à 4), de jingle (1 à 12) et de morceau commencent à 1. Les adresses sont
 données avec le préfixe par défaut.
 
 | Adresse | Argument | Effet |
@@ -386,7 +397,12 @@ liste des ports.
 2. Appuyez sur la touche, le pad, ou bougez le fader du contrôleur : il est affecté à la ligne.
 3. Choisissez l'action, le module et, pour un jingle, son numéro.
 
-**Apprendre** sur une ligne existante la réaffecte. Une nouvelle ligne reprend l'action de la
+**Apprendre** sur une ligne existante la réaffecte. Le bouton **✏** à côté de la valeur apprise
+permet de la corriger à la main : type (note, CC, program change, touche ou scène de console),
+canal, numéro de note ou de contrôle, voie de console. On peut ainsi créer une correspondance sans
+avoir le contrôleur sous la main.
+
+ Une nouvelle ligne reprend l'action de la
 précédente au jingle suivant : pour un pad de 12 touches, enchaînez **＋ Ajouter et apprendre**
 puis la touche suivante. **Dernier message reçu** montre ce qui arrive, pour vérifier un
 branchement.
@@ -472,10 +488,12 @@ du canal 32) ou **QL · Scène 12**.
 | Lancer / arrêter un jingle | Clic sur le bouton (mode lecture) |
 | Menu d'un jingle | Clic droit sur le bouton |
 | Remplir des boutons | Glisser-déposer un ou plusieurs fichiers |
-| Choisir le dossier d'une playlist | Glisser-déposer un dossier sur la playlist |
+| Ajouter à une playlist | Glisser-déposer des fichiers ou un dossier sur la playlist |
 | Lancer un morceau de la playlist | Double-clic sur le morceau |
 | Volume du module à 0 dB | Double-clic sur le fader |
-| Taper une valeur en dB (fader, jingle) | Double-clic sur la valeur, puis Entrée (Échap annule) |
+| Taper une valeur en dB (fader, jingle, morceau) | Clic sur la valeur, puis Entrée (Échap annule) ; sans signe = négatif |
+| Largeur des modules | Glisser la séparation ; double-clic pour égaliser |
+| Rechercher dans l'aide | Ctrl+F dans la fenêtre d'aide |
 | Renommer un module | Double-clic sur son nom |
 | Zoomer sur la forme d'onde | Molette, glisser pour se déplacer, double-clic pour tout afficher |
 | Se déplacer dans un morceau de playlist | Clic ou glisser sur la barre de lecture |

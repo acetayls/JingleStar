@@ -461,6 +461,11 @@ impl Controller {
                 rt.paused = false;
                 // Si le suivant est encore en chargement, il démarrera à son arrivée.
                 if !rt.loading {
+                    // Fin naturelle de la liste : le prochain GO la reprend au début
+                    // (après un Stop, il relance le morceau arrêté).
+                    if rt.playing {
+                        rt.current = Some(0);
+                    }
                     rt.playing = false;
                     rt.duration = None;
                 }
@@ -587,11 +592,7 @@ impl Controller {
 
     /// Arrête tous les jingles, sans toucher aux playlists.
     pub fn stop_all_jingles(&mut self) {
-        for m in 0..MAX_MODULES {
-            for slot in 0..crate::audio::mixer::JINGLE_SLOTS {
-                self.engine.send(Command::Stop { module: m, slot });
-            }
-        }
+        self.engine.send(Command::StopJingles);
         self.pending_play.clear();
     }
 
@@ -1119,8 +1120,11 @@ impl Controller {
         self.mark_dirty();
     }
 
-    pub fn set_module_width(&mut self, width: Option<f32>) {
-        self.project.preferences.module_width = width;
+    /// Parts de largeur des modules (réglées en glissant la séparation entre deux modules).
+    pub fn set_module_widths(&mut self, widths: &[f32]) {
+        for (m, w) in widths.iter().enumerate().take(MAX_MODULES) {
+            self.project.modules[m].width = w.clamp(0.05, 20.0);
+        }
         self.mark_dirty();
     }
 
@@ -1138,6 +1142,7 @@ impl Controller {
         if want && self.keep_awake.is_none() && may_retry {
             self.keep_awake_failed = Some(Instant::now());
             self.keep_awake = keepawake::Builder::default()
+                .display(true)
                 .idle(true)
                 .sleep(true)
                 .reason("Lecture audio en cours")

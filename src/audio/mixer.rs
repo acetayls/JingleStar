@@ -19,7 +19,7 @@ use super::buffer::AudioBuffer;
 use super::eq::{EqCoeffs, EqProcessor};
 use super::limiter::Limiter;
 
-pub const MAX_MODULES: usize = 8;
+pub const MAX_MODULES: usize = 4;
 pub const JINGLE_SLOTS: usize = 12;
 /// Deux emplacements de voix réservés à la playlist de chaque module,
 /// utilisés en alternance pour permettre le fondu enchaîné.
@@ -98,6 +98,8 @@ pub enum Command {
     Stop { module: usize, slot: usize },
     StopModule { module: usize },
     StopAll,
+    /// Arrêt d'urgence des jingles de tous les modules (Échap) : fondu court, playlists intactes.
+    StopJingles,
     SetSlotGain { module: usize, slot: usize, gain: f32 },
     SetModuleGain { module: usize, gain: f32 },
     SetModuleOutput { module: usize, pair: usize },
@@ -463,15 +465,20 @@ impl Mixer {
                     v.seek = Some(frame);
                 }
             }
-            Command::Stop { module, slot } => self.fade(module, slot),
+            Command::Stop { module, slot } => self.fade(module, slot, true),
             Command::StopModule { module } => {
                 self.clear_next(module);
-                (0..SLOTS).for_each(|s| self.fade(module, s));
+                (0..SLOTS).for_each(|s| self.fade(module, s, false));
             }
             Command::StopAll => {
                 for m in 0..MAX_MODULES {
                     self.clear_next(m);
-                    (0..SLOTS).for_each(|s| self.fade(m, s));
+                    (0..SLOTS).for_each(|s| self.fade(m, s, false));
+                }
+            }
+            Command::StopJingles => {
+                for m in 0..MAX_MODULES {
+                    (0..JINGLE_SLOTS).for_each(|s| self.fade(m, s, false));
                 }
             }
             Command::SetSlotGain { module, slot, gain } => {
@@ -511,13 +518,15 @@ impl Mixer {
         }
     }
 
-    fn fade(&mut self, module: usize, slot: usize) {
+    /// Arrêt en fondu. Un son en boucle n'a pas d'autre fin que l'arrêt : son fondu de sortie
+    /// est alors appliqué en entier (`own_fade`). Sinon, et pour les arrêts groupés (module,
+    /// tout arrêter, Échap), le fondu de sortie est borné entre 10 ms et 1 s pour rester franc.
+    fn fade(&mut self, module: usize, slot: usize, own_fade: bool) {
         let frames = self.ramps.stop;
         if let Some(v) = self.modules[module].voices[slot].as_mut() {
             if v.fade_left.is_none() {
-                // Arrêt manuel : on reprend le fondu de sortie du son, entre 10 ms et 1 s
-                // pour que l'arrêt reste franc même avec un long fondu.
-                v.fade_len = v.region.fade_out.min(frames * 100).max(frames);
+                let full = own_fade && v.region.looping.is_some();
+                v.fade_len = if full { v.region.fade_out } else { v.region.fade_out.min(frames * 100) }.max(frames);
                 v.fade_left = Some(v.fade_len);
             }
         }

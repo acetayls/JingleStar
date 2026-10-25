@@ -45,6 +45,8 @@ pub struct JingleStarApp {
     selected: Option<(usize, usize)>,
     /// Module dont la suppression attend confirmation.
     confirm_delete: Option<usize>,
+    /// Playlist dont le vidage attend confirmation.
+    confirm_clear: Option<usize>,
     /// Module dont l'égaliseur est ouvert.
     module_eq: Option<usize>,
     settings: Option<SettingsDraft>,
@@ -71,6 +73,7 @@ impl JingleStarApp {
             edit_mode: [false; MAX_MODULES],
             selected: None,
             confirm_delete: None,
+            confirm_clear: None,
             module_eq: None,
             settings: None,
             help: help::HelpWindow::default(),
@@ -113,30 +116,11 @@ impl JingleStarApp {
             let n = self.ctrl.project.module_count;
             let add = ui
                 .add_enabled(n < MAX_MODULES, egui::Button::new(tr("＋ Ajouter un module", "＋ Add module")))
-                .on_disabled_hover_text(tr("8 modules au maximum", "8 modules maximum"));
+                .on_disabled_hover_text(tr("4 modules au maximum", "4 modules maximum"));
             if add.clicked() {
                 self.ctrl.add_module();
             }
             ui.label(RichText::new(format!("{n}/{MAX_MODULES}")).color(TEXT_DIM));
-            ui.separator();
-            // Largeur des modules : remplir la fenêtre, ou largeur fixe réglable.
-            let width = self.ctrl.project.preferences.module_width;
-            let fill = width.is_none();
-            if ui
-                .selectable_label(fill, tr("⤢ Remplir", "⤢ Fill"))
-                .on_hover_text(tr("Les modules remplissent la fenêtre", "Modules fill the window"))
-                .clicked()
-            {
-                self.ctrl.set_module_width(if fill { Some(460.0) } else { None });
-            }
-            if let Some(mut w) = width {
-                let resp = ui
-                    .add(egui::Slider::new(&mut w, 280.0..=1200.0).show_value(false))
-                    .on_hover_text(tr("Largeur des modules", "Module width"));
-                if resp.changed() {
-                    self.ctrl.set_module_width(Some(w));
-                }
-            }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let panic = egui::Button::new(RichText::new(tr("■  TOUT ARRÊTER", "■  STOP ALL")).strong().color(Color32::WHITE))
@@ -206,25 +190,49 @@ impl JingleStarApp {
         let n = self.ctrl.project.module_count;
         let area = ui.available_rect_before_wrap();
         let gap = 8.0;
-        let width = self.ctrl.project.preferences.module_width;
-        // Remplir : 4 modules par rangée au plus. Largeur fixe : autant qu'il en tient.
-        let cols = match width {
-            None => n.min(4),
-            Some(w) => (((area.width() + gap) / (w + gap)).floor() as usize).clamp(1, n),
-        };
-        let rows = n.div_ceil(cols);
-        let fit = (area.width() - gap * (cols as f32 - 1.0)) / cols as f32;
-        let cw = width.map(|w| w.min(fit)).unwrap_or(fit);
-        let rh = (area.height() - gap * (rows as f32 - 1.0)) / rows as f32;
-        for m in 0..n {
-            let (r, c) = (m / cols, m % cols);
-            let rect = Rect::from_min_size(
-                area.min + vec2(c as f32 * (cw + gap), r as f32 * (rh + gap)),
-                vec2(cw, rh),
-            );
-            ui.scope_builder(UiBuilder::new().max_rect(rect).id_salt(("module", m)), |ui| {
-                self.module_panel(ui, m, rect);
+        // Une rangée ; chaque module a sa part de largeur, réglable en glissant la séparation.
+        let mut weights: Vec<f32> = (0..n).map(|m| self.ctrl.project.modules[m].width.max(0.05)).collect();
+        let total: f32 = weights.iter().sum();
+        let avail = (area.width() - gap * (n as f32 - 1.0)).max(1.0);
+        let px = |w: f32| avail * w / total;
+        let mut x = area.left();
+        let mut rects = Vec::with_capacity(n);
+        for &w in &weights {
+            rects.push(Rect::from_min_size(egui::pos2(x, area.top()), vec2(px(w), area.height())));
+            x += px(w) + gap;
+        }
+        for (m, rect) in rects.iter().enumerate() {
+            ui.scope_builder(UiBuilder::new().max_rect(*rect).id_salt(("module", m)), |ui| {
+                self.module_panel(ui, m, *rect);
             });
+        }
+        // Séparations : glisser pour répartir la largeur entre deux modules, double-clic pour égaliser.
+        let min_px = 280.0_f32.min(avail / n as f32);
+        let mut changed = false;
+        for i in 0..n.saturating_sub(1) {
+            let r = Rect::from_x_y_ranges(rects[i].right()..=rects[i + 1].left(), area.y_range());
+            let resp = ui
+                .interact(r, ui.make_persistent_id(("module_split", i)), egui::Sense::click_and_drag())
+                .on_hover_text(tr("Glisser pour régler la largeur ; double-clic pour égaliser", "Drag to set the width; double-click to equalize"));
+            if resp.hovered() || resp.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(2.0, ACCENT.gamma_multiply(0.7)));
+            }
+            if resp.double_clicked() {
+                weights.iter_mut().for_each(|w| *w = 1.0);
+                changed = true;
+            } else if resp.dragged() {
+                let (a, b) = (px(weights[i]), px(weights[i + 1]));
+                let dx = resp.drag_delta().x.clamp(min_px - a, b - min_px);
+                if dx != 0.0 {
+                    weights[i] = (a + dx) / avail * total;
+                    weights[i + 1] = (b - dx) / avail * total;
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            self.ctrl.set_module_widths(&weights);
         }
         ui.allocate_rect(area, egui::Sense::hover());
     }
@@ -247,11 +255,15 @@ impl JingleStarApp {
             let strip_w = 46.0;
             let content = Rect::from_min_max(body.min, egui::pos2(body.right() - strip_w - 6.0, body.bottom()));
             let strip = Rect::from_min_max(egui::pos2(body.right() - strip_w, body.top()), body.max);
-            ui.scope_builder(UiBuilder::new().max_rect(content), |ui| match self.ctrl.project.modules[m].mode {
+            // Le contenu ne déborde jamais sous le fader, même dans un module étroit.
+            ui.scope_builder(UiBuilder::new().max_rect(content), |ui| {
+                ui.set_clip_rect(content.expand(2.0).intersect(ui.clip_rect()));
+                match self.ctrl.project.modules[m].mode {
                 ModuleMode::Jingle => self.jingle_grid(ui, m, content),
                 ModuleMode::Playlist => self.playlist_view(ui, m, content),
                 ModuleMode::Go => self.go_view(ui, m, content),
                 ModuleMode::Text => {}
+                }
             });
             ui.scope_builder(UiBuilder::new().max_rect(strip), |ui| self.fader_strip(ui, m, strip));
             ui.allocate_rect(body, egui::Sense::hover());
@@ -469,8 +481,8 @@ impl JingleStarApp {
                     let t = p as f64 / rate;
                     let span = (end - start).max(1e-6);
                     let elapsed = fmt_tenths(t - start);
-                    // En boucle, la fin n'arrive qu'à l'arrêt : on l'indique par ⟳.
-                    let remaining = if j.looping { "⟳".to_string() } else { format!("-{}", fmt_tenths((end - t).max(0.0) + 0.099)) };
+                    // En boucle, la fin n'arrive qu'à l'arrêt : « BOUCLE » à la place du temps restant.
+                    let remaining = if j.looping { tr("BOUCLE", "LOOP").to_string() } else { format!("-{}", fmt_tenths((end - t).max(0.0) + 0.099)) };
                     (Some((((t - start) / span) as f32, elapsed, remaining)), None)
                 }
                 (Some(j), None) => {
@@ -498,7 +510,6 @@ impl JingleStarApp {
                     || (egui::DragAndDrop::has_payload_of_type::<TrackPayload>(ui.ctx())
                         && ui.ctx().pointer_hover_pos().is_some_and(|p| rect.contains(p))),
                 eq: slot.as_ref().map(|j| !j.eq.is_flat()).unwrap_or(false),
-                volume_db: slot.as_ref().map(|j| j.volume_db).unwrap_or(0.0),
             };
             let resp = jingle_button(ui, rect, &view);
             if let Some(j) = &slot {
@@ -570,154 +581,158 @@ impl JingleStarApp {
             .default_width(620.0)
             .resizable(true)
             .collapsible(false)
+            .max_height((ctx.content_rect().height() - 60.0).max(200.0))
             .show(ctx, |ui| {
-                let mut j2 = j.clone();
-                egui::Grid::new("jingle-fields").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-                    ui.label(tr("Nom", "Name"));
-                    ui.text_edit_singleline(&mut j2.name);
-                    ui.end_row();
+                // Ascenseur quand la fenêtre de JingleStar est plus petite que l'éditeur.
+                egui::ScrollArea::vertical().id_salt("jingle-editor-scroll").auto_shrink([false, true]).show(ui, |ui| {
+                    let mut j2 = j.clone();
+                    egui::Grid::new("jingle-fields").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
+                        ui.label(tr("Nom", "Name"));
+                        ui.text_edit_singleline(&mut j2.name);
+                        ui.end_row();
 
-                    ui.label(tr("Fichier", "File"));
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(j.path.display().to_string()).color(TEXT_DIM).small());
-                        if ui.button(tr("Changer…", "Change…")).clicked() {
-                            self.pick_jingle_file(m, s);
-                        }
-                    });
-                    ui.end_row();
-
-                    ui.label("Volume");
-                    let r = ui.add(egui::Slider::new(&mut j2.volume_db, -40.0..=10.0).suffix(" dB").step_by(0.5));
-                    let rail = Rect::from_min_size(r.rect.min, vec2(ui.spacing().slider_width, r.rect.height()));
-                    db_marks(ui, rail, false, &(-40.0..=10.0), false);
-                    ui.end_row();
-
-                    ui.label(tr("Lecture", "Playback"));
-                    ui.horizontal(|ui| {
-                        ui.radio_value(&mut j2.looping, false, tr("Une fois", "Once"));
-                        ui.radio_value(&mut j2.looping, true, tr("En boucle", "Loop"));
-                    });
-                    ui.end_row();
-
-                    ui.label(tr("Fondus", "Fades"));
-                    ui.horizontal(|ui| {
-                        ui.label(tr("entrée", "in"));
-                        ui.add(egui::DragValue::new(&mut j2.fade_in).range(0.0..=30.0).speed(0.05).suffix(" s").max_decimals(2));
-                        ui.label(tr("sortie", "out"));
-                        ui.add(egui::DragValue::new(&mut j2.fade_out).range(0.0..=30.0).speed(0.05).suffix(" s").max_decimals(2));
-                    });
-                    ui.end_row();
-
-                    ui.label(tr("Couleur", "Color"));
-                    ui.horizontal(|ui| {
-                        for c in DEFAULT_COLORS {
-                            let (r, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), egui::Sense::click());
-                            ui.painter().rect_filled(r, CornerRadius::same(3), rgb(c));
-                            if j2.color == c {
-                                ui.painter().rect_stroke(r, CornerRadius::same(3), Stroke::new(2.0, Color32::WHITE), egui::StrokeKind::Outside);
+                        ui.label(tr("Fichier", "File"));
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(j.path.display().to_string()).color(TEXT_DIM).small());
+                            if ui.button(tr("Changer…", "Change…")).clicked() {
+                                self.pick_jingle_file(m, s);
                             }
-                            if resp.clicked() {
-                                j2.color = c;
+                        });
+                        ui.end_row();
+
+                        ui.label("Volume");
+                        let r = ui.add(egui::Slider::new(&mut j2.volume_db, -40.0..=10.0).suffix(" dB").step_by(0.5));
+                        let rail = Rect::from_min_size(r.rect.min, vec2(ui.spacing().slider_width, r.rect.height()));
+                        db_marks(ui, rail, false, &(-40.0..=10.0), false);
+                        ui.end_row();
+
+                        ui.label(tr("Lecture", "Playback"));
+                        ui.horizontal(|ui| {
+                            ui.radio_value(&mut j2.looping, false, tr("Une fois", "Once"));
+                            ui.radio_value(&mut j2.looping, true, tr("En boucle", "Loop"));
+                        });
+                        ui.end_row();
+
+                        ui.label(tr("Fondus", "Fades"));
+                        ui.horizontal(|ui| {
+                            ui.label(tr("entrée", "in"));
+                            ui.add(egui::DragValue::new(&mut j2.fade_in).range(0.0..=30.0).speed(0.05).suffix(" s").max_decimals(2));
+                            ui.label(tr("sortie", "out"));
+                            ui.add(egui::DragValue::new(&mut j2.fade_out).range(0.0..=30.0).speed(0.05).suffix(" s").max_decimals(2));
+                        });
+                        ui.end_row();
+
+                        ui.label(tr("Couleur", "Color"));
+                        ui.horizontal(|ui| {
+                            for c in DEFAULT_COLORS {
+                                let (r, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), egui::Sense::click());
+                                ui.painter().rect_filled(r, CornerRadius::same(3), rgb(c));
+                                if j2.color == c {
+                                    ui.painter().rect_stroke(r, CornerRadius::same(3), Stroke::new(2.0, Color32::WHITE), egui::StrokeKind::Outside);
+                                }
+                                if resp.clicked() {
+                                    j2.color = c;
+                                }
                             }
-                        }
+                        });
+                        ui.end_row();
                     });
-                    ui.end_row();
-                });
 
-                ui.add_space(6.0);
-                if let Some(buf) = self.ctrl.buffer_of(&j.path) {
-                    let dur = buf.duration_secs();
-                    let (st, ls, le, end) = j2.markers(dur);
-                    let mut mk = Markers { start: st, loop_start: ls, loop_end: le, end };
-                    let rate = buf.sample_rate as f64;
-                    let playhead = self.ctrl.engine.telemetry.position(m, s).map(|(p, _)| p as f64 / rate);
-                    if waveform_editor(ui, |a, b, n| buf.peaks(a, b, n), dur, &mut mk, j2.looping, &mut j2.fade_in, &mut j2.fade_out, playhead) {
-                        j2.start = mk.start;
-                        j2.end = Some(mk.end);
-                        j2.loop_start = Some(mk.loop_start);
-                        j2.loop_end = Some(mk.loop_end);
+                    ui.add_space(6.0);
+                    if let Some(buf) = self.ctrl.buffer_of(&j.path) {
+                        let dur = buf.duration_secs();
+                        let (st, ls, le, end) = j2.markers(dur);
+                        let mut mk = Markers { start: st, loop_start: ls, loop_end: le, end };
+                        let rate = buf.sample_rate as f64;
+                        let playhead = self.ctrl.engine.telemetry.position(m, s).map(|(p, _)| p as f64 / rate);
+                        if waveform_editor(ui, |a, b, n| buf.peaks(a, b, n), dur, &mut mk, j2.looping, &mut j2.fade_in, &mut j2.fade_out, playhead) {
+                            j2.start = mk.start;
+                            j2.end = Some(mk.end);
+                            j2.loop_start = Some(mk.loop_start);
+                            j2.loop_end = Some(mk.loop_end);
+                        }
+                        // Saisie précise des points, en secondes.
+                        let before = mk;
+                        ui.horizontal(|ui| {
+                            let field = |ui: &mut egui::Ui, label: &str, v: &mut f64| {
+                                ui.label(RichText::new(label).color(TEXT_DIM));
+                                ui.add(egui::DragValue::new(v).range(0.0..=dur).speed(0.01).max_decimals(2).suffix(" s"));
+                            };
+                            field(ui, tr("Début", "Start"), &mut mk.start);
+                            if j2.looping {
+                                field(ui, tr("Boucle", "Loop"), &mut mk.loop_start);
+                                field(ui, "→", &mut mk.loop_end);
+                            }
+                            field(ui, tr("Fin", "End"), &mut mk.end);
+                        });
+                        if mk != before {
+                            mk.end = mk.end.max(mk.start);
+                            mk.loop_start = mk.loop_start.clamp(mk.start, mk.end);
+                            mk.loop_end = mk.loop_end.clamp(mk.loop_start, mk.end);
+                            j2.start = mk.start;
+                            j2.end = Some(mk.end);
+                            j2.loop_start = Some(mk.loop_start);
+                            j2.loop_end = Some(mk.loop_end);
+                        }
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(format!(
+                                "{} {}  ·  {} {}  ·  {} {}",
+                                tr("Début", "Start"),
+                                fmt_secs(mk.start),
+                                tr("Fin", "End"),
+                                fmt_secs(mk.end),
+                                tr("Durée", "Duration"),
+                                fmt_secs(mk.end - mk.start)
+                            )).monospace().color(TEXT_DIM));
+                            if j2.looping {
+                                ui.label(RichText::new(format!("{} {} → {}", tr("Boucle", "Loop"), fmt_secs(mk.loop_start), fmt_secs(mk.loop_end))).monospace().color(ACCENT));
+                            }
+                            if ui.small_button(tr("Réinitialiser les points", "Reset points")).clicked() {
+                                j2.start = 0.0;
+                                j2.end = None;
+                                j2.loop_start = None;
+                                j2.loop_end = None;
+                            }
+                        });
+                    } else if self.ctrl.is_loading(&j.path) {
+                        ui.label(tr("Chargement de la forme d'onde…", "Loading waveform…"));
+                    } else if let Some(e) = self.ctrl.load_errors.get(&j.path) {
+                        ui.label(RichText::new(format!("⚠ {e}")).color(STOP));
                     }
-                    // Saisie précise des points, en secondes.
-                    let before = mk;
+
+                    ui.add_space(6.0);
+                    let eq_title = if j2.eq.is_flat() {
+                        RichText::new(tr("Égaliseur", "Equalizer"))
+                    } else {
+                        RichText::new(tr("Égaliseur (actif)", "Equalizer (on)")).color(ACCENT)
+                    };
+                    egui::CollapsingHeader::new(eq_title).id_salt(("jingle-eq", m, s)).default_open(!j.eq.is_flat()).show(ui, |ui| {
+                        let rate = self.ctrl.sample_rate();
+                        eq_view::eq_editor(ui, ("jingle", m, s), &mut j2.eq, rate);
+                    });
+
+                    ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        let field = |ui: &mut egui::Ui, label: &str, v: &mut f64| {
-                            ui.label(RichText::new(label).color(TEXT_DIM));
-                            ui.add(egui::DragValue::new(v).range(0.0..=dur).speed(0.01).max_decimals(2).suffix(" s"));
-                        };
-                        field(ui, tr("Début", "Start"), &mut mk.start);
-                        if j2.looping {
-                            field(ui, tr("Boucle", "Loop"), &mut mk.loop_start);
-                            field(ui, "→", &mut mk.loop_end);
+                        let playing = self.ctrl.is_jingle_playing(m, s);
+                        let (label, col) = if playing { (tr("■ Stop", "■ Stop"), STOP) } else { (tr("▶ Écouter", "▶ Play"), GO) };
+                        if ui.add(egui::Button::new(RichText::new(label).color(Color32::BLACK).strong()).fill(col)).clicked() {
+                            self.ctrl.trigger_jingle(m, s);
                         }
-                        field(ui, tr("Fin", "End"), &mut mk.end);
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if ui.button(tr("✓ Terminé", "✓ Done")).clicked() {
+                                done = true;
+                            }
+                            if ui.button(RichText::new(tr("Vider l'emplacement", "Clear slot")).color(STOP)).clicked() {
+                                self.ctrl.clear_jingle(m, s);
+                                done = true;
+                            }
+                        });
                     });
-                    if mk != before {
-                        mk.end = mk.end.max(mk.start);
-                        mk.loop_start = mk.loop_start.clamp(mk.start, mk.end);
-                        mk.loop_end = mk.loop_end.clamp(mk.loop_start, mk.end);
-                        j2.start = mk.start;
-                        j2.end = Some(mk.end);
-                        j2.loop_start = Some(mk.loop_start);
-                        j2.loop_end = Some(mk.loop_end);
+
+                    if j2 != j {
+                        self.ctrl.update_jingle(m, s, |slot| *slot = j2);
                     }
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!(
-                            "{} {}  ·  {} {}  ·  {} {}",
-                            tr("Début", "Start"),
-                            fmt_secs(mk.start),
-                            tr("Fin", "End"),
-                            fmt_secs(mk.end),
-                            tr("Durée", "Duration"),
-                            fmt_secs(mk.end - mk.start)
-                        )).monospace().color(TEXT_DIM));
-                        if j2.looping {
-                            ui.label(RichText::new(format!("{} {} → {}", tr("Boucle", "Loop"), fmt_secs(mk.loop_start), fmt_secs(mk.loop_end))).monospace().color(ACCENT));
-                        }
-                        if ui.small_button(tr("Réinitialiser les points", "Reset points")).clicked() {
-                            j2.start = 0.0;
-                            j2.end = None;
-                            j2.loop_start = None;
-                            j2.loop_end = None;
-                        }
-                    });
-                } else if self.ctrl.is_loading(&j.path) {
-                    ui.label(tr("Chargement de la forme d'onde…", "Loading waveform…"));
-                } else if let Some(e) = self.ctrl.load_errors.get(&j.path) {
-                    ui.label(RichText::new(format!("⚠ {e}")).color(STOP));
-                }
-
-                ui.add_space(6.0);
-                let eq_title = if j2.eq.is_flat() {
-                    RichText::new(tr("Égaliseur", "Equalizer"))
-                } else {
-                    RichText::new(tr("Égaliseur (actif)", "Equalizer (on)")).color(ACCENT)
-                };
-                egui::CollapsingHeader::new(eq_title).id_salt(("jingle-eq", m, s)).default_open(!j.eq.is_flat()).show(ui, |ui| {
-                    let rate = self.ctrl.sample_rate();
-                    eq_view::eq_editor(ui, ("jingle", m, s), &mut j2.eq, rate);
                 });
-
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    let playing = self.ctrl.is_jingle_playing(m, s);
-                    let (label, col) = if playing { (tr("■ Stop", "■ Stop"), STOP) } else { (tr("▶ Écouter", "▶ Play"), GO) };
-                    if ui.add(egui::Button::new(RichText::new(label).color(Color32::BLACK).strong()).fill(col)).clicked() {
-                        self.ctrl.trigger_jingle(m, s);
-                    }
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.button(tr("✓ Terminé", "✓ Done")).clicked() {
-                            done = true;
-                        }
-                        if ui.button(RichText::new(tr("Vider l'emplacement", "Clear slot")).color(STOP)).clicked() {
-                            self.ctrl.clear_jingle(m, s);
-                            done = true;
-                        }
-                    });
-                });
-
-                if format!("{j2:?}") != format!("{j:?}") {
-                    self.ctrl.update_jingle(m, s, |slot| *slot = j2);
-                }
             });
         if !open || done {
             // Fin de l'édition : le module repasse en mode lecture, un clic relance le son.
@@ -764,24 +779,46 @@ impl JingleStarApp {
         let rt = self.ctrl.playlists[m].clone();
 
         ui.horizontal(|ui| {
-            if ui.button(tr("📁 Dossier…", "📁 Folder…")).clicked() {
-                if let Some(dir) = rfd::FileDialog::new().pick_folder() {
-                    self.ctrl.set_playlist_folder(m, dir);
+            // Fichiers ou dossiers ajoutés à la suite de la liste en cours, ou dossier qui la remplace.
+            ui.menu_button(tr("＋ Ajouter", "＋ Add"), |ui| {
+                if ui.button(tr("Des fichiers…", "Files…")).clicked() {
+                    ui.close();
+                    if let Some(files) = rfd::FileDialog::new()
+                        .add_filter("Audio", crate::audio::decode::AUDIO_EXTENSIONS)
+                        .pick_files()
+                    {
+                        self.ctrl.add_playlist_files(m, files);
+                    }
                 }
-            }
-            if ui.button("＋").on_hover_text(tr("Ajouter des fichiers", "Add files")).clicked() {
-                if let Some(files) = rfd::FileDialog::new()
-                    .add_filter("Audio", crate::audio::decode::AUDIO_EXTENSIONS)
-                    .pick_files()
-                {
-                    self.ctrl.add_playlist_files(m, files);
+                if ui.button(tr("Un dossier…", "A folder…")).clicked() {
+                    ui.close();
+                    if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                        self.ctrl.add_playlist_files(m, vec![dir]);
+                    }
                 }
-            }
+                ui.separator();
+                if ui.button(tr("Ouvrir un dossier (remplace la liste)…", "Open a folder (replaces the list)…")).clicked() {
+                    ui.close();
+                    if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                        self.ctrl.set_playlist_folder(m, dir);
+                    }
+                }
+            });
             if pl.folder.is_some() && ui.button("⟳").on_hover_text(tr("Relire le dossier", "Rescan folder")).clicked() {
                 self.ctrl.rescan_playlist(m);
             }
-            if editing && !pl.tracks.is_empty() && ui.button("🗑").on_hover_text(tr("Vider la liste", "Clear list")).clicked() {
-                self.ctrl.clear_playlist(m);
+            if !pl.tracks.is_empty() {
+                if self.confirm_clear == Some(m) {
+                    if ui.add(egui::Button::new(RichText::new(tr("Vider ?", "Clear?")).color(Color32::WHITE)).fill(STOP)).clicked() {
+                        self.ctrl.clear_playlist(m);
+                        self.confirm_clear = None;
+                    }
+                    if ui.button(tr("Annuler", "Cancel")).clicked() {
+                        self.confirm_clear = None;
+                    }
+                } else if ui.button(tr("🗑 Vider", "🗑 Clear")).on_hover_text(tr("Vider la playlist (avec confirmation)", "Clear the playlist (asks first)")).clicked() {
+                    self.confirm_clear = Some(m);
+                }
             }
             let name = pl
                 .folder
@@ -791,7 +828,7 @@ impl JingleStarApp {
                 .unwrap_or_else(|| {
                     if pl.tracks.is_empty() { tr("Aucun dossier", "No folder") } else { tr("Liste libre", "Custom list") }.into()
                 });
-            ui.label(RichText::new(name).color(TEXT_DIM));
+            ui.add(egui::Label::new(RichText::new(name).color(TEXT_DIM)).truncate());
         });
 
         // Morceau en cours.
@@ -804,7 +841,7 @@ impl JingleStarApp {
         let rate = self.ctrl.device.as_ref().map(|d| d.sample_rate).unwrap_or(48_000) as f64;
         let pos = self.ctrl.playlist_position(m);
         egui::Frame::new().fill(Color32::from_rgb(0x1c, 0x1c, 0x20)).corner_radius(4).inner_margin(6).show(ui, |ui| {
-            ui.set_width(ui.available_width());
+            ui.set_width(area.width() - 12.0);
             let col = if rt.paused { ACCENT } else if rt.playing { GO } else { TEXT };
             ui.horizontal(|ui| {
                 ui.label(RichText::new(&current_name).strong().size(15.0).color(col));
@@ -857,9 +894,12 @@ impl JingleStarApp {
         });
 
         // Transport : précédent, GO, pause, stop, suivant sur toute la largeur.
-        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), egui::Sense::hover());
-        let (gap, side, stop_w) = (4.0, 40.0, 48.0);
-        let go_w = (row.width() - 2.0 * side - 2.0 * stop_w - 4.0 * gap).max(40.0);
+        let (row, _) = ui.allocate_exact_size(vec2(area.width(), 38.0), egui::Sense::hover());
+        // Dans un module étroit, tous les boutons rétrécissent ensemble (GO garde la plus grande part).
+        let gap = 4.0;
+        let k = ((row.width() - 4.0 * gap) / (2.0 * 40.0 + 2.0 * 48.0 + 64.0)).min(1.0);
+        let (side, stop_w) = (40.0 * k, 48.0 * k);
+        let go_w = row.width() - 2.0 * side - 2.0 * stop_w - 4.0 * gap;
         let mut x = row.left();
         let mut cell = |w: f32| {
             let r = Rect::from_min_size(egui::pos2(x, row.top()), vec2(w, row.height()));
@@ -905,7 +945,7 @@ impl JingleStarApp {
         }
 
         // Modes : les morceaux s'enchaînent toujours, dans l'ordre ou au hasard.
-        let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), egui::Sense::hover());
+        let (row, _) = ui.allocate_exact_size(vec2(area.width(), 26.0), egui::Sense::hover());
         let half = (row.width() - 4.0) / 2.0;
         let shuffle_r = Rect::from_min_size(row.min, vec2(half, row.height()));
         let loop_r = Rect::from_min_size(egui::pos2(row.left() + half + 4.0, row.top()), vec2(half, row.height()));
@@ -915,22 +955,22 @@ impl JingleStarApp {
         {
             self.ctrl.update_playlist(m, |c| c.shuffle = !c.shuffle);
         }
-        if mode_chip(ui, loop_r, ("pl-loop", m), pl.looping, tr("Boucle", "Loop"))
+        if mode_chip(ui, loop_r, ("pl-loop", m), pl.looping, tr("Tout boucler", "Loop all"))
             .on_hover_text(tr("Reprendre au début à la fin de la liste", "Start over at the end of the list"))
             .clicked()
         {
             self.ctrl.update_playlist(m, |c| c.looping = !c.looping);
         }
 
-        // Transition.
-        if editing || pl.transition == Transition::Crossfade {
+        // Transition, toujours visible.
+        {
             // Retour à la ligne si le module est étroit (sinon le champ déborde sous le fader).
             ui.horizontal_wrapped(|ui| {
                 let mut p2 = pl.clone();
                 ui.label(RichText::new("Transition").color(TEXT_DIM));
                 let fade = p2.transition == Transition::Crossfade;
                 let secs_w = if fade { 52.0 } else { 0.0 };
-                let seg_w = (ui.available_width() - secs_w - if fade { 6.0 } else { 0.0 }).max(80.0);
+                let seg_w = (area.width() - secs_w - if fade { 6.0 } else { 0.0 }).max(80.0);
                 let (seg, _) = ui.allocate_exact_size(vec2(seg_w, 22.0), egui::Sense::hover());
                 let labels = [tr("Fin de fichier", "End of file"), tr("Fondu", "Crossfade")];
                 if let Some(i) = segmented(ui, seg, ("pl-transition", m), &labels, fade as usize) {
@@ -960,8 +1000,8 @@ impl JingleStarApp {
             ui.set_max_width(row_w);
             if pl.tracks.is_empty() {
                 ui.label(RichText::new(tr(
-                    "Choisissez un dossier, ou glissez ici des fichiers ou des dossiers.",
-                    "Choose a folder, or drop files or folders here.",
+                    "Ajoutez des fichiers ou un dossier avec « ＋ Ajouter », ou glissez-les ici.",
+                    "Add files or a folder with “＋ Add”, or drop them here.",
                 )).color(TEXT_DIM));
             }
             ui.spacing_mut().item_spacing.y = 1.0;

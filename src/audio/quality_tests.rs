@@ -427,6 +427,73 @@ fn seamless_loop_is_transparent() {
     assert!(rig.events.try_recv().is_err(), "la boucle ne se termine jamais");
 }
 
+/// Niveau crête de la voie gauche sur la fenêtre `[a, b)` (en images).
+fn level(out: &[f32], a: usize, b: usize) -> f32 {
+    peak(&channel(out, 2, 0)[a..b])
+}
+
+#[test]
+fn looping_jingle_fades_in_once_then_holds() {
+    // Fondu d'entrée de 0,5 s sur une boucle de 0,1 s : il ne se rejoue pas à chaque tour.
+    let src = buffer(vec![0.5; 48_000], vec![0.5; 48_000]);
+    let region = Region { start: 0, end: 48_000, looping: Some((4_800, 9_600)), fade_in: 24_000, fade_out: 0 };
+    let mut rig = Rig::new(2);
+    rig.play(0, &src, 1.0, region, EqCoeffs::flat());
+    let d = rig.latency();
+    let out = rig.render(60_000 + d);
+    assert!(level(&out, d, d + 100) < 0.01, "départ en fondu");
+    assert!((level(&out, d + 11_900, d + 12_000) - 0.25).abs() < 0.01, "à mi-fondu, moitié du niveau");
+    let after = channel(&out, 2, 0)[d + 24_100..].to_vec();
+    assert!(after.iter().all(|&x| (x - 0.5).abs() < 1e-6), "après le fondu, niveau plein à chaque tour");
+    assert_no_click(&out, 2, "fondu d'entrée en boucle");
+}
+
+#[test]
+fn looping_jingle_stops_with_its_whole_fade_out() {
+    // Fondu de sortie de 2 s : en boucle, c'est le fondu de l'arrêt, appliqué en entier.
+    let src = sine(100.0, 0.8, 48_000);
+    let region = Region { start: 0, end: 48_000, looping: Some((4_800, 9_600)), fade_in: 0, fade_out: 96_000 };
+    let mut rig = Rig::new(2);
+    rig.play(0, &src, 1.0, region, EqCoeffs::flat());
+    rig.render(10_000);
+    rig.send(Command::Stop { module: 0, slot: 0 });
+    let out = rig.render(110_000);
+    let d = rig.latency();
+    assert!(level(&out, d + 70_000, d + 72_000) > 0.1, "encore audible à 1,5 s");
+    assert!(level(&out, d + 97_000, 110_000) == 0.0, "éteint après 2 s");
+    assert_no_click(&out, 2, "arrêt d'une boucle en fondu long");
+
+    // Échap (arrêt d'urgence) : borné à 1 s même avec ce long fondu.
+    let mut rig = Rig::new(2);
+    rig.play(0, &src, 1.0, region, EqCoeffs::flat());
+    rig.render(10_000);
+    rig.send(Command::StopJingles);
+    let out = rig.render(60_000);
+    assert!(level(&out, d + 48_500, 60_000) == 0.0, "Échap : éteint en 1 s au plus");
+    assert_no_click(&out, 2, "arrêt d'urgence");
+}
+
+#[test]
+fn one_shot_jingle_fades_out_at_its_end_and_stops_within_a_second() {
+    let src = buffer(vec![0.5; 48_000], vec![0.5; 48_000]);
+    let region = Region { start: 0, end: 48_000, looping: None, fade_in: 0, fade_out: 24_000 };
+    let mut rig = Rig::new(2);
+    rig.play(0, &src, 1.0, region, EqCoeffs::flat());
+    let d = rig.latency();
+    let out = rig.render(50_000 + d);
+    assert!((level(&out, d + 10_000, d + 20_000) - 0.5).abs() < 1e-6, "plein niveau avant le fondu");
+    assert!((level(&out, d + 35_990, d + 36_010) - 0.25).abs() < 0.01, "mi-fondu de fin");
+    assert!(level(&out, d + 48_000, 50_000 + d) == 0.0, "fini à la fin du fichier");
+    // Arrêt manuel d'un son joué une fois : fondu de sortie borné à 1 s (ici 0,5 s, pris en entier).
+    let mut rig = Rig::new(2);
+    rig.play(0, &src, 1.0, region, EqCoeffs::flat());
+    rig.render(1_000);
+    rig.send(Command::Stop { module: 0, slot: 0 });
+    let out = rig.render(30_000);
+    assert!(level(&out, d + 10_000, d + 11_000) > 0.2, "fondu en cours à 0,2 s");
+    assert!(level(&out, d + 24_100, 30_000) == 0.0, "éteint après son fondu");
+}
+
 #[test]
 fn imperfect_loop_points_do_not_click() {
     let src = sine(100.0, 0.9, 48_000);

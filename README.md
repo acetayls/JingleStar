@@ -6,9 +6,9 @@ audio cpal, décodage symphonia).
 
 ## Fonctionnalités
 
-- **Modules dynamiques** : on démarre avec un seul, on en ajoute jusqu'à 8 (« ＋ Ajouter un module »)
+- **Modules dynamiques** : on démarre avec un seul, on en ajoute jusqu'à 4 (« ＋ Ajouter un module »)
   et on les supprime en mode édition (🗑). Chacun en mode **Jingles**, **Playlist**, **GO** ou **Texte**, avec son propre volume et son vumètre.
-  Double-clic sur le titre d'un module pour le renommer.
+  Double-clic sur le titre d'un module pour le renommer ; glisser la séparation entre deux modules règle leur largeur.
 - **Module GO** : une conduite de spectacle façon QLab. Le gros bouton **GO** (ou la barre d'espace)
   lance le cue en attente, bien visible, et passe au suivant ; précédent / suivant, arrêt et volume
   par cue, ordre au glisser-déposer, commandes OSC et télécommandes.
@@ -28,10 +28,10 @@ audio cpal, décodage symphonia).
   coupe-bas 12 ou 24 dB/oct, shelf grave, deux bandes paramétriques, shelf aigu. Courbe éditable
   à la souris (glisser = fréquence et gain, molette = Q, double-clic = activer/désactiver).
 - **Playlist** : un dossier, ou une liste libre de fichiers et de dossiers glissés-déposés (ou ajoutés avec ＋),
-  enchaînement automatique, **aléatoire**, **boucle**, transition
+  enchaînement automatique, **aléatoire**, **tout boucler**, bouton **Vider** (avec confirmation), transition
   **fin de fichier** (sans blanc) ou **fondu enchaîné** réglable. Clic ou glisser sur la barre de lecture
   pour se déplacer dans le morceau (avec un micro-fondu, sans clic). **Gain de chaque morceau réglable à la main**
-  (double-clic sur sa valeur en dB, en bleu une fois réglé ; clic droit → « Revenir au gain automatique »).
+  (clic sur sa valeur en dB, en bleu une fois réglé ; clic droit → « Revenir au gain automatique »).
 - **Équilibrage du niveau** des morceaux de la playlist (l'équivalent de « Normalize items » de REAPER),
   en mode édition : « Équilibrer le niveau ». Chaque morceau est mesuré en arrière-plan puis lu avec
   le gain qui l'amène à la cible ; les fichiers ne sont jamais modifiés.
@@ -43,7 +43,7 @@ audio cpal, décodage symphonia).
   - Le gain appliqué s'affiche sur chaque morceau (orange s'il a été réduit par le plafond) ; au survol,
     les mesures détaillées. Les mesures sont gardées en cache et refaites si le fichier change.
 - **Volumes en dB** affichés en permanence : faders des modules, volume de chaque jingle, gain des morceaux.
-  **Double-clic** sur une valeur en dB pour la taper au clavier (Entrée valide, Échap annule).
+  **Clic** sur une valeur en dB pour la taper au clavier (Entrée valide, Échap annule) ; sans signe, elle est négative.
   Repères à +3, 0 et -6 dB sur les faders et le curseur de volume des jingles.
 - **Version de build** (version, commit, date) en bas des Préférences, pour suivre les mises à jour.
 - **Préférences** : pilote audio (WASAPI, CoreAudio, ALSA, ASIO en option), périphérique,
@@ -104,7 +104,7 @@ cargo bundle --release
 OSCQuery et son port HTTP (8001), annonce mDNS / Bonjour et nom annoncé. Les préférences
 affichent l'adresse IP et les ports en écoute.
 
-Les numéros de module (1 à 8), de jingle (1 à 12) et de morceau commencent à 1. Les adresses
+Les numéros de module (1 à 4), de jingle (1 à 12) et de morceau commencent à 1. Les adresses
 ci-dessous sont données avec le préfixe par défaut.
 
 | Adresse | Argument | Effet |

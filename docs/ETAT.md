@@ -6,7 +6,7 @@ Ce fichier permet de reprendre le travail après une pause. Les idées à venir 
 ## Ce qui est sur `main`
 
 **Base**
-- Modules dynamiques (1 à 8) en mode **Jingles**, **Playlist**, **Texte** ou **GO**, chacun avec
+- Modules dynamiques (1 à 4, largeur réglable par la séparation entre deux modules) en mode **Jingles**, **Playlist**, **Texte** ou **GO**, chacun avec
   son volume, son vumètre, son égaliseur et sa paire de sorties stéréo.
 - Préférences audio : pilote, périphérique et buffer, avec ASIO en option. Anti-veille, langue
   FR/EN, Échap qui arrête les jingles (et les playlists en option), anti double-GO.
@@ -18,10 +18,16 @@ Ce fichier permet de reprendre le travail après une pause. Les idées à venir 
   - poignées début et fin, boucle, et **poignées de fondu** ;
   - **zoom** à la molette, glisser pour se déplacer, double-clic ou « Tout afficher ».
 - Égaliseur par jingle. Glisser-déposer de fichiers ou de morceaux de playlist.
+- Bouton : **BOUCLE** à la place du temps restant, 🔁 et EQ en haut, cadre vert épais en lecture.
+- Fondus : en boucle, le fondu d'entrée joue une fois et l'arrêt applique tout le fondu de sortie ;
+  sans boucle, l'arrêt est limité à 1 s. Échap / Tout arrêter / ■ du module : 1 s au plus.
+- Éditeur : ascenseur si la fenêtre dépasse l'écran, forme d'onde atténuée dans les fondus,
+  barre de défilement sous la forme d'onde zoomée.
 - Les jingles **partent à l'appui** du bouton.
 
 **Playlist**
-- Dossier ou liste libre, aléatoire, boucle, transition fin de fichier ou fondu enchaîné.
+- Dossier ou liste libre (＋ Ajouter : fichiers, dossier, ou dossier qui remplace la liste),
+  **Vider** avec confirmation, aléatoire, **tout boucler**, transition fin de fichier ou fondu enchaîné.
 - Barre de transport, **pause**, **déplacement dans le morceau** sur la barre de lecture
   (micro-fondu).
 - Équilibrage LUFS / crête / RMS, et **gain manuel par morceau** au double-clic.
@@ -29,13 +35,15 @@ Ce fichier permet de reprendre le travail après une pause. Les idées à venir 
   1,4 s pour décoder un MP3 de 4 min) et le départ se fait à l'appui.
 
 **Niveaux**
-- **Double-clic sur une valeur en dB** pour la taper : faders, jingles, gains des morceaux.
-  Entrée valide, Échap annule.
+- **Clic sur une valeur en dB** pour la taper : faders, jingles, gains des morceaux.
+  Entrée valide, Échap annule. Sans signe, la valeur est négative (`6` → -6 dB).
 - Repères +3 / 0 / -6 dB sur les faders.
 
 **Divers**
 - Module **Texte** pour la conduite.
 - **Renommage des modules** au double-clic sur le nom.
+- **Recherche dans l'aide** (Ctrl+F), sans tenir compte des accents.
+- **Correspondances MIDI / console modifiables à la main** (bouton ✏).
 - **Version de build** (version, commit, date) en bas des Préférences.
 
 ## Pull requests ouvertes

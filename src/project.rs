@@ -50,7 +50,7 @@ impl Cue {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JingleSlot {
     pub path: PathBuf,
     pub name: String,
@@ -178,6 +178,8 @@ pub struct ModuleConfig {
     pub notes: String,
     /// Cues du module GO, dans l'ordre de la conduite.
     pub cues: Vec<Cue>,
+    /// Part de la largeur de la fenêtre occupée par le module (1 = part égale).
+    pub width: f32,
 }
 
 impl ModuleConfig {
@@ -198,6 +200,7 @@ impl Default for ModuleConfig {
             eq: EqSettings::default(),
             notes: String::new(),
             cues: Vec::new(),
+            width: 1.0,
         }
     }
 }
@@ -216,8 +219,6 @@ pub struct Preferences {
     /// Empêche la mise en veille de l'ordinateur pendant la lecture.
     pub prevent_sleep: bool,
     pub language: Lang,
-    /// Largeur des modules en points ; `None` = ils remplissent la fenêtre.
-    pub module_width: Option<f32>,
     pub osc: OscSettings,
     pub midi: MidiSettings,
     pub console: ConsoleSettings,
@@ -234,7 +235,6 @@ impl Default for Preferences {
         Self {
             prevent_sleep: true,
             language: Lang::Fr,
-            module_width: None,
             osc: OscSettings::default(),
             midi: MidiSettings::default(),
             console: ConsoleSettings::default(),
@@ -327,7 +327,7 @@ impl Default for Project {
 }
 
 impl Project {
-    /// Garantit 8 modules de 12 jingles, quel que soit le fichier lu.
+    /// Garantit 4 modules de 12 jingles, quel que soit le fichier lu.
     fn normalize(&mut self) {
         while self.modules.len() < MAX_MODULES {
             self.modules.push(ModuleConfig::numbered(self.modules.len()));

@@ -1,7 +1,7 @@
 # JingleStar help
 
 JingleStar plays jingles and playlists on one or more audio outputs. The screen is split into
-**modules** (1 to 8): each one is either a grid of 12 jingles or a playlist, with its own volume,
+**modules** (1 to 4): each one is either a grid of 12 jingles or a playlist, with its own volume,
 equalizer and output pair.
 
 ## Getting started
@@ -22,11 +22,12 @@ Supported formats: WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 
 ### Top bar
 
-- **＋ Add module**: adds a module at the end (8 maximum). The counter shows the number of modules.
-- **⤢ Fill**: modules share the window width (4 per row at most). Turn it off to set a fixed width with the slider that appears; each row then holds as many modules as fit.
+- **＋ Add module**: adds a module at the end (4 maximum). The counter shows the number of modules.
+- Modules sit side by side in one row. **Drag the divider** between two modules to set their width; **double-click** a divider to make all widths equal again. Widths are saved with the project.
 - **Open…** / **Save as…**: opens or saves a project (`.jinglestar` file).
 - **Remote**: MIDI and Yamaha console control, mappings and learn mode. See [MIDI control](#midi-control) and [Control from a Yamaha console](#control-from-a-yamaha-console).
 - **⚙ Preferences**: audio, language, sleep prevention and OSC.
+- **? Help**: this manual. The **🔍 Search** field at the top (or **Ctrl+F**) shows only the passages containing the typed words, ignoring accents and case; **✕** goes back to the contents.
 - **? Help**: opens this help (**F1** key).
 - **■ STOP ALL**: stops every sound in every module (**Esc** key).
 
@@ -49,7 +50,7 @@ Each module has, from top to bottom:
 
 The module frame turns green while something is playing in it.
 
-- **Volume**: drag the fader. A **double-click** resets it to 0 dB. **Double-click the dB value** to type it on the keyboard (Enter confirms, Escape cancels).
+- **Volume**: drag the fader. A **double-click** resets it to 0 dB. **Click the dB value** to type it on the keyboard (Enter confirms, Escape cancels). A number typed without a sign is negative: `6` gives -6 dB; type `+3` to go above 0 dB.
 - **Change mode**: click **Jingles**, **Playlist**, **GO** or **Text**. The module stops; the jingles, the playlist, the cue list and the text are all kept.
 - **Rename**: **double-click the module name**, type the new name and press Enter (Escape cancels). In edit mode (✏) the name is also directly editable.
 - **Text module**: a large free text field to write your running order, saved with the project. Escape still stops the jingles from there.
@@ -68,12 +69,13 @@ When you close a jingle editor (**✓ Done** or the close cross), the module goe
 
 A module in **Jingles** mode has 12 buttons (3 columns, 4 rows). Each button shows its number, the
 sound name, its color and its duration. While playing, a progress bar shows elapsed and remaining
-time; a looping jingle shows **⟳** instead of the remaining time. The jingle volume is shown at the
-top right (orange when it is not 0 dB). Extra marks complete the button: **🔁** next to the volume
-for a looping jingle, **EQ** at the bottom left when its equalizer is on,
+time; a looping jingle shows **LOOP** instead of the remaining time. A playing jingle has a thick
+green frame. The jingle volume is shown at the top right (orange when it is not 0 dB). Extra marks
+complete the button: at the top left, after the number, **🔁** for a looping jingle and **EQ** when
+its equalizer is on;
 **…** while the sound is loading and **⚠** if the file is missing or unreadable.
 
-- **Click**: plays the sound from its start point; a second click stops it (with its fade-out, if any).
+- **Click**: plays the sound from its start point; a second click stops it with its fade-out (capped at 1 s for a one-shot jingle, in full for a looping one).
 - Several jingles of the same module can play at the same time.
 - **Right-click**: **Choose a file…**, **Edit…** (opens the editor without entering edit mode) and **Clear**.
 - **Drag and drop** a file onto a button to replace its sound; several files fill the following buttons of the module.
@@ -86,13 +88,16 @@ Open the editor through edit mode (✏ then click the button) or with **right-cl
 - **File**: **Change…** to pick another sound.
 - **Volume**: from -40 to +10 dB, in 0.5 dB steps.
 - **Playback**: **Once** or **Loop**.
-- **Fades**: fade-**in** and fade-**out** duration, from 0 to 30 s. The fade-out also applies when you stop the sound.
+- **Fades**: fade-**in** and fade-**out** duration, from 0 to 30 s.
+  - Played **once**: the sound rises at the start and falls before its end. Stopped early, it dies away with its fade-out, capped at 1 s.
+  - **Loop**: the fade-in only plays on the first start, not on every pass. The fade-out only applies on stop, in full: that is how a background bed slowly disappears.
+  - **Escape**, **STOP ALL** and the module's **■** always cut within 1 s.
 - **Color**: 8 colors to choose from.
 - **▶ Play / ■ Stop**: to try the sound from the editor.
 - **Clear slot**: removes the sound from the button.
 - **✓ Done**: closes the editor.
 
-Changes apply immediately, even while playing.
+Changes apply immediately, even while playing. If the window is taller than the screen, a scroll bar appears on the right.
 
 ### Waveform, start, end and loop
 
@@ -104,11 +109,13 @@ The editor shows the sound's waveform with draggable handles, QLab style:
 
 The **fade in** and **fade out** are set with the **white squares** in the band above the
 waveform: drag them inwards to lengthen the fade. The duration is shown next to them and the
-attenuated part is veiled (when looping, the fade out only applies on stop and is set in its field).
+waveform is drawn **attenuated** over the whole fade, as it will sound, with the original sound
+faintly behind it (when looping, the fade out only applies on stop and is set in its field).
 
 **Zoom**: the mouse wheel (or Ctrl + wheel, or a trackpad pinch) zooms around the pointer;
 horizontal scrolling or dragging away from the handles moves the view; a double-click or
-**Show all** returns to the whole sound. A bar at the bottom shows the visible part.
+**Show all** returns to the whole sound. When zoomed in, a **scroll bar** under the waveform shows
+the visible part: drag it to travel through the sound, or click beside it to jump there.
 
 Excluded parts are darkened and fades are drawn as ramps. Start and end are grabbed in the lower
 half of the waveform, loop points in the upper half, so they can be told apart even when they
@@ -128,22 +135,27 @@ jingle only. It turns orange and reads “on” when it changes the sound. See
 
 ## The playlist
 
-A module in **Playlist** mode plays the audio files of a folder, sorted by name.
+A module in **Playlist** mode plays a list of audio files: a whole folder, sorted by name, or
+files picked one by one.
 
-- **📁 Folder…**: picks the folder. You can also drop a folder (or a file from that folder) onto the playlist.
+- **＋ Add**:
+  - **Files…** or **A folder…**: adds the sounds at the end of the current list;
+  - **Open a folder (replaces the list)…**: the list becomes the folder's content.
+  You can also drop files or a folder onto the playlist.
+- **🗑 Clear**: removes every track after a confirmation (**Clear?** to confirm, **Cancel** otherwise). Files are not deleted.
 - **⟳**: rescans the folder (after adding or removing files).
 - The top frame shows the current track, a progress bar, elapsed and remaining time.
 
 ### Transport
 
 - **⏮** / **⏭**: previous / next track (playback continues if it was running).
-- **▶ GO**: starts playback at the selected track, or the first one. When paused, resumes playback.
+- **▶ GO**: starts playback at the selected track, or the first one. When paused, resumes playback. After **■**, restarts the stopped track from the beginning; once the list has ended, starts again from the first track. The sound is prepared in advance, so it starts instantly.
 - **⏸**: pause. The track fades out in 10 ms and resumes at exactly the same spot, click-free, with ⏸ or GO. The button stays lit in amber and "PAUSED" is shown while paused.
 - **■**: stops the playlist.
 - **Progress bar**: click or drag to move within the current track (applied on release, with a micro-fade to avoid clicks).
 - **Click** a track: selects it (when stopped). **Double-click**: plays it right away.
 - **Track gain**: the dB value on the right of each track can be set by hand with a
-  **double-click** (Enter confirms, Escape cancels). A manual gain is shown in blue and replaces the
+  **click** (Enter confirms, Escape cancels). A manual gain is shown in blue and replaces the
   automatic level balancing; the current track takes it at once. Right-click the track →
   **Back to automatic gain**.
 
@@ -152,11 +164,11 @@ A module in **Playlist** mode plays the audio files of a folder, sorted by name.
 Tracks always advance automatically. An amber light shows which options are on.
 
 - **Shuffle**: random order, without repeating a track before the whole list has played.
-- **Loop**: starts over at the end of the list.
+- **Loop all**: starts over at the end of the list.
 
 ### Transition
 
-In edit mode (or when crossfade is selected), the **Transition** row offers:
+The **Transition** row offers:
 
 - **End of file**: the next track starts exactly when the previous one ends, gapless;
 - **Crossfade**: the next track fades in while the previous one fades out, over an adjustable time from 0.5 to 20 s (3 s by default).
@@ -195,7 +207,7 @@ fired one by one.
   on standby.
 - **Stop**: stops every cue of the list; the standby cue does not change. While a cue plays, its row
   fills in green, shows the remaining time and a **■** button that stops only that cue.
-- **Volume**: **double-click** a cue's dB value to type it (Enter confirms).
+- **Volume**: **click** a cue's dB value to type it (Enter confirms; without a sign the value is negative).
 - **Order**: drag a cue up or down; a blue line shows where it will land. The standby cue stays the
   same sound.
 - **Right-click** a cue: **Play now** (without changing the standby cue), **Put on standby**,
@@ -267,7 +279,7 @@ nothing changed in the audio settings, playback is not interrupted.
 ### System
 
 - **Language**: Français or English. The interface and this help switch immediately.
-- **Prevent sleep during playback**: while a sound is playing, the computer and screen do not go to sleep.
+- **Prevent sleep during playback**: while a sound is playing (or paused), the computer and screen do not go to sleep. On Windows, JingleStar asks the system (see `powercfg /requests`); on macOS, through a power assertion (see `pmset -g assertions`). Closing a laptop's lid still puts it to sleep.
 
 At the bottom of the window, the **build version** (version, commit and build date) tells you which
 update is installed; click it to copy it.
@@ -308,7 +320,7 @@ already in use.
 
 ### Addresses
 
-Module (1 to 8), jingle (1 to 12) and track numbers start at 1. Addresses are given with the
+Module (1 to 4), jingle (1 to 12) and track numbers start at 1. Addresses are given with the
 default prefix.
 
 | Address | Argument | Effect |
@@ -378,7 +390,11 @@ reconnects it on its own when it comes back; **⟳** rereads the port list.
 2. Press the key or pad, or move the controller's fader: it is assigned to the line.
 3. Choose the action, the module and, for a jingle, its number.
 
-**Learn** on an existing line reassigns it. A new line copies the previous line's action, on
+**Learn** on an existing line reassigns it. The **✏** button next to the learned value lets you
+correct it by hand: type (note, CC, program change, console key or scene), channel, note or
+controller number, console channel. You can even build a mapping without the controller at hand.
+
+ A new line copies the previous line's action, on
 the next jingle: for a 12-pad controller, repeat **＋ Add and learn** then the next pad.
 **Last message received** shows what comes in, to check the connection.
 
@@ -460,10 +476,12 @@ or **QL · Scene 12**.
 | Play / stop a jingle | Click the button (play mode) |
 | Jingle menu | Right-click the button |
 | Fill buttons | Drag and drop one or more files |
-| Set a playlist folder | Drag and drop a folder onto the playlist |
+| Add to a playlist | Drag and drop files or a folder onto the playlist |
 | Play a playlist track | Double-click the track |
 | Module volume to 0 dB | Double-click the fader |
-| Type a dB value (fader, jingle) | Double-click the value, then Enter (Escape cancels) |
+| Type a dB value (fader, jingle, track) | Click the value, then Enter (Escape cancels); no sign = negative |
+| Module widths | Drag the divider; double-click to equalize |
+| Search the help | Ctrl+F in the help window |
 | Rename a module | Double-click its name |
 | Zoom the waveform | Wheel, drag to move, double-click to show all |
 | Move within a playlist track | Click or drag the progress bar |

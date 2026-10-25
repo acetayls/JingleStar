@@ -38,6 +38,8 @@ pub struct HelpWindow {
     pub open: bool,
     /// Titre vers lequel faire défiler (index dans les blocs).
     jump: Option<usize>,
+    /// Texte recherché ; vide = manuel complet.
+    query: String,
 }
 
 impl HelpWindow {
@@ -59,6 +61,23 @@ impl HelpWindow {
             .resizable(true)
             .collapsible(false)
             .show(ctx, |ui| {
+                // Recherche : n'affiche que les passages qui contiennent les mots tapés.
+                ui.horizontal(|ui| {
+                    ui.label("🔍");
+                    let field = ui.add(
+                        egui::TextEdit::singleline(&mut self.query)
+                            .hint_text(tr("Rechercher dans l'aide…", "Search the help…"))
+                            .desired_width(320.0),
+                    );
+                    if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
+                        field.request_focus();
+                    }
+                    if !self.query.is_empty() && ui.small_button("✕").on_hover_text(tr("Effacer", "Clear")).clicked() {
+                        self.query.clear();
+                    }
+                });
+                ui.add_space(4.0);
+                let words = search_words(&self.query);
                 let height = ui.available_height().max(300.0);
                 ui.horizontal_top(|ui| {
                     // Sommaire.
@@ -68,6 +87,7 @@ impl HelpWindow {
                             for (i, b) in blocks.iter().enumerate() {
                                 if let Block::Heading(2, title) = b {
                                     if ui.add(egui::Button::new(RichText::new(title).color(TEXT)).frame(false)).clicked() {
+                                        self.query.clear();
                                         self.jump = Some(i);
                                     }
                                 }
@@ -79,6 +99,14 @@ impl HelpWindow {
                     ui.vertical(|ui| {
                         egui::ScrollArea::vertical().id_salt("help-body").max_height(height).auto_shrink([false, false]).show(ui, |ui| {
                             ui.set_max_width(760.0);
+                            if !words.is_empty() {
+                                if let Some(target) = render_results(ui, blocks, &words) {
+                                    // Lien suivi depuis un résultat : retour au manuel complet.
+                                    self.query.clear();
+                                    self.jump = find_anchor(blocks, &target);
+                                }
+                                return;
+                            }
                             let jump = self.jump.take();
                             for (i, b) in blocks.iter().enumerate() {
                                 if let Some(target) = render_block(ui, b, jump == Some(i)) {
@@ -103,6 +131,91 @@ fn doc() -> &'static [Block] {
         EN.get_or_init(|| parse(HELP_EN))
     } else {
         FR.get_or_init(|| parse(AIDE_FR))
+    }
+}
+
+/// Mots recherchés, en minuscules et sans accents.
+fn search_words(query: &str) -> Vec<String> {
+    fold(query).split_whitespace().map(str::to_owned).collect()
+}
+
+/// Minuscules sans accents, pour qu'« equalizeur », « Égaliseur » ou « egaliseur » se trouvent.
+fn fold(text: &str) -> String {
+    text.to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'à' | 'â' | 'ä' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'î' | 'ï' => 'i',
+            'ô' | 'ö' => 'o',
+            'ù' | 'û' | 'ü' => 'u',
+            'ç' => 'c',
+            c => c,
+        })
+        .collect()
+}
+
+fn spans_text(spans: &[Span]) -> String {
+    spans.iter().map(span_text).collect::<Vec<_>>().join("")
+}
+
+fn matches(text: &str, words: &[String]) -> bool {
+    let t = fold(text);
+    words.iter().all(|w| t.contains(w.as_str()))
+}
+
+/// Résultats de recherche : chaque passage trouvé, sous le titre de sa section
+/// (et, pour un tableau, seulement les lignes qui correspondent).
+fn render_results(ui: &mut egui::Ui, blocks: &[Block], words: &[String]) -> Option<String> {
+    let mut clicked = None;
+    let mut section: Option<&Block> = None;
+    let mut shown_section = false;
+    let mut count = 0;
+    for b in blocks {
+        let hit: Option<Block> = match b {
+            Block::Heading(..) => {
+                section = Some(b);
+                shown_section = false;
+                if matches(&heading_text(b), words) {
+                    shown_section = true;
+                    count += 1;
+                    if let Some(t) = render_block(ui, b, false) {
+                        clicked = Some(t);
+                    }
+                }
+                continue;
+            }
+            Block::Paragraph(s) | Block::Item(_, s) => matches(&spans_text(s), words).then(|| b.clone()),
+            Block::Code(c) => matches(c, words).then(|| b.clone()),
+            Block::Table(rows) => {
+                let found: Vec<_> = rows.iter().skip(1).filter(|r| matches(&r.iter().map(|c| spans_text(c)).collect::<Vec<_>>().join(" "), words)).cloned().collect();
+                (!found.is_empty()).then(|| Block::Table(rows.iter().take(1).cloned().chain(found).collect()))
+            }
+        };
+        if let Some(hit) = hit {
+            count += 1;
+            if !shown_section {
+                shown_section = true;
+                if let Some(h) = section {
+                    render_block(ui, h, false);
+                }
+            }
+            if let Some(t) = render_block(ui, &hit, false) {
+                clicked = Some(t);
+            }
+        }
+    }
+    if count == 0 {
+        ui.add_space(20.0);
+        ui.label(RichText::new(tr("Aucun résultat.", "No results.")).color(TEXT_DIM));
+    }
+    clicked
+}
+
+fn heading_text(b: &Block) -> String {
+    match b {
+        Block::Heading(_, t) => t.clone(),
+        _ => String::new(),
     }
 }
 
