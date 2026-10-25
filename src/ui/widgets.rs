@@ -160,6 +160,8 @@ pub fn db_value_shown(
 
 /// Repères de niveau des faders et curseurs de volume.
 pub const DB_MARKS: [f32; 3] = [3.0, 0.0, -6.0];
+/// Graduations sans valeur affichée, entre les repères chiffrés.
+pub const DB_MINOR_MARKS: [f32; 10] = [10.0, 6.0, -3.0, -10.0, -15.0, -20.0, -30.0, -40.0, -50.0, -60.0];
 
 /// Position d'une valeur le long d'un curseur egui de `rect` (même marge que egui : un rayon de poignée).
 pub fn slider_value_pos(rect: Rect, vertical: bool, range: &RangeInclusive<f32>, v: f32) -> f32 {
@@ -176,6 +178,15 @@ pub fn slider_value_pos(rect: Rect, vertical: bool, range: &RangeInclusive<f32>,
 /// Petits traits aux repères de niveau (0 dB plus marqué), le long d'un curseur.
 pub fn db_marks(ui: &Ui, rect: Rect, vertical: bool, range: &RangeInclusive<f32>, labels: bool) {
     let p = ui.painter();
+    // Graduations intermédiaires, sans valeur : traits courts et discrets.
+    if vertical {
+        let rail = ui.spacing().slider_rail_height / 2.0 + 2.0;
+        let c = rect.center().x;
+        for m in DB_MINOR_MARKS.into_iter().filter(|m| range.contains(m)) {
+            let at = slider_value_pos(rect, vertical, range, m);
+            p.line_segment([pos2(c + rail, at), pos2(c + rail + 4.0, at)], Stroke::new(1.0, Color32::from_white_alpha(75)));
+        }
+    }
     for m in DB_MARKS {
         if !range.contains(&m) {
             continue;
