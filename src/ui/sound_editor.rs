@@ -4,7 +4,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use egui::{vec2, Rect, RichText, Ui};
+use egui::{vec2, Color32, RichText, Ui};
 
 use super::eq_view;
 use super::theme::*;
@@ -13,13 +13,22 @@ use crate::audio::buffer::AudioBuffer;
 use crate::i18n::tr;
 use crate::project::SoundSettings;
 
+/// Bouton Écouter / Stop en haut des éditeurs, avec une icône dessinée (nette à toute taille).
+pub fn listen_button(ui: &mut Ui, id: impl std::hash::Hash + Debug, playing: bool) -> bool {
+    let (rect, _) = ui.allocate_exact_size(vec2(150.0, 32.0), egui::Sense::hover());
+    let resp = if playing {
+        transport_button(ui, rect, id, TransportIcon::Stop, Some(tr("Stop", "Stop")), STOP.gamma_multiply(0.85), Color32::WHITE)
+    } else {
+        transport_button(ui, rect, id, TransportIcon::Play, Some(tr("Écouter", "Play")), GO, Color32::from_rgb(0x0c, 0x1a, 0x0e))
+    };
+    resp.clicked()
+}
+
 /// Rangées Volume, Lecture et Fondus, à placer dans une grille à deux colonnes.
 /// Sans `allow_loop` (cues de la Cuelist), le choix une fois / en boucle n'est pas proposé.
 pub fn sound_rows(ui: &mut Ui, s: &mut SoundSettings, allow_loop: bool) {
     ui.label("Volume");
-    let r = ui.add(egui::Slider::new(&mut s.volume_db, -40.0..=10.0).suffix(" dB").step_by(0.5));
-    let rail = Rect::from_min_size(r.rect.min, vec2(ui.spacing().slider_width, r.rect.height()));
-    db_marks(ui, rail, false, &(-40.0..=10.0), false);
+    ui.add(egui::Slider::new(&mut s.volume_db, -40.0..=10.0).suffix(" dB").step_by(0.5));
     ui.end_row();
 
     if allow_loop {

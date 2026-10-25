@@ -596,6 +596,10 @@ impl JingleStarApp {
                 // Ascenseur quand la fenêtre de JingleStar est plus petite que l'éditeur.
                 egui::ScrollArea::vertical().id_salt("jingle-editor-scroll").auto_shrink([false, true]).show(ui, |ui| {
                     let mut j2 = j.clone();
+                    if sound_editor::listen_button(ui, ("jingle-listen", m, s), self.ctrl.is_jingle_playing(m, s)) {
+                        self.ctrl.trigger_jingle(m, s);
+                    }
+                    ui.add_space(4.0);
                     egui::Grid::new("jingle-fields").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
                         ui.label(tr("Nom", "Name"));
                         ui.text_edit_singleline(&mut j2.name);
@@ -639,11 +643,6 @@ impl JingleStarApp {
 
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        let playing = self.ctrl.is_jingle_playing(m, s);
-                        let (label, col) = if playing { (tr("■ Stop", "■ Stop"), STOP) } else { (tr("▶ Écouter", "▶ Play"), GO) };
-                        if ui.add(egui::Button::new(RichText::new(label).color(Color32::BLACK).strong()).fill(col)).clicked() {
-                            self.ctrl.trigger_jingle(m, s);
-                        }
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             if ui.button(tr("✓ Terminé", "✓ Done")).clicked() {
                                 done = true;

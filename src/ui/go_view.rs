@@ -60,6 +60,15 @@ impl JingleStarApp {
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().id_salt("cue-editor-scroll").auto_shrink([false, true]).show(ui, |ui| {
                     let mut c2 = c.clone();
+                    let playing = self.ctrl.cue_position(m, i).is_some();
+                    if sound_editor::listen_button(ui, ("cue-listen", m, i), playing) {
+                        if playing {
+                            self.ctrl.stop_cue(m, i);
+                        } else {
+                            self.ctrl.play_cue(m, i);
+                        }
+                    }
+                    ui.add_space(4.0);
                     egui::Grid::new("cue-fields").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
                         ui.label(tr("Nom", "Name"));
                         ui.text_edit_singleline(&mut c2.name);
@@ -97,15 +106,6 @@ impl JingleStarApp {
 
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        let playing = self.ctrl.cue_position(m, i).is_some();
-                        let (label, col) = if playing { (tr("■ Stop", "■ Stop"), STOP) } else { (tr("▶ Écouter", "▶ Play"), GO) };
-                        if ui.add(egui::Button::new(RichText::new(label).color(Color32::BLACK).strong()).fill(col)).clicked() {
-                            if playing {
-                                self.ctrl.stop_cue(m, i);
-                            } else {
-                                self.ctrl.play_cue(m, i);
-                            }
-                        }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button(tr("✓ Terminé", "✓ Done")).clicked() {
                                 done = true;

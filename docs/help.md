@@ -92,7 +92,7 @@ Open the editor through edit mode (✏ then click the button) or with **right-cl
   - **Loop**: the fade-in only plays on the first start, not on every pass. The fade-out only applies on stop, in full: that is how a background bed slowly disappears. Stopped during the intro (before the loop start), it cuts at once.
   - **Escape**, **STOP ALL** and the module's **■** always cut within 1 s.
 - **Color**: 8 colors to choose from.
-- **▶ Play / ■ Stop**: to try the sound from the editor.
+- **Play / Stop**: the big green button at the top of the editor, to try the sound.
 - **Clear slot**: removes the sound from the button.
 - **✓ Done**: closes the editor.
 
@@ -116,7 +116,7 @@ horizontal scrolling or dragging away from the handles moves the view; a double-
 **Show all** returns to the whole sound. When zoomed in, a **scroll bar** under the waveform shows
 the visible part: drag it to travel through the sound, or click beside it to jump there.
 
-While playing (jingle button or **▶ Play**), a **click on the waveform**, away from the handles,
+While playing (jingle button or **Play**), a **click on the waveform**, away from the handles,
 moves playback to that spot, with a click-free micro-fade.
 
 Excluded parts are darkened and fades are drawn as ramps. Start and end are grabbed in the lower

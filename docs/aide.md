@@ -92,7 +92,7 @@ Ouvrez l'éditeur par le mode édition (✏ puis clic sur le bouton) ou par **cl
   - **En boucle** : le fondu d'entrée ne joue qu'au premier départ, pas à chaque tour. Le fondu de sortie ne sert qu'à l'arrêt, et en entier : c'est ainsi qu'on fait disparaître lentement un fond sonore. Arrêté pendant l'intro (avant le début de la boucle), il coupe tout de suite.
   - **Échap**, **TOUT ARRÊTER** et le **■** du module coupent toujours en 1 s au plus.
 - **Couleur** : 8 couleurs au choix.
-- **▶ Écouter / ■ Stop** : pour tester le son depuis l'éditeur.
+- **Écouter / Stop** : le gros bouton vert en haut de l'éditeur, pour tester le son.
 - **Vider l'emplacement** : retire le son du bouton.
 - **✓ Terminé** : ferme l'éditeur.
 
@@ -117,7 +117,7 @@ pointeur ; le défilement horizontal ou un glisser hors des poignées déplace l
 ou **Tout afficher** revient au son entier. Zoomé, une **barre de défilement** sous la forme d'onde
 montre la partie visible : glissez-la pour vous promener dans le son, ou cliquez à côté pour y aller.
 
-Pendant la lecture (bouton du jingle ou **▶ Écouter**), un **clic dans la forme d'onde**, hors des
+Pendant la lecture (bouton du jingle ou **Écouter**), un **clic dans la forme d'onde**, hors des
 poignées, fait repartir la lecture à cet endroit, avec un micro-fondu sans clic.
 
 Les parties exclues sont assombries et les fondus sont dessinés en rampe. Le début et la fin se
