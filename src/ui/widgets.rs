@@ -301,8 +301,10 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
         // En haut à gauche, après le numéro : boucle et égaliseur, bien visibles.
         let mut x = rect.left() + 6.0 + p.layout_no_wrap(format!("{}", v.index + 1), FontId::monospace(11.0), TEXT).size().x + 6.0;
         if v.looping {
-            let r = p.text(pos2(x, rect.top() + 5.0), Align2::LEFT_TOP, "🔁", FontId::proportional(14.0), ACCENT);
-            x = r.right() + 5.0;
+            let badge = Rect::from_min_size(pos2(x, rect.top() + 6.0), vec2(24.0, 15.0));
+            p.rect_filled(badge, CornerRadius::same(2), ACCENT);
+            loop_icon(&p, badge.shrink2(vec2(4.0, 3.0)), Color32::BLACK);
+            x = badge.right() + 4.0;
         }
         if v.eq {
             let g = p.layout_no_wrap("EQ".into(), FontId::proportional(10.0), Color32::BLACK);
@@ -462,6 +464,32 @@ pub fn segmented(ui: &mut Ui, rect: Rect, id: impl std::hash::Hash + std::fmt::D
 
 /// Vrai à l'image où le bouton gauche s'enfonce sur ce widget : GO, arrêt et jingles partent
 /// à l'appui, sans attendre le relâché (un clic dure couramment 80 à 150 ms).
+/// Symbole de boucle dessiné (deux flèches qui se suivent sur un anneau arrondi),
+/// plus net à petite taille qu'un emoji.
+pub fn loop_icon(p: &egui::Painter, r: Rect, color: Color32) {
+    let stroke = Stroke::new(1.6, color);
+    let rad = r.height() / 2.0;
+    let (cl, cr) = (pos2(r.left() + rad, r.center().y), pos2(r.right() - rad, r.center().y));
+    // Demi-cercles aux extrémités, puis les deux côtés droits interrompus par les flèches.
+    let arc = |c: Pos2, from: f32| -> Vec<Pos2> {
+        (0..=8).map(|i| {
+            let a = from + std::f32::consts::PI * i as f32 / 8.0;
+            c + vec2(a.cos(), a.sin()) * rad
+        }).collect()
+    };
+    p.add(egui::Shape::line(arc(cr, -std::f32::consts::FRAC_PI_2), stroke));
+    p.add(egui::Shape::line(arc(cl, std::f32::consts::FRAC_PI_2), stroke));
+    let (top, bottom) = (r.top(), r.bottom());
+    p.line_segment([pos2(cl.x, top), pos2(cr.x - 1.0, top)], stroke);
+    p.line_segment([pos2(cr.x, bottom), pos2(cl.x + 1.0, bottom)], stroke);
+    let head = 3.0;
+    // Flèche vers la droite en haut, vers la gauche en bas.
+    let tip = pos2(r.center().x + 2.0, top);
+    p.add(egui::Shape::convex_polygon(vec![tip + vec2(head, 0.0), tip + vec2(-head * 0.6, -head), tip + vec2(-head * 0.6, head)], color, Stroke::NONE));
+    let tip = pos2(r.center().x - 2.0, bottom);
+    p.add(egui::Shape::convex_polygon(vec![tip + vec2(-head, 0.0), tip + vec2(head * 0.6, head), tip + vec2(head * 0.6, -head)], color, Stroke::NONE));
+}
+
 pub fn pressed(ui: &Ui, resp: &Response) -> bool {
     resp.hovered() && ui.input(|i| i.pointer.primary_pressed())
 }

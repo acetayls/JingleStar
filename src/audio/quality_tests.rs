@@ -1018,3 +1018,19 @@ fn resampling_is_clean_and_aligned() {
         assert_eq!(buf.frames, n * 48_000 / 44_100);
     }
 }
+
+#[test]
+fn looping_jingle_stops_at_once_during_its_intro() {
+    // Arrêt pendant l'intro (avant le début de boucle) : coupure en 10 ms, même avec un long
+    // fondu de sortie (réservé à l'arrêt une fois dans la boucle).
+    let src = sine(100.0, 0.8, 48_000);
+    let region = Region { start: 0, end: 48_000, looping: Some((24_000, 36_000)), fade_in: 4_800, fade_out: 96_000 };
+    let mut rig = Rig::new(2);
+    rig.play(0, &src, 1.0, region, EqCoeffs::flat());
+    rig.render(6_000);
+    rig.send(Command::Stop { module: 0, slot: 0 });
+    let out = rig.render(20_000);
+    let d = rig.latency();
+    assert!(level(&out, d + 600, 20_000) == 0.0, "éteint en 10 ms");
+    assert_no_click(&out, 2, "arrêt dans l'intro");
+}

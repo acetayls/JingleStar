@@ -18,7 +18,7 @@ Ce fichier permet de reprendre le travail après une pause. Les idées à venir 
   - poignées début et fin, boucle, et **poignées de fondu** ;
   - **zoom** à la molette, glisser pour se déplacer, double-clic ou « Tout afficher ».
 - Égaliseur par jingle. Glisser-déposer de fichiers ou de morceaux de playlist.
-- Bouton : **BOUCLE** à la place du temps restant, 🔁 et EQ en haut, cadre vert épais en lecture.
+- Bouton : **BOUCLE** à la place du temps restant, badges boucle (⟲ dessiné) et EQ en haut ; une boucle arrêtée pendant son intro coupe tout de suite, cadre vert épais en lecture.
 - Fondus : en boucle, le fondu d'entrée joue une fois et l'arrêt applique tout le fondu de sortie ;
   sans boucle, l'arrêt est limité à 1 s. Échap / Tout arrêter / ■ du module : 1 s au plus.
 - Éditeur : ascenseur si la fenêtre dépasse l'écran, forme d'onde atténuée dans les fondus,

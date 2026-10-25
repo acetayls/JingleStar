@@ -72,10 +72,10 @@ Un module en mode **Jingles** offre 12 boutons (3 colonnes, 4 rangées). Chaque 
 numéro, le nom du son, sa couleur et sa durée. Pendant la lecture, une barre de progression
 indique le temps écoulé et le temps restant ; un jingle en boucle affiche **BOUCLE** à la place du
 temps restant. Le jingle qui joue est entouré d'un cadre vert épais. Le volume du jingle est affiché en haut à droite (en orange s'il n'est pas à
-0 dB). Des repères complètent le bouton : en haut à gauche, après le numéro, **🔁** pour un jingle en boucle et **EQ** si son égaliseur est actif ; **…** pendant le chargement du son et
+0 dB). Des repères complètent le bouton : en haut à gauche, après le numéro, un badge orange **⟲** pour un jingle en boucle et **EQ** si son égaliseur est actif ; **…** pendant le chargement du son et
 **⚠** si le fichier est introuvable ou illisible.
 
-- **Clic** : lance le son depuis son point de début ; un second clic l'arrête avec son fondu de sortie (limité à 1 s pour un jingle joué une fois, complet pour un jingle en boucle).
+- **Clic** : lance le son depuis son point de début ; un second clic l'arrête avec son fondu de sortie (limité à 1 s pour un jingle joué une fois, complet pour un jingle en boucle ; une boucle arrêtée pendant son intro, avant d'avoir atteint la boucle, coupe tout de suite).
 - Plusieurs jingles d'un même module peuvent jouer en même temps.
 - **Clic droit** : menu **Choisir un fichier…**, **Éditer…** (ouvre l'éditeur sans passer en mode édition) et **Vider**.
 - **Glisser-déposer** un fichier sur un bouton remplace son son ; plusieurs fichiers remplissent les boutons suivants du module.
@@ -90,7 +90,7 @@ Ouvrez l'éditeur par le mode édition (✏ puis clic sur le bouton) ou par **cl
 - **Lecture** : **Une fois** ou **En boucle**.
 - **Fondus** : durée du fondu d'**entrée** et de **sortie**, de 0 à 30 s.
   - Joué **une fois** : le son monte au départ et descend avant sa fin. Arrêté avant la fin, il s'éteint avec son fondu de sortie, limité à 1 s.
-  - **En boucle** : le fondu d'entrée ne joue qu'au premier départ, pas à chaque tour. Le fondu de sortie ne sert qu'à l'arrêt, et en entier : c'est ainsi qu'on fait disparaître lentement un fond sonore.
+  - **En boucle** : le fondu d'entrée ne joue qu'au premier départ, pas à chaque tour. Le fondu de sortie ne sert qu'à l'arrêt, et en entier : c'est ainsi qu'on fait disparaître lentement un fond sonore. Arrêté pendant l'intro (avant le début de la boucle), il coupe tout de suite.
   - **Échap**, **TOUT ARRÊTER** et le **■** du module coupent toujours en 1 s au plus.
 - **Couleur** : 8 couleurs au choix.
 - **▶ Écouter / ■ Stop** : pour tester le son depuis l'éditeur.

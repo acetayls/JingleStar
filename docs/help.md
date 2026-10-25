@@ -71,11 +71,11 @@ A module in **Jingles** mode has 12 buttons (3 columns, 4 rows). Each button sho
 sound name, its color and its duration. While playing, a progress bar shows elapsed and remaining
 time; a looping jingle shows **LOOP** instead of the remaining time. A playing jingle has a thick
 green frame. The jingle volume is shown at the top right (orange when it is not 0 dB). Extra marks
-complete the button: at the top left, after the number, **🔁** for a looping jingle and **EQ** when
+complete the button: at the top left, after the number, an orange **⟲** badge for a looping jingle and **EQ** when
 its equalizer is on;
 **…** while the sound is loading and **⚠** if the file is missing or unreadable.
 
-- **Click**: plays the sound from its start point; a second click stops it with its fade-out (capped at 1 s for a one-shot jingle, in full for a looping one).
+- **Click**: plays the sound from its start point; a second click stops it with its fade-out (capped at 1 s for a one-shot jingle, in full for a looping one; a loop stopped during its intro, before reaching the loop, cuts at once).
 - Several jingles of the same module can play at the same time.
 - **Right-click**: **Choose a file…**, **Edit…** (opens the editor without entering edit mode) and **Clear**.
 - **Drag and drop** a file onto a button to replace its sound; several files fill the following buttons of the module.
@@ -90,7 +90,7 @@ Open the editor through edit mode (✏ then click the button) or with **right-cl
 - **Playback**: **Once** or **Loop**.
 - **Fades**: fade-**in** and fade-**out** duration, from 0 to 30 s.
   - Played **once**: the sound rises at the start and falls before its end. Stopped early, it dies away with its fade-out, capped at 1 s.
-  - **Loop**: the fade-in only plays on the first start, not on every pass. The fade-out only applies on stop, in full: that is how a background bed slowly disappears.
+  - **Loop**: the fade-in only plays on the first start, not on every pass. The fade-out only applies on stop, in full: that is how a background bed slowly disappears. Stopped during the intro (before the loop start), it cuts at once.
   - **Escape**, **STOP ALL** and the module's **■** always cut within 1 s.
 - **Color**: 8 colors to choose from.
 - **▶ Play / ■ Stop**: to try the sound from the editor.

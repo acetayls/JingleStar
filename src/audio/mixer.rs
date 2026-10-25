@@ -518,15 +518,25 @@ impl Mixer {
         }
     }
 
-    /// Arrêt en fondu. Un son en boucle n'a pas d'autre fin que l'arrêt : son fondu de sortie
-    /// est alors appliqué en entier (`own_fade`). Sinon, et pour les arrêts groupés (module,
+    /// Arrêt en fondu. Un son en boucle n'a pas d'autre fin que l'arrêt : une fois dans la
+    /// boucle, son fondu de sortie est appliqué en entier (`own_fade`). Sinon, et pour les arrêts groupés (module,
     /// tout arrêter, Échap), le fondu de sortie est borné entre 10 ms et 1 s pour rester franc.
     fn fade(&mut self, module: usize, slot: usize, own_fade: bool) {
         let frames = self.ramps.stop;
         if let Some(v) = self.modules[module].voices[slot].as_mut() {
             if v.fade_left.is_none() {
+                // Son en boucle arrêté pendant son intro (avant d'avoir atteint la boucle) :
+                // arrêt immédiat, avec le seul micro-fondu anti-clic.
+                let intro = v.region.looping.is_some_and(|(ls, _)| !v.wrapped && v.pos < ls);
                 let full = own_fade && v.region.looping.is_some();
-                v.fade_len = if full { v.region.fade_out } else { v.region.fade_out.min(frames * 100) }.max(frames);
+                v.fade_len = if intro {
+                    frames
+                } else if full {
+                    v.region.fade_out
+                } else {
+                    v.region.fade_out.min(frames * 100)
+                }
+                .max(frames);
                 v.fade_left = Some(v.fade_len);
             }
         }
