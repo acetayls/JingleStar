@@ -2,6 +2,7 @@
 
 mod theme;
 mod eq_view;
+mod go_view;
 mod help;
 mod remote_view;
 mod widgets;
@@ -27,6 +28,7 @@ struct TrackPayload(PathBuf);
 enum DropTarget {
     Jingle(usize, usize),
     Playlist(usize),
+    Go(usize),
 }
 
 struct SettingsDraft {
@@ -247,6 +249,7 @@ impl JingleStarApp {
             ui.scope_builder(UiBuilder::new().max_rect(content), |ui| match self.ctrl.project.modules[m].mode {
                 ModuleMode::Jingle => self.jingle_grid(ui, m, content),
                 ModuleMode::Playlist => self.playlist_view(ui, m, content),
+                ModuleMode::Go => self.go_view(ui, m, content),
                 ModuleMode::Text => {}
             });
             ui.scope_builder(UiBuilder::new().max_rect(strip), |ui| self.fader_strip(ui, m, strip));
@@ -365,6 +368,13 @@ impl JingleStarApp {
             }
             if ui.selectable_label(mode == ModuleMode::Playlist, "Playlist").clicked() {
                 self.ctrl.set_module_mode(m, ModuleMode::Playlist);
+            }
+            if ui
+                .selectable_label(mode == ModuleMode::Go, "GO")
+                .on_hover_text(tr("Conduite de spectacle : des cues lancés un à un avec GO", "Show cue list: cues fired one by one with GO"))
+                .clicked()
+            {
+                self.ctrl.set_module_mode(m, ModuleMode::Go);
             }
             if ui.selectable_label(mode == ModuleMode::Text, tr("Texte", "Text")).on_hover_text(tr("Champ libre pour écrire sa conduite", "Free text field for your running order")).clicked() {
                 self.ctrl.set_module_mode(m, ModuleMode::Text);
@@ -1232,6 +1242,7 @@ impl JingleStarApp {
                     }
                 }
             }
+            Some(DropTarget::Go(m)) => self.ctrl.add_cues(m, files, None),
             Some(DropTarget::Playlist(m)) => {
                 // Fichiers de plusieurs dossiers ou dossiers entiers : ajoutés à la suite de la liste.
                 self.ctrl.add_playlist_files(m, files);
@@ -1391,6 +1402,15 @@ impl eframe::App for JingleStarApp {
         if !typing && ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.ctrl.escape();
         }
+        // Barre d'espace : GO du premier module GO. La touche est retirée de la file
+        // pour qu'un bouton qui a le focus ne la reçoive pas en plus.
+        if !typing {
+            if let Some(m) = self.ctrl.first_go_module() {
+                if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Space)) {
+                    self.ctrl.cue_go(m);
+                }
+            }
+        }
         if ctx.input(|i| i.key_pressed(Key::F1)) {
             self.help.toggle();
         }
@@ -1408,10 +1428,12 @@ impl eframe::App for JingleStarApp {
             .show(ui, |ui| self.modules_grid(ui));
 
         // Étiquette qui suit le pointeur pendant le glisser d'un morceau.
-        if let (Some(track), Some(p)) = (egui::DragAndDrop::payload::<TrackPayload>(&ctx), ctx.pointer_interact_pos()) {
-            let name = track.0.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let dragged = egui::DragAndDrop::payload::<TrackPayload>(&ctx)
+            .map(|t| format!("♪ {}", t.0.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()))
+            .or_else(|| egui::DragAndDrop::payload::<go_view::CuePayload>(&ctx).map(|c| format!("{}  {}", c.index + 1, c.name)));
+        if let (Some(name), Some(p)) = (dragged, ctx.pointer_interact_pos()) {
             let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("track-drag")));
-            let galley = painter.layout_no_wrap(format!("♪ {name}"), FontId::proportional(13.0), Color32::WHITE);
+            let galley = painter.layout_no_wrap(name, FontId::proportional(13.0), Color32::WHITE);
             let r = Rect::from_min_size(p + vec2(12.0, 8.0), galley.size() + vec2(12.0, 6.0));
             painter.rect_filled(r, CornerRadius::same(4), EDIT.gamma_multiply(0.9));
             painter.galley(r.min + vec2(6.0, 3.0), galley, Color32::WHITE);

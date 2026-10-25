@@ -30,6 +30,24 @@ pub enum ModuleMode {
     Playlist,
     /// Simple champ de texte, pour écrire sa conduite.
     Text,
+    /// Conduite de spectacle : liste ordonnée de cues lancés un à un avec GO.
+    Go,
+}
+
+/// Un son de la conduite (module GO).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Cue {
+    pub path: PathBuf,
+    pub name: String,
+    #[serde(default)]
+    pub volume_db: f32,
+}
+
+impl Cue {
+    pub fn new(path: PathBuf) -> Self {
+        let name = path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        Self { path, name, volume_db: 0.0 }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -158,6 +176,8 @@ pub struct ModuleConfig {
     pub eq: EqSettings,
     /// Texte du module en mode Texte (la conduite).
     pub notes: String,
+    /// Cues du module GO, dans l'ordre de la conduite.
+    pub cues: Vec<Cue>,
 }
 
 impl ModuleConfig {
@@ -177,6 +197,7 @@ impl Default for ModuleConfig {
             playlist: PlaylistConfig::default(),
             eq: EqSettings::default(),
             notes: String::new(),
+            cues: Vec::new(),
         }
     }
 }
@@ -360,5 +381,18 @@ mod tests {
         assert_eq!(back.modules[0].playlist.manual_gains.get(Path::new("/musique/01 Morceau.wav")), Some(&-4.5));
         assert_eq!(back.modules[1].mode, ModuleMode::Text);
         assert_eq!(back.modules[1].notes, p.modules[1].notes);
+    }
+
+    #[test]
+    fn go_cues_survive_save() {
+        let mut p = Project::default();
+        p.modules[2].mode = ModuleMode::Go;
+        p.modules[2].cues = vec![Cue::new(PathBuf::from("/show/01 Ouverture.wav")), Cue { volume_db: -6.0, ..Cue::new(PathBuf::from("/show/02 Pluie.wav")) }];
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(json.contains("\"mode\":\"go\""));
+        let back: Project = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.modules[2].mode, ModuleMode::Go);
+        assert_eq!(back.modules[2].cues, p.modules[2].cues);
+        assert_eq!(back.modules[2].cues[0].name, "01 Ouverture");
     }
 }

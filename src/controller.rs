@@ -20,6 +20,9 @@ use crate::console::ConsoleClient;
 use crate::midi::MidiListener;
 use crate::remote::{Flag, InputEvent, Mapping, Pickup};
 use crate::osc::{self, OscCommand, OscServer};
+mod cues;
+pub use cues::GoRuntime;
+
 use crate::project::{
     autosave_path, loudness_cache_path, AudioSettings, ConsoleSettings, JingleSlot, MidiSettings, ModuleConfig, ModuleMode, OscSettings, Project, Transition, DEFAULT_COLORS,
 };
@@ -112,6 +115,8 @@ pub struct Controller {
     pub device_error: Option<String>,
     pub status: Option<String>,
     pub playlists: [PlaylistRuntime; MAX_MODULES],
+    /// Conduites des modules GO.
+    pub gos: [GoRuntime; MAX_MODULES],
     /// Sons de jingles décodés au taux du périphérique.
     cache: HashMap<PathBuf, Arc<AudioBuffer>>,
     loading: HashSet<PathBuf>,
@@ -170,6 +175,7 @@ impl Controller {
             device_error: None,
             status: None,
             playlists: Default::default(),
+            gos: Default::default(),
             cache: HashMap::new(),
             loading: HashSet::new(),
             load_errors: HashMap::new(),
@@ -278,7 +284,7 @@ impl Controller {
             .project
             .modules
             .iter()
-            .flat_map(|m| m.jingles.iter().flatten().map(|j| j.path.clone()))
+            .flat_map(|m| m.jingles.iter().flatten().map(|j| j.path.clone()).chain(m.cues.iter().map(|c| c.path.clone())))
             .collect();
         for p in paths {
             self.request_jingle_load(&p);
@@ -358,6 +364,7 @@ impl Controller {
                 match done.result {
                     Ok(buf) => {
                         self.cache.insert(done.path.clone(), buf);
+                        self.start_pending_cues(&done.path, true);
                         let pending: Vec<_> = self.pending_play.drain().collect();
                         for (m, s) in pending {
                             if self.jingle(m, s).map(|j| j.path == done.path).unwrap_or(false) {
@@ -368,6 +375,7 @@ impl Controller {
                         }
                     }
                     Err(e) => {
+                        self.start_pending_cues(&done.path, false);
                         self.pending_play.retain(|&(m, s)| {
                             self.project.modules[m].jingles[s].as_ref().map(|j| j.path != done.path).unwrap_or(true)
                         });
@@ -442,7 +450,7 @@ impl Controller {
                     rt.duration = None;
                 }
             }
-            Event::Ended { .. } => {}
+            Event::Ended { module, slot, id } => self.on_cue_ended(module, slot, id),
             Event::Advanced { module, id, slot } => {
                 let rt = &mut self.playlists[module];
                 if let Some((index, qid)) = rt.queued.take() {
@@ -471,6 +479,7 @@ impl Controller {
         self.project.modules[n] = ModuleConfig::numbered(n);
         self.project.module_count = n + 1;
         self.playlists[n] = PlaylistRuntime { slot: PLAYLIST_SLOTS[0], ..Default::default() };
+        self.gos[n] = GoRuntime::default();
         self.apply_mixer_params();
         self.mark_dirty();
         Some(n)
@@ -495,6 +504,7 @@ impl Controller {
                 generation: self.playlists[i].generation + 1,
                 ..Default::default()
             };
+            self.gos[i] = GoRuntime::default();
         }
         self.apply_mixer_params();
         self.mark_dirty();
@@ -544,6 +554,7 @@ impl Controller {
     pub fn stop_module(&mut self, m: usize) {
         self.engine.send(Command::StopModule { module: m });
         self.pending_play.retain(|&(pm, _)| pm != m);
+        self.reset_go_voices(m);
         let rt = &mut self.playlists[m];
         rt.generation += 1;
         rt.playing = false;
@@ -1146,6 +1157,13 @@ impl Controller {
                 None => self.playlist_toggle_pause(m),
             },
             OscCommand::PlaylistStep(m, d) if m < n && mode(self, m) == ModuleMode::Playlist => self.playlist_step(m, d),
+            OscCommand::CueGo(Some(m)) if m < n && mode(self, m) == ModuleMode::Go => self.cue_go(m),
+            OscCommand::CueGo(None) if self.first_go_module().is_some() => {
+                let m = self.first_go_module().unwrap_or(0);
+                self.cue_go(m);
+            }
+            OscCommand::CueStep(m, d) if m < n && mode(self, m) == ModuleMode::Go => self.cue_step(m, d),
+            OscCommand::CueStandby(m, i) if m < n && mode(self, m) == ModuleMode::Go => self.set_standby(m, i),
             OscCommand::PlaylistShuffle(m, on) if m < n => self.update_playlist(m, |p| p.shuffle = on),
             OscCommand::PlaylistLoop(m, on) if m < n => self.update_playlist(m, |p| p.looping = on),
             other => self.status = Some(format!("{source} : {} ({other:?})", tr("commande ignorée", "command ignored"))),
@@ -1334,6 +1352,11 @@ impl Controller {
                         shuffle: cfg.playlist.shuffle,
                         looping: cfg.playlist.looping,
                     },
+                    cues: osc::CueListState {
+                        names: cfg.cues.iter().map(|c| c.name.clone()).collect(),
+                        standby: self.gos[m].standby,
+                        playing: (0..cfg.cues.len()).filter(|&i| self.cue_position(m, i).is_some()).count(),
+                    },
                 }
             })
             .collect();
@@ -1364,6 +1387,7 @@ impl Controller {
                 self.learn = None;
                 self.project_path = Some(path);
                 self.playlists = Default::default();
+                self.gos = Default::default();
                 self.pending_play.clear();
                 self.mark_dirty();
                 if audio_changed {

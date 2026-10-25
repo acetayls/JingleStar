@@ -44,13 +44,13 @@ Each module has, from top to bottom:
 - the **output** selector (stereo pair 1-2, 3-4…);
 - the **EQ** button (module equalizer);
 - the **✏** button (edit mode);
-- the mode selector: **Jingles**, **Playlist** or **Text**;
+- the mode selector: **Jingles**, **Playlist**, **GO** or **Text**;
 - on the right, the volume **fader** (-∞ to +10 dB) with marks at +3, 0 and -6 dB and its dB value below, the stereo **meter** and the **■** button that stops the module.
 
 The module frame turns green while something is playing in it.
 
 - **Volume**: drag the fader. A **double-click** resets it to 0 dB. **Double-click the dB value** to type it on the keyboard (Enter confirms, Escape cancels).
-- **Change mode**: click **Jingles**, **Playlist** or **Text**. The module stops; the jingles, the playlist and the text are all kept.
+- **Change mode**: click **Jingles**, **Playlist**, **GO** or **Text**. The module stops; the jingles, the playlist, the cue list and the text are all kept.
 - **Rename**: **double-click the module name**, type the new name and press Enter (Escape cancels). In edit mode (✏) the name is also directly editable.
 - **Text module**: a large free text field to write your running order, saved with the project. Escape still stops the jingles from there.
 - **Delete**: in edit mode, click **🗑** then confirm with **Delete?**. The following modules move up one place. The last remaining module cannot be deleted.
@@ -179,6 +179,33 @@ are cached and only redone when the file changes.
 
 Outside edit mode, a **Normalize** row reminds you of the current setting.
 
+## The GO module (cue list)
+
+**GO** mode follows a show running order, QLab style: an ordered list of sounds (the **cues**)
+fired one by one.
+
+- **Add sounds**: **＋ Add sounds…**, or drop files or folders onto the list. A playlist track can
+  also be dragged in, at the place you want.
+- **STANDBY**: the amber frame shows the cue the next GO will fire, and the one after. In the list
+  it is highlighted and marked ▶.
+- **GO** (or the **space bar**): fires the standby cue and puts the next one on standby. Fired cues
+  keep playing together until they end. The double-GO protection from the preferences also guards
+  this button. After the last cue the frame shows **End of the cue list** and GO goes dark.
+- **Previous** / **Next**: move the standby cue without firing anything. **Click** a cue to put it
+  on standby.
+- **Stop**: stops every cue of the list; the standby cue does not change. While a cue plays, its row
+  fills in green, shows the remaining time and a **■** button that stops only that cue.
+- **Volume**: **double-click** a cue's dB value to type it (Enter confirms).
+- **Order**: drag a cue up or down; a blue line shows where it will land. The standby cue stays the
+  same sound.
+- **Right-click** a cue: **Play now** (without changing the standby cue), **Put on standby**,
+  **Remove from the list**.
+- In **edit mode** (✏), cue names are directly editable and **🗑** clears the list.
+
+The space bar drives the first GO module on screen (except while typing text). Remote controls have
+the **Cue list: GO**, **Cue list: next cue** and **Cue list: previous cue** actions, and OSC has the
+`go` and `cue/…` addresses (see [OSC control](#osc-control)).
+
 ## The equalizer
 
 Every jingle and every module has its own equalizer. The module equalizer applies to everything the
@@ -289,7 +316,7 @@ default prefix.
 | `/jinglestar/stop_all` | — | Stops everything |
 | `/jinglestar/module/<m>/stop` | — | Stops the module |
 | `/jinglestar/module/<m>/volume` | float, dB (-60 to +10) | Module volume |
-| `/jinglestar/module/<m>/mode` | `jingle` or `playlist` | Changes the module mode |
+| `/jinglestar/module/<m>/mode` | `jingle`, `playlist`, `text` or `go` | Changes the module mode |
 | `/jinglestar/module/<m>/jingle/<j>/play` | — | Plays the jingle from the start (restarts it if playing) |
 | `/jinglestar/module/<m>/jingle/<j>/stop` | — | Stops the jingle |
 | `/jinglestar/module/<m>/jingle/<j>/toggle` | — | Plays or stops, like a click |
@@ -303,6 +330,11 @@ default prefix.
 | `/jinglestar/module/<m>/playlist/previous` | — | Previous track |
 | `/jinglestar/module/<m>/playlist/shuffle` | bool | Shuffle |
 | `/jinglestar/module/<m>/playlist/loop` | bool | Loop the list |
+| `/jinglestar/go` | — | GO of the first GO module |
+| `/jinglestar/module/<m>/go` | — | GO: fires the standby cue, moves to the next |
+| `/jinglestar/module/<m>/cue/next` | — | Next cue on standby |
+| `/jinglestar/module/<m>/cue/previous` | — | Previous cue on standby |
+| `/jinglestar/module/<m>/cue/standby` | int | Puts cue no. on standby |
 
 - Triggers (`play`, `stop`, `toggle`, `next`…) fire with no argument or a non-zero value: a button sending 1 on press and 0 on release triggers only once.
 - Booleans accept `T`/`F`, an int or a float (≥ 0.5 = true), or `true`/`false`/`on`/`off`.
@@ -423,6 +455,8 @@ or **QL · Scene 12**.
 |---|---|
 | Stop all | **Esc** (except while typing text) |
 | Open or close the help | **F1** |
+| GO of the first GO module | **Space** (except while typing text) |
+| Reorder the cue list | Drag a cue |
 | Play / stop a jingle | Click the button (play mode) |
 | Jingle menu | Right-click the button |
 | Fill buttons | Drag and drop one or more files |
