@@ -167,3 +167,19 @@ mod tests {
         assert!((peak - 0.5).abs() < 0.02, "crête {peak}");
     }
 }
+
+#[cfg(test)]
+mod bench {
+    /// Temps de décodage d'un long fichier : `JS_BENCH=fichier cargo test --release bench_decode -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn bench_decode() {
+        let path = std::env::var("JS_BENCH").expect("JS_BENCH");
+        let t = std::time::Instant::now();
+        let b = super::decode_file(std::path::Path::new(&path), 48_000).unwrap();
+        println!("décodage + rééchantillonnage : {:?} pour {:.0} s", t.elapsed(), b.duration_secs());
+        let t = std::time::Instant::now();
+        let _ = super::analyze_file(std::path::Path::new(&path)).unwrap();
+        println!("analyse : {:?}", t.elapsed());
+    }
+}

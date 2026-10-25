@@ -142,7 +142,8 @@ impl JingleStarApp {
                 let panic = egui::Button::new(RichText::new(tr("■  TOUT ARRÊTER", "■  STOP ALL")).strong().color(Color32::WHITE))
                     .fill(STOP)
                     .min_size(vec2(150.0, 32.0));
-                if ui.add(panic).on_hover_text(tr("Arrête jingles et playlists", "Stops jingles and playlists")).clicked() {
+                let panic = ui.add(panic).on_hover_text(tr("Arrête jingles et playlists", "Stops jingles and playlists"));
+                if pressed(ui, &panic) {
                     self.ctrl.stop_all();
                 }
                 ui.add_space(8.0);
@@ -441,7 +442,8 @@ impl JingleStarApp {
             self.ctrl.set_module_volume(m, v);
         }
         let stop_rect = Rect::from_min_max(egui::pos2(strip.left(), strip.bottom() - stop_h), strip.max);
-        if ui.put(stop_rect, egui::Button::new(RichText::new("■").color(Color32::WHITE)).fill(STOP.gamma_multiply(0.6))).on_hover_text(tr("Arrêter le module", "Stop module")).clicked() {
+        let stop = ui.put(stop_rect, egui::Button::new(RichText::new("■").color(Color32::WHITE)).fill(STOP.gamma_multiply(0.6))).on_hover_text(tr("Arrêter le module", "Stop module"));
+        if pressed(ui, &stop) {
             self.ctrl.stop_module(m);
         }
     }
@@ -509,14 +511,17 @@ impl JingleStarApp {
                 self.ctrl.assign_jingle(m, s, track.0.clone());
                 continue;
             }
-            if resp.clicked() {
+            if !self.edit_mode[m] && slot.is_some() {
+                // En lecture, le jingle part dès l'appui.
+                if pressed(ui, &resp) {
+                    self.ctrl.trigger_jingle(m, s);
+                }
+            } else if resp.clicked() {
                 if self.edit_mode[m] {
                     if slot.is_none() {
                         self.pick_jingle_file(m, s);
                     }
                     self.selected = Some((m, s));
-                } else if slot.is_some() {
-                    self.ctrl.trigger_jingle(m, s);
                 } else {
                     // Bouton vide : on propose directement de choisir un son.
                     self.pick_jingle_file(m, s);
@@ -868,31 +873,28 @@ impl JingleStarApp {
         {
             self.ctrl.playlist_step(m, -1);
         }
-        if transport_button(ui, go_r, ("pl-go", m), TransportIcon::Play, Some("GO"), GO, Color32::from_rgb(0x0c, 0x1a, 0x0e))
+        let go = transport_button(ui, go_r, ("pl-go", m), TransportIcon::Play, Some("GO"), GO, Color32::from_rgb(0x0c, 0x1a, 0x0e))
             .on_hover_text(if rt.paused {
                 tr("Reprendre là où le morceau s'est arrêté", "Resume where the track was paused")
             } else {
                 tr("Lancer le morceau sélectionné", "Play the selected track")
-            })
-            .clicked()
-        {
+            });
+        if pressed(ui, &go) {
             self.ctrl.playlist_go(m);
         }
         let (pause_fill, pause_fg) = if rt.paused { (ACCENT, Color32::BLACK) } else { (PANEL_HI, TEXT) };
-        if transport_button(ui, pause_r, ("pl-pause", m), TransportIcon::Pause, None, pause_fill, pause_fg)
+        let pause = transport_button(ui, pause_r, ("pl-pause", m), TransportIcon::Pause, None, pause_fill, pause_fg)
             .on_hover_text(if rt.paused {
                 tr("Reprendre", "Resume")
             } else {
                 tr("Pause : le morceau reprendra au même endroit", "Pause: the track will resume at the same spot")
-            })
-            .clicked()
-        {
+            });
+        if pressed(ui, &pause) {
             self.ctrl.playlist_toggle_pause(m);
         }
-        if transport_button(ui, stop_r, ("pl-stop", m), TransportIcon::Stop, None, STOP.gamma_multiply(0.75), Color32::WHITE)
-            .on_hover_text(tr("Arrêter", "Stop"))
-            .clicked()
-        {
+        let stop = transport_button(ui, stop_r, ("pl-stop", m), TransportIcon::Stop, None, STOP.gamma_multiply(0.75), Color32::WHITE)
+            .on_hover_text(tr("Arrêter", "Stop"));
+        if pressed(ui, &stop) {
             self.ctrl.playlist_stop(m);
         }
         if transport_button(ui, next_r, ("pl-next", m), TransportIcon::Next, None, PANEL_HI, TEXT)

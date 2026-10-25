@@ -447,6 +447,12 @@ pub fn segmented(ui: &mut Ui, rect: Rect, id: impl std::hash::Hash + std::fmt::D
     clicked
 }
 
+/// Vrai à l'image où le bouton gauche s'enfonce sur ce widget : GO, arrêt et jingles partent
+/// à l'appui, sans attendre le relâché (un clic dure couramment 80 à 150 ms).
+pub fn pressed(ui: &Ui, resp: &Response) -> bool {
+    resp.hovered() && ui.input(|i| i.pointer.primary_pressed())
+}
+
 /// Volume d'un jingle en haut à droite de son bouton, en couleur s'il n'est pas à 0 dB ;
 /// double-clic pour le saisir. À appeler après `jingle_button`, pour passer au-dessus du bouton.
 pub fn jingle_volume(ui: &mut Ui, id: Id, rect: Rect, volume_db: f32) -> Option<f32> {

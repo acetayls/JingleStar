@@ -32,6 +32,8 @@ enum LoadKind {
     Jingle,
     /// `start` : à lancer dès que prêt ; sinon à mettre en file pour l'enchaînement.
     Playlist { module: usize, index: usize, generation: u64, start: bool },
+    /// Préchargement du morceau que lancera le prochain GO, pour un départ immédiat.
+    Arm { module: usize },
 }
 
 struct LoadJob {
@@ -106,6 +108,10 @@ pub struct PlaylistRuntime {
     loading: bool,
     generation: u64,
     pub duration: Option<f64>,
+    /// Morceau déjà décodé que lancera le prochain GO (chemin, taux, son).
+    armed: Option<(PathBuf, u32, Arc<AudioBuffer>)>,
+    /// Préchargement en cours (chemin).
+    arming: Option<PathBuf>,
 }
 
 pub struct Controller {
@@ -329,6 +335,9 @@ impl Controller {
         while let Ok(err) = self.engine.stream_errors.try_recv() {
             self.device_error = Some(err);
         }
+        for m in 0..self.project.module_count {
+            self.ensure_armed(m);
+        }
         self.poll_osc();
         self.poll_remote();
         self.update_keep_awake();
@@ -355,6 +364,9 @@ impl Controller {
                 if generation == self.playlists[module].generation {
                     self.load_track(module, index, start);
                 }
+            } else if let LoadKind::Arm { module } = done.kind {
+                // Le prochain passage de `poll` relance le préchargement au bon taux.
+                self.playlists[module].arming = None;
             }
             return;
         }
@@ -383,6 +395,16 @@ impl Controller {
                     }
                 }
             }
+            LoadKind::Arm { module } => {
+                let rt = &mut self.playlists[module];
+                if rt.arming.as_ref() != Some(&done.path) {
+                    return;
+                }
+                rt.arming = None;
+                if let Ok(buf) = done.result {
+                    rt.armed = Some((done.path, done.rate, buf));
+                }
+            }
             LoadKind::Playlist { module, index, generation, start } => {
                 let rt = &mut self.playlists[module];
                 if generation != rt.generation {
@@ -409,19 +431,12 @@ impl Controller {
                 if !rt.playing {
                     return;
                 }
-                let gain = self.track_gain(module, index).linear();
-                let id = self.voice_id();
-                let rt = &mut self.playlists[module];
-                if start || rt.voice.is_none() {
-                    rt.current = Some(index);
-                    rt.voice = Some(id);
-                    rt.played.insert(index);
-                    rt.duration = Some(buf.duration_secs());
-                    let region = Region::full(&buf);
-                    let slot = rt.slot;
-                    self.engine.send(Command::Play { module, slot, id, buffer: buf, gain, region, eq: EqCoeffs::flat() });
-                    self.preload_next(module);
+                if start || self.playlists[module].voice.is_none() {
+                    self.start_track_now(module, index, buf);
                 } else {
+                    let gain = self.track_gain(module, index).linear();
+                    let id = self.voice_id();
+                    let rt = &mut self.playlists[module];
                     rt.queued = Some((index, id));
                     let pl = &self.project.modules[module].playlist;
                     let crossfade = match pl.transition {
@@ -945,6 +960,46 @@ impl Controller {
         let _ = self.jobs.send(LoadJob { path, rate: self.rate(), kind, analyze });
     }
 
+    /// Lance tout de suite un morceau déjà décodé, puis précharge le suivant.
+    fn start_track_now(&mut self, module: usize, index: usize, buf: Arc<AudioBuffer>) {
+        let gain = self.track_gain(module, index).linear();
+        let id = self.voice_id();
+        let rt = &mut self.playlists[module];
+        rt.loading = false;
+        rt.current = Some(index);
+        rt.voice = Some(id);
+        rt.played.insert(index);
+        rt.duration = Some(buf.duration_secs());
+        let region = Region::full(&buf);
+        let slot = rt.slot;
+        self.engine.send(Command::Play { module, slot, id, buffer: buf, gain, region, eq: EqCoeffs::flat() });
+        self.preload_next(module);
+    }
+
+    /// À l'arrêt, garde décodé en mémoire le morceau que lancera le prochain GO :
+    /// le départ ne dépend plus du décodage (une demi-seconde ou plus pour un long MP3).
+    fn ensure_armed(&mut self, m: usize) {
+        let rate = self.rate();
+        let pl = &self.project.modules[m].playlist;
+        let rt = &self.playlists[m];
+        if self.project.modules[m].mode != ModuleMode::Playlist || rt.playing || rt.loading {
+            return;
+        }
+        let Some(path) = pl.tracks.get(rt.current.unwrap_or(0)).cloned() else {
+            self.playlists[m].armed = None;
+            return;
+        };
+        if rt.armed.as_ref().is_some_and(|(p, r, _)| *p == path && *r == rate) || rt.arming.as_ref() == Some(&path) {
+            return;
+        }
+        let analyze = pl.normalize.enabled && !matches!(self.analysis.get(&path), Some(Analysis::Done(_) | Analysis::Failed(_)));
+        let rt = &mut self.playlists[m];
+        // On libère tout de suite l'ancien son préchargé.
+        rt.armed = None;
+        rt.arming = Some(path.clone());
+        let _ = self.jobs.send(LoadJob { path, rate, kind: LoadKind::Arm { module: m }, analyze });
+    }
+
     fn preload_next(&mut self, m: usize) {
         if let Some(cur) = self.playlists[m].current {
             if let Some(next) = self.next_index(m, cur) {
@@ -968,7 +1023,17 @@ impl Controller {
         rt.current = Some(index);
         rt.duration = None;
         self.engine.send(Command::QueueNext { module: m, next: None });
-        self.load_track(m, index, true);
+        // Morceau préchargé : départ immédiat, sans attendre le décodage.
+        let rate = self.rate();
+        let path = self.project.modules[m].playlist.tracks.get(index);
+        let armed = self.playlists[m].armed.take_if(|(p, r, _)| Some(&*p) == path && *r == rate);
+        match armed {
+            Some((_, _, buf)) => self.start_track_now(m, index, buf),
+            None => {
+                self.playlists[m].armed = None;
+                self.load_track(m, index, true);
+            }
+        }
     }
 
     /// Lecture : reprend après une pause, sinon lance le morceau sélectionné, ou le premier.

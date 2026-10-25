@@ -9,6 +9,12 @@ pub struct AudioBuffer {
     pub detail: Vec<f32>,
 }
 
+impl std::fmt::Debug for AudioBuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "AudioBuffer({} images à {} Hz)", self.frames, self.sample_rate)
+    }
+}
+
 pub const OVERVIEW_BINS: usize = 1500;
 pub const DETAIL_FRAMES: usize = 64;
 
