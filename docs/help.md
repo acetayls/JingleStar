@@ -25,10 +25,9 @@ Supported formats: WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 - **＋ Add module**: adds a module at the end (4 maximum). The counter shows the number of modules.
 - Modules sit side by side in one row. **Drag the divider** between two modules to set their width; **double-click** a divider to make all widths equal again. Widths are saved with the project.
 - **Open…** / **Save as…**: opens or saves a project (`.jinglestar` file).
-- **Remote**: MIDI, Yamaha console and Midas M32 control, mappings and learn mode. See [MIDI control](#midi-control), [Control from a Yamaha console](#control-from-a-yamaha-console) and [Control from a Midas M32 / Behringer X32](#control-from-a-midas-m32--behringer-x32).
-- **⚙ Preferences**: audio, language, sleep prevention and OSC.
-- **? Help**: this manual. The **🔍 Search** field at the top (or **Ctrl+F**) shows only the passages containing the typed words, ignoring accents and case; **✕** goes back to the contents.
-- **? Help**: opens this help (**F1** key).
+- **Remote**: OSC, MIDI, Yamaha console and Midas M32 control, mappings and learn mode. See [MIDI control](#midi-control), [Control from a Yamaha console](#control-from-a-yamaha-console) and [Control from a Midas M32 / Behringer X32](#control-from-a-midas-m32--behringer-x32).
+- **⚙ Preferences**: audio, language and sleep prevention.
+- **? Help** (**F1** key): this manual. The **🔍 Search** field at the top (or **Ctrl+F**) shows only the passages containing the typed words, ignoring accents and case; **✕** goes back to the contents.
 - **■ STOP ALL**: stops every sound in every module (**Esc** key).
 
 ### Bottom bar
@@ -117,6 +116,9 @@ horizontal scrolling or dragging away from the handles moves the view; a double-
 **Show all** returns to the whole sound. When zoomed in, a **scroll bar** under the waveform shows
 the visible part: drag it to travel through the sound, or click beside it to jump there.
 
+While playing (jingle button or **▶ Play**), a **click on the waveform**, away from the handles,
+moves playback to that spot, with a click-free micro-fade.
+
 Excluded parts are darkened and fades are drawn as ramps. Start and end are grabbed in the lower
 half of the waveform, loop points in the upper half, so they can be told apart even when they
 overlap.
@@ -175,7 +177,8 @@ The **Transition** row offers:
 
 ### Level normalization
 
-To make every track play at the same level, switch to edit mode and tick **Normalize level**. Each
+To make every track play at the same level, tick **Normalize level** under the transition. The
+target and measuring mode are set in edit mode (✏). Each
 track is measured in the background, then played with the gain that brings it to the target. Files
 are never modified.
 
@@ -263,7 +266,7 @@ module header.
 
 ## Preferences
 
-**⚙ Preferences** opens the settings window. **Audio** and **OSC** settings take effect with
+**⚙ Preferences** opens the settings window. **Audio** settings take effect with
 **Apply**, which also closes the window; language and sleep prevention apply right away.
 
 ### Audio
@@ -284,10 +287,6 @@ nothing changed in the audio settings, playback is not interrupted.
 At the bottom of the window, the **build version** (version, commit and build date) tells you which
 update is installed; click it to copy it.
 
-### OSC
-
-See [OSC control](#osc-control).
-
 ## Projects and saving
 
 - The session is **saved automatically** and restored on next launch (modules, jingles, playlists, preferences).
@@ -305,7 +304,7 @@ surface or a script).
 
 ### Enabling it
 
-In **Preferences → OSC**, tick **Enable OSC control**, adjust the options and click **Apply**:
+In **Remote**, **OSC** section at the top of the window, tick **Enable OSC control**, adjust the options and click **Apply**:
 
 | Setting | Default | Purpose |
 |---|---|---|

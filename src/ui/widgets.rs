@@ -560,6 +560,7 @@ pub fn waveform_editor(
     fade_in: &mut f64,
     fade_out: &mut f64,
     playhead: Option<f64>,
+    seek: &mut Option<f64>,
 ) -> bool {
     let size = vec2(ui.available_width(), 150.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click_and_drag());
@@ -680,10 +681,13 @@ pub fn waveform_editor(
 
     // Traits de boucle.
     if looping {
+        // Boucle étroite à l'écran : les étiquettes passent à l'extérieur pour ne pas se chevaucher.
+        let narrow = x_of(m.loop_end) - x_of(m.loop_start) < 110.0;
         for (t, label) in [(m.loop_start, tr("⟲ début", "⟲ start")), (m.loop_end, tr("fin ⟳", "end ⟳"))] {
             let x = x_of(t);
             p.line_segment([pos2(x, rect.top()), pos2(x, rect.bottom())], Stroke::new(2.0, ACCENT));
-            let align = if label.starts_with('⟲') { Align2::LEFT_TOP } else { Align2::RIGHT_TOP };
+            let inside_left = label.starts_with('⟲') != narrow;
+            let align = if inside_left { Align2::LEFT_TOP } else { Align2::RIGHT_TOP };
             let off = if align == Align2::LEFT_TOP { 3.0 } else { -3.0 };
             p.text(pos2(x + off, rect.top() + 1.0), align, label, FontId::proportional(10.0), ACCENT);
         }
@@ -752,6 +756,12 @@ pub fn waveform_editor(
         ui.data_mut(|d| d.insert_temp(drag_id, h));
     }
     let dbl_empty = resp.double_clicked() && resp.interact_pointer_pos().and_then(nearest).is_none();
+    // Pendant la lecture, un clic hors des poignées déplace la lecture à cet endroit.
+    if playhead.is_some() && resp.clicked() {
+        if let Some(pos) = resp.interact_pointer_pos().filter(|p| nearest(*p).is_none()) {
+            *seek = Some(t_of(pos.x));
+        }
+    }
     let mut changed = false;
     let mut view = (v0, v1);
     if resp.dragged() {
@@ -839,7 +849,7 @@ mod tests {
             let mut wave_rect = Rect::NOTHING;
             let mut out = ctx.run_ui(input, |ui| {
                 egui::Window::new("t").fixed_pos(pos2(0.0, 0.0)).default_width(620.0).resizable(true).show(ui.ctx(), |ui| {
-                    waveform_editor(ui, overview, 10.0, m, looping, &mut 0.0, &mut 0.0, None);
+                    waveform_editor(ui, overview, 10.0, m, looping, &mut 0.0, &mut 0.0, None, &mut None);
                     wave_rect = ui.min_rect();
                 });
             });
@@ -922,7 +932,7 @@ mod tests {
                 let mut out = ctx.run_ui(input, |ui| {
                     egui::Window::new("t").fixed_pos(pos2(0.0, 0.0)).default_width(620.0).resizable(true).show(ui.ctx(), |ui| {
                         let mut m = Markers { start: 0.0, loop_start: 0.0, loop_end: 10.0, end: 10.0 };
-                        waveform_editor(ui, overview, 10.0, &mut m, true, &mut 0.0, &mut 0.0, None);
+                        waveform_editor(ui, overview, 10.0, &mut m, true, &mut 0.0, &mut 0.0, None, &mut None);
                         r = ui.min_rect();
                     });
                 });

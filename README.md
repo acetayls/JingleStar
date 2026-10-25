@@ -119,7 +119,7 @@ cargo bundle --release
 
 ## Pilotage OSC et OSCQuery
 
-À activer dans **Préférences → OSC** puis « Appliquer ». Réglages : port UDP de réception
+À activer dans **Télécommandes → OSC** puis « Appliquer ». Réglages : port UDP de réception
 (8000 par défaut), préfixe des adresses (`/jinglestar` par défaut, peut être vide), serveur
 OSCQuery et son port HTTP (8001), annonce mDNS / Bonjour et nom annoncé. Les préférences
 affichent l'adresse IP et les ports en écoute.

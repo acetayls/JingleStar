@@ -1034,3 +1034,17 @@ fn looping_jingle_stops_at_once_during_its_intro() {
     assert!(level(&out, d + 600, 20_000) == 0.0, "éteint en 10 ms");
     assert_no_click(&out, 2, "arrêt dans l'intro");
 }
+
+#[test]
+fn jingle_seek_moves_a_playing_loop_without_click() {
+    // Clic dans la forme d'onde pendant la lecture : la boucle saute à l'endroit voulu, sans clic.
+    let src = sine(100.0, 0.8, 48_000);
+    let region = Region { start: 0, end: 48_000, looping: Some((24_000, 36_000)), fade_in: 0, fade_out: 0 };
+    let mut rig = Rig::new(2);
+    rig.play(0, &src, 1.0, region, EqCoeffs::flat());
+    rig.render(2_000);
+    rig.send(Command::Seek { module: 0, slot: 0, frame: 30_000 });
+    let out = rig.render(4_000);
+    assert_no_click(&out, 2, "déplacement dans un jingle en boucle");
+    assert!(level(&out, 3_000, 4_000) > 0.1, "toujours audible après le saut");
+}

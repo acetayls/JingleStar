@@ -26,10 +26,9 @@ Formats lus : WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 - **＋ Ajouter un module** : ajoute un module à la fin (4 au maximum). Le compteur indique le nombre de modules.
 - Les modules sont côte à côte sur une rangée. **Glissez la séparation** entre deux modules pour régler leur largeur ; un **double-clic** sur une séparation remet toutes les largeurs à égalité. Les largeurs sont enregistrées avec le projet.
 - **Ouvrir…** / **Enregistrer sous…** : ouvre ou enregistre un projet (fichier `.jinglestar`).
-- **Télécommandes** : pilotage MIDI, console Yamaha et Midas M32, correspondances et mode apprendre. Voir [Pilotage MIDI](#pilotage-midi), [Pilotage depuis une console Yamaha](#pilotage-depuis-une-console-yamaha) et [Pilotage depuis une Midas M32 / Behringer X32](#pilotage-depuis-une-midas-m32--behringer-x32).
-- **⚙ Préférences** : audio, langue, anti-veille et OSC.
-- **? Aide** : ce manuel. Le champ **🔍 Rechercher** en haut (ou **Ctrl+F**) n'affiche que les passages qui contiennent les mots tapés, sans tenir compte des accents ni des majuscules ; **✕** revient au sommaire.
-- **? Aide** : ouvre cette aide (touche **F1**).
+- **Télécommandes** : pilotage OSC, MIDI, console Yamaha et Midas M32, correspondances et mode apprendre. Voir [Pilotage MIDI](#pilotage-midi), [Pilotage depuis une console Yamaha](#pilotage-depuis-une-console-yamaha) et [Pilotage depuis une Midas M32 / Behringer X32](#pilotage-depuis-une-midas-m32--behringer-x32).
+- **⚙ Préférences** : audio, langue et anti-veille.
+- **? Aide** (touche **F1**) : ce manuel. Le champ **🔍 Rechercher** en haut (ou **Ctrl+F**) n'affiche que les passages qui contiennent les mots tapés, sans tenir compte des accents ni des majuscules ; **✕** revient au sommaire.
 - **■ TOUT ARRÊTER** : arrête tous les sons de tous les modules (touche **Échap**).
 
 ### Barre du bas
@@ -118,6 +117,9 @@ pointeur ; le défilement horizontal ou un glisser hors des poignées déplace l
 ou **Tout afficher** revient au son entier. Zoomé, une **barre de défilement** sous la forme d'onde
 montre la partie visible : glissez-la pour vous promener dans le son, ou cliquez à côté pour y aller.
 
+Pendant la lecture (bouton du jingle ou **▶ Écouter**), un **clic dans la forme d'onde**, hors des
+poignées, fait repartir la lecture à cet endroit, avec un micro-fondu sans clic.
+
 Les parties exclues sont assombries et les fondus sont dessinés en rampe. Le début et la fin se
 saisissent dans la moitié basse de la forme d'onde, les points de boucle dans la moitié haute : on
 peut ainsi les séparer même s'ils sont superposés.
@@ -176,8 +178,8 @@ La ligne **Transition** propose :
 
 ### Équilibrage du niveau
 
-Pour que tous les morceaux sonnent au même niveau, passez en mode édition et cochez **Équilibrer le
-niveau**. Chaque morceau est mesuré en arrière-plan, puis lu avec le gain qui l'amène à la cible.
+Pour que tous les morceaux sonnent au même niveau, cochez **Équilibrer le niveau** sous la
+transition. La cible et le mode de mesure se règlent en mode édition (✏). Chaque morceau est mesuré en arrière-plan, puis lu avec le gain qui l'amène à la cible.
 Les fichiers ne sont jamais modifiés.
 
 - **Mode de mesure** : **Sonie (LUFS)** (sonie intégrée ITU-R BS.1770 / EBU R128, le plus proche de l'oreille), **Crête**, **Crête vraie** (dBTP) ou **RMS**.
@@ -268,7 +270,7 @@ Chaque module sort sur une **paire stéréo** : 1-2, 3-4, 5-6… Le choix se fai
 
 ## Les préférences
 
-**⚙ Préférences** ouvre la fenêtre des réglages. Les réglages **Audio** et **OSC** prennent effet
+**⚙ Préférences** ouvre la fenêtre des réglages. Les réglages **Audio** prennent effet
 avec **Appliquer**, qui ferme aussi la fenêtre ; la langue et l'anti-veille s'appliquent tout de suite.
 
 ### Audio
@@ -289,10 +291,6 @@ rien n'a changé dans l'audio, la lecture n'est pas interrompue.
 En bas de la fenêtre, la **version de build** (version, commit et date de compilation) permet de
 vérifier quelle mise à jour est installée ; un clic la copie.
 
-### OSC
-
-Voir [Pilotage OSC](#pilotage-osc).
-
 ## Projets et sauvegarde
 
 - La session est **enregistrée automatiquement** et restaurée au lancement suivant (modules, jingles, playlists, préférences).
@@ -310,7 +308,7 @@ de contrôle ou un script).
 
 ### Activer
 
-Dans **Préférences → OSC**, cochez **Activer le pilotage OSC**, réglez les options puis cliquez sur
+Dans **Télécommandes**, section **OSC** en haut de la fenêtre, cochez **Activer le pilotage OSC**, réglez les options puis cliquez sur
 **Appliquer** :
 
 | Réglage | Par défaut | Rôle |

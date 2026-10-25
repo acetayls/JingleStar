@@ -1115,6 +1115,13 @@ impl Controller {
         }
     }
 
+    /// Déplace la lecture d'un jingle en cours à l'image `frame`, avec un micro-fondu.
+    pub fn jingle_seek(&mut self, m: usize, s: usize, frame: usize) {
+        if self.is_jingle_playing(m, s) {
+            self.engine.send(Command::Seek { module: m, slot: s, frame });
+        }
+    }
+
     pub fn anything_playing(&self) -> bool {
         (0..MAX_MODULES).any(|m| (0..crate::audio::mixer::SLOTS).any(|s| self.engine.telemetry.position(m, s).is_some()))
     }

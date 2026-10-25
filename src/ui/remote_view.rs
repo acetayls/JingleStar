@@ -1,4 +1,4 @@
-//! Fenêtre des télécommandes : entrée MIDI, console Yamaha et correspondances vers les actions.
+//! Fenêtre des télécommandes : OSC, entrée MIDI, consoles Yamaha et Midas, et correspondances vers les actions.
 
 use egui::{RichText, Ui};
 
@@ -6,7 +6,7 @@ use super::theme::*;
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 use crate::controller::Controller;
 use crate::i18n::tr;
-use crate::project::{ConsoleSettings, M32Settings};
+use crate::project::{ConsoleSettings, M32Settings, OscSettings};
 use crate::remote::{ActionKind, Mapping, Trigger};
 
 #[derive(Default)]
@@ -16,6 +16,8 @@ pub struct RemoteWindow {
     /// Adresse de la console en cours de saisie, appliquée avec « Connecter ».
     console: Option<ConsoleSettings>,
     m32: Option<M32Settings>,
+    /// Réglages OSC en cours de saisie, appliqués avec « Appliquer ».
+    osc: Option<OscSettings>,
 }
 
 impl RemoteWindow {
@@ -39,6 +41,10 @@ impl RemoteWindow {
             .resizable(true)
             .collapsible(false)
             .show(ctx, |ui| {
+                let max_h = (ctx.content_rect().height() - 80.0).max(200.0);
+                egui::ScrollArea::vertical().id_salt("remote-scroll").max_height(max_h).auto_shrink([false, true]).show(ui, |ui| {
+                self.osc_section(ui, ctrl);
+                ui.separator();
                 self.midi_section(ui, ctrl);
                 ui.separator();
                 self.console_section(ui, ctrl);
@@ -46,10 +52,24 @@ impl RemoteWindow {
                 self.m32_section(ui, ctrl);
                 ui.separator();
                 mappings(ui, ctrl);
+                });
             });
         if !open {
             self.open = false;
             ctrl.learn = None;
+        }
+    }
+
+    fn osc_section(&mut self, ui: &mut Ui, ctrl: &mut Controller) {
+        ui.heading("OSC");
+        let current = ctrl.project.preferences.osc.clone();
+        let draft = self.osc.get_or_insert_with(|| current.clone());
+        osc_settings(ui, draft, ctrl);
+        let mut normalized = draft.clone();
+        normalized.prefix = crate::osc::normalize_prefix(&normalized.prefix);
+        if ui.add_enabled(normalized != current, egui::Button::new(tr("Appliquer", "Apply"))).clicked() {
+            draft.prefix = normalized.prefix.clone();
+            ctrl.set_osc_settings(normalized);
         }
     }
 
@@ -383,5 +403,55 @@ fn mappings(ui: &mut Ui, ctrl: &mut Controller) {
         });
         ctrl.add_mapping(next.unwrap_or_default());
         ctrl.learn = Some(ctrl.project.preferences.mappings.len() - 1);
+    }
+}
+
+/// Réglages OSC ; les changements partent avec « Appliquer ».
+fn osc_settings(ui: &mut Ui, osc: &mut OscSettings, ctrl: &Controller) {
+    ui.checkbox(&mut osc.enabled, tr("Activer le pilotage OSC", "Enable OSC control"));
+    ui.add_enabled_ui(osc.enabled, |ui| {
+        egui::Grid::new("osc-settings").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
+            ui.label(tr("Port UDP (réception)", "UDP port (receive)"));
+            ui.add(egui::DragValue::new(&mut osc.port).range(1024..=65535));
+            ui.end_row();
+
+            ui.label(tr("Préfixe des adresses", "Address prefix"));
+            ui.add(egui::TextEdit::singleline(&mut osc.prefix).desired_width(200.0).hint_text(tr("(aucun)", "(none)")));
+            ui.end_row();
+
+            ui.label("OSCQuery");
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut osc.oscquery, tr("Serveur HTTP, port", "HTTP server, port"));
+                ui.add_enabled(osc.oscquery, egui::DragValue::new(&mut osc.oscquery_port).range(1024..=65535));
+            });
+            ui.end_row();
+
+            ui.label(tr("Découverte réseau", "Network discovery"));
+            ui.add_enabled(osc.oscquery, egui::Checkbox::new(&mut osc.zeroconf, tr("Annoncer en mDNS (Bonjour)", "Advertise over mDNS (Bonjour)")));
+            ui.end_row();
+
+            ui.label(tr("Nom annoncé", "Advertised name"));
+            ui.add(egui::TextEdit::singleline(&mut osc.name).desired_width(200.0));
+            ui.end_row();
+        });
+    });
+    // État du serveur en marche (réglages appliqués).
+    match ctrl.osc.as_ref() {
+        Some(server) => {
+            let ip = crate::osc::local_ip().map(|ip| ip.to_string()).unwrap_or_else(|| "127.0.0.1".into());
+            if let Some(port) = server.udp_port {
+                let prefix = crate::osc::normalize_prefix(&ctrl.project.preferences.osc.prefix);
+                ui.label(RichText::new(format!("{} {ip}:{port}  ·  {prefix}/…", tr("Écoute sur", "Listening on"))).small().color(GO));
+            }
+            if let Some(port) = server.http_port {
+                ui.label(RichText::new(format!("OSCQuery : http://{ip}:{port}/")).small().color(GO));
+            }
+            for e in &server.startup_errors {
+                ui.label(RichText::new(e).small().color(STOP));
+            }
+        }
+        None => {
+            ui.label(RichText::new(tr("Pilotage OSC désactivé.", "OSC control disabled.")).small().color(TEXT_DIM));
+        }
     }
 }
