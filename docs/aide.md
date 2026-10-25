@@ -30,6 +30,7 @@ Formats lus : WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 
 - **＋ Ajouter un module** : ajoute un module à la fin (4 au maximum). Le compteur indique le nombre de modules.
 - Les modules sont côte à côte sur une rangée. **Glissez la séparation** entre deux modules pour régler leur largeur ; un **double-clic** sur une séparation remet toutes les largeurs à égalité. Les largeurs sont enregistrées avec le projet.
+- **Nouveau** : projet vierge avec un module **Jingles** et un module **Playlist**. Un second clic sur **Remplacer le projet ?** confirme (**Annuler** sinon) ; les préférences (audio, télécommandes, langue) sont gardées. Enregistrez d'abord le projet en cours si vous voulez le retrouver.
 - **Ouvrir…** / **Enregistrer sous…** : ouvre ou enregistre un projet (fichier `.jinglestar`).
 - **Télécommandes** : pilotage OSC, MIDI, console Yamaha et Midas M32, correspondances et mode apprendre. Voir [Pilotage MIDI](#pilotage-midi), [Pilotage depuis une console Yamaha](#pilotage-depuis-une-console-yamaha) et [Pilotage depuis une Midas M32 / Behringer X32](#pilotage-depuis-une-midas-m32--behringer-x32).
 - **⚙ Préférences** : audio, langue et anti-veille.

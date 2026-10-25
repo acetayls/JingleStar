@@ -64,6 +64,8 @@ pub struct JingleStarApp {
     renaming: Option<(usize, String)>,
     /// Cue de la Cuelist ouvert dans l'éditeur (module, index).
     cue_editor: Option<(usize, usize)>,
+    /// « Nouveau » attend sa confirmation.
+    confirm_new: bool,
 }
 
 impl JingleStarApp {
@@ -77,6 +79,7 @@ impl JingleStarApp {
             confirm_delete: None,
             confirm_clear: None,
             cue_editor: None,
+            confirm_new: false,
             module_eq: None,
             settings: None,
             help: help::HelpWindow::default(),
@@ -168,6 +171,24 @@ impl JingleStarApp {
                         self.selected = None;
                         self.ctrl.open_project(p);
                     }
+                }
+                // Nouveau projet, après confirmation : le projet en cours est remplacé.
+                if self.confirm_new {
+                    if ui.button(tr("Annuler", "Cancel")).clicked() {
+                        self.confirm_new = false;
+                    }
+                    if ui.add(egui::Button::new(RichText::new(tr("Remplacer le projet ?", "Replace the project?")).color(Color32::WHITE)).fill(STOP)).clicked() {
+                        self.confirm_new = false;
+                        self.selected = None;
+                        self.cue_editor = None;
+                        self.edit_mode = [false; MAX_MODULES];
+                        self.ctrl.new_project();
+                    }
+                } else if ui.button(tr("Nouveau", "New")).on_hover_text(tr(
+                    "Projet vierge : un module Jingles et un module Playlist (les préférences sont gardées). Pensez à enregistrer le projet en cours.",
+                    "Blank project: one Jingles module and one Playlist module (preferences are kept). Save the current project first.",
+                )).clicked() {
+                    self.confirm_new = true;
                 }
             });
         });

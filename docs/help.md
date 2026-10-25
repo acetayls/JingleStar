@@ -28,6 +28,7 @@ Supported formats: WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 
 - **＋ Add module**: adds a module at the end (4 maximum). The counter shows the number of modules.
 - Modules sit side by side in one row. **Drag the divider** between two modules to set their width; **double-click** a divider to make all widths equal again. Widths are saved with the project.
+- **New**: blank project with one **Jingles** module and one **Playlist** module. Click **Replace the project?** to confirm (**Cancel** otherwise); preferences (audio, remote control, language) are kept. Save the current project first if you want it back.
 - **Open…** / **Save as…**: opens or saves a project (`.jinglestar` file).
 - **Remote**: OSC, MIDI, Yamaha console and Midas M32 control, mappings and learn mode. See [MIDI control](#midi-control), [Control from a Yamaha console](#control-from-a-yamaha-console) and [Control from a Midas M32 / Behringer X32](#control-from-a-midas-m32--behringer-x32).
 - **⚙ Preferences**: audio, language and sleep prevention.

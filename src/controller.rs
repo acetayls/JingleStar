@@ -1510,43 +1510,67 @@ impl Controller {
     pub fn open_project(&mut self, path: PathBuf) {
         match Project::load(&path) {
             Ok(p) => {
-                self.stop_all();
-                let audio_changed = p.audio != self.project.audio;
-                let osc_changed = p.preferences.osc != self.project.preferences.osc;
-                let midi_changed = p.preferences.midi != self.project.preferences.midi;
-                let console_changed = p.preferences.console != self.project.preferences.console;
-                let m32_changed = p.preferences.m32 != self.project.preferences.m32;
-                self.project = p;
-                set_lang(self.project.preferences.language);
-                if osc_changed {
-                    self.restart_osc();
-                }
-                if midi_changed {
-                    self.restart_midi();
-                }
-                if console_changed {
-                    self.restart_console();
-                }
-                if m32_changed {
-                    self.restart_m32();
-                }
-                self.learn = None;
-                self.project_path = Some(path);
-                self.playlists = Default::default();
-                self.gos = Default::default();
-                self.pending_play.clear();
-                self.mark_dirty();
-                if audio_changed {
-                    self.open_device();
-                } else {
-                    self.apply_mixer_params();
-                    self.preload_jingles();
-                }
-                self.analyze_playlists();
+                self.replace_project(p, Some(path));
                 self.status = Some(tr("Projet ouvert", "Project opened").into());
             }
             Err(e) => self.status = Some(format!("{} : {e}", tr("Ouverture impossible", "Cannot open"))),
         }
+    }
+
+    /// Nouveau projet : un module Jingles et un module Playlist, vides. Les préférences
+    /// (audio, télécommandes, langue…) sont celles de la machine et restent les mêmes.
+    pub fn new_project(&mut self) {
+        let mut p = Project { audio: self.project.audio.clone(), preferences: self.project.preferences.clone(), ..Project::default() };
+        p.module_count = 2;
+        p.modules[0].mode = ModuleMode::Jingle;
+        p.modules[1].mode = ModuleMode::Playlist;
+        self.replace_project(p, None);
+        self.status = Some(tr("Nouveau projet", "New project").into());
+    }
+
+    /// Remplace le projet en cours : tout s'arrête, puis le moteur et les télécommandes suivent.
+    fn replace_project(&mut self, p: Project, path: Option<PathBuf>) {
+        self.stop_all();
+        let audio_changed = p.audio != self.project.audio;
+        let osc_changed = p.preferences.osc != self.project.preferences.osc;
+        let midi_changed = p.preferences.midi != self.project.preferences.midi;
+        let console_changed = p.preferences.console != self.project.preferences.console;
+        let m32_changed = p.preferences.m32 != self.project.preferences.m32;
+        self.project = p;
+        set_lang(self.project.preferences.language);
+        if osc_changed {
+            self.restart_osc();
+        }
+        if midi_changed {
+            self.restart_midi();
+        }
+        if console_changed {
+            self.restart_console();
+        }
+        if m32_changed {
+            self.restart_m32();
+        }
+        // Les sons de l'ancien projet libèrent la mémoire ; ceux qui servent encore restent prêts.
+        let used: std::collections::HashSet<PathBuf> = self
+            .project
+            .modules
+            .iter()
+            .flat_map(|m| m.jingles.iter().flatten().map(|j| j.path.clone()).chain(m.cues.iter().map(|c| c.path.clone())))
+            .collect();
+        self.cache.retain(|p, _| used.contains(p));
+        self.learn = None;
+        self.project_path = path;
+        self.playlists = Default::default();
+        self.gos = Default::default();
+        self.pending_play.clear();
+        self.mark_dirty();
+        if audio_changed {
+            self.open_device();
+        } else {
+            self.apply_mixer_params();
+            self.preload_jingles();
+        }
+        self.analyze_playlists();
     }
 
     pub fn save_project_as(&mut self, path: PathBuf) {
