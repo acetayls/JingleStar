@@ -330,6 +330,54 @@ fn no_click_on_start_and_stop() {
 }
 
 #[test]
+fn no_click_on_seek() {
+    // Saut d'une crête positive à une crête négative : le micro-fondu doit l'adoucir.
+    let src = sine(100.0, 0.9, 96_000);
+    let mut rig = Rig::new(2);
+    rig.play(PLAYLIST_SLOTS[0], &src, 1.0, Region::full(&src), EqCoeffs::flat());
+    let mut out = rig.render(6_120);
+    rig.send(Command::Seek { module: 0, slot: PLAYLIST_SLOTS[0], frame: 50_000 + 360 });
+    out.extend(rig.render(4_000));
+    // Deux sauts rapprochés (glisser rapide sur la barre de lecture).
+    rig.send(Command::Seek { module: 0, slot: PLAYLIST_SLOTS[0], frame: 10_000 });
+    out.extend(rig.render(100));
+    rig.send(Command::Seek { module: 0, slot: PLAYLIST_SLOTS[0], frame: 80_120 });
+    out.extend(rig.render(4_000));
+    assert_no_click(&out, 2, "déplacement dans le morceau");
+}
+
+#[test]
+fn seek_is_bit_transparent_after_the_micro_fade() {
+    let src = noise(60_000, 0.9);
+    let mut rig = Rig::new(2);
+    rig.play(PLAYLIST_SLOTS[0], &src, 1.0, Region::full(&src), EqCoeffs::flat());
+    let d = rig.latency();
+    rig.render(1_000);
+    rig.send(Command::Seek { module: 0, slot: PLAYLIST_SLOTS[0], frame: 30_000 });
+    let out = rig.render(6_000);
+    // Après la latence du limiteur et les deux rampes (sortie puis entrée), la lecture
+    // reprend à l'image près, sans aucune altération.
+    let ramp = (SR as f32 * 0.010) as usize;
+    let k = d + 2 * ramp + 10;
+    let played = k - d - ramp; // images jouées depuis la cible
+    assert_eq!(&out[k * 2..(k + 2_000) * 2], &src.samples[(30_000 + played) * 2..(30_000 + played + 2_000) * 2]);
+}
+
+#[test]
+fn no_click_on_pause_and_resume() {
+    let src = sine(100.0, 0.9, 96_000);
+    let slot = PLAYLIST_SLOTS[0];
+    let mut rig = Rig::new(2);
+    rig.play(slot, &src, 1.0, Region::full(&src), EqCoeffs::flat());
+    let mut out = rig.render(6_120);
+    rig.send(Command::SetPaused { module: 0, slot, paused: true });
+    out.extend(rig.render(3_000));
+    rig.send(Command::SetPaused { module: 0, slot, paused: false });
+    out.extend(rig.render(3_000));
+    assert_no_click(&out, 2, "pause puis reprise");
+}
+
+#[test]
 fn no_click_when_start_or_end_marker_is_mid_wave() {
     let src = sine(100.0, 0.9, 48_000);
     // Début sur une crête, fin sur une crête, sans fondus réglés.
@@ -712,6 +760,8 @@ fn process_never_allocates() {
             rig.send(Command::SetSlotEq { module: m, slot: 1, eq: EqCoeffs::flat() });
             rig.send(Command::SetRegion { module: m, slot: 2, region: Region::full(&src) });
             rig.send(Command::Stop { module: m, slot: 3 });
+            rig.send(Command::Seek { module: m, slot: 0, frame: 20_000 + round * 100 });
+            rig.send(Command::SetPaused { module: m, slot: PLAYLIST_SLOTS[0], paused: round.is_multiple_of(2) });
             rig.send(Command::Play { module: m, slot: PLAYLIST_SLOTS[0], id: 2, buffer: short.clone(), gain: 1.0, region: Region::full(&short), eq: EqCoeffs::flat() });
             rig.send(Command::QueueNext { module: m, next: Some(Queued { buffer: short.clone(), gain: 1.0, id: 3, crossfade: 100 }) });
         }

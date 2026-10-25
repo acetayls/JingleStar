@@ -758,7 +758,7 @@ mod tests {
         let mut m = Markers { start: 0.0, loop_start: 0.0, loop_end: 10.0, end: 10.0 };
         let overview = |_: f64, _: f64, n: usize| vec![0.5f32; n];
         let screen = Rect::from_min_size(Pos2::ZERO, vec2(1000.0, 700.0));
-        let mut frame = |events: Vec<Event>, m: &mut Markers| {
+        let frame = |events: Vec<Event>, m: &mut Markers| {
             let input = RawInput { screen_rect: Some(screen), events, ..Default::default() };
             let mut wave_rect = Rect::NOTHING;
             let mut out = ctx.run_ui(input, |ui| {
@@ -792,7 +792,7 @@ mod tests {
         let ctx = egui::Context::default();
         let screen = Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0));
         let mut got = None;
-        let mut frame = |events: Vec<Event>, got: &mut Option<f32>| {
+        let frame = |events: Vec<Event>, got: &mut Option<f32>| {
             let input = RawInput { screen_rect: Some(screen), events, ..Default::default() };
             let mut out = ctx.run_ui(input, |ui| {
                 let id = ui.make_persistent_id("db");
