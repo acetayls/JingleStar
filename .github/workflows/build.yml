@@ -19,9 +19,6 @@ jobs:
           - os: windows-latest
             artifact: jinglestar-windows
             bin: target/release/jinglestar.exe
-          - os: macos-latest
-            artifact: jinglestar-macos
-            bin: target/release/jinglestar
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -38,3 +35,45 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.bin }}
+
+  macos:
+    # Le runner est Apple Silicon ; la version Intel est compilée en croisé (x86_64-apple-darwin).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            arch: intel
+          - target: aarch64-apple-darwin
+            arch: apple-silicon
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "10.13"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Tests
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: cargo test
+      - name: Build release
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Vérifier l'architecture
+        run: lipo -info target/${{ matrix.target }}/release/jinglestar
+      - name: Bundle .app et .dmg
+        run: packaging/macos/bundle.sh ${{ matrix.target }} dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jinglestar-macos-${{ matrix.arch }}
+          path: dist/*.dmg
+      - name: Publier dans la release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.dmg

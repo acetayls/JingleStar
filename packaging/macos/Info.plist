@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>JingleStar</string>
+	<key>CFBundleDisplayName</key>
+	<string>JingleStar</string>
+	<key>CFBundleIdentifier</key>
+	<string>fr.jinglestar.JingleStar</string>
+	<key>CFBundleExecutable</key>
+	<string>jinglestar</string>
+	<key>CFBundleIconFile</key>
+	<string>JingleStar</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>fr</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>10.13</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.music</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>JingleStar reçoit des commandes OSC et s'annonce sur le réseau local (OSCQuery / Bonjour) pour être piloté à distance.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_osc._udp</string>
+		<string>_oscjson._tcp</string>
+	</array>
+</dict>
+</plist>
