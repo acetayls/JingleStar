@@ -61,7 +61,7 @@ audio cpal, décodage symphonia).
   [`docs/aide.md`](docs/aide.md) (français) et [`docs/help.md`](docs/help.md) (anglais).
 - Session sauvegardée automatiquement ; projets enregistrables (`.jinglestar`).
 
-Les idées pour plus tard sont notées dans [`ROADMAP.md`](ROADMAP.md).
+Les idées pour plus tard sont notées dans [`ROADMAP.md`](ROADMAP.md), et le point d'étape dans [`docs/ETAT.md`](docs/ETAT.md).
 
 Formats lus : WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 
