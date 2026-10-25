@@ -3,9 +3,8 @@
 //! La console envoie une ligne « NOTIFY set <adresse> <x> <y> <valeur> "<texte>" » à chaque
 //! changement de paramètre (fader, ON…) et « NOTIFY sscurrent_ex … <n> » au rappel d'une scène.
 //!
-//! JingleStar ne fait qu'écouter. En écoute stricte (réglage par défaut), il n'écrit aucun octet
-//! sur la connexion. Sinon, il n'envoie que les requêtes d'information de [`Query`] : la socket
-//! n'est accessible qu'à travers [`link::Link`], qui n'a pas d'autre moyen d'écrire.
+//! JingleStar ne fait qu'écouter et n'écrit aucun octet sur la connexion : la socket n'est
+//! accessible qu'à travers [`link::Link`], qui ne sait que lire.
 
 use std::collections::HashMap;
 use std::net::{TcpStream, ToSocketAddrs};
@@ -20,43 +19,18 @@ use crate::i18n::tr;
 use crate::project::ConsoleSettings;
 use crate::remote::InputEvent;
 
-/// Seules requêtes que JingleStar peut envoyer : des lectures, jamais de « set » ni de rappel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Query {
-    /// Nom du modèle (« QL5 »), à la connexion.
-    ProductName,
-    /// État de la console, toutes les 5 s, pour détecter une console éteinte.
-    RunMode,
-}
-
-impl Query {
-    #[cfg(test)]
-    pub const ALL: [Query; 2] = [Query::ProductName, Query::RunMode];
-
-    pub const fn text(self) -> &'static str {
-        match self {
-            Query::ProductName => "devinfo productname\n",
-            Query::RunMode => "devstatus runmode\n",
-        }
-    }
-}
-
 mod link {
-    use std::io::{Read, Write};
+    use std::io::Read;
     use std::net::TcpStream;
 
-    use super::Query;
-
-    /// La connexion. Le seul chemin d'écriture est `query`, limité aux requêtes de [`Query`],
-    /// et il n'écrit rien en écoute stricte.
+    /// La connexion, en lecture seule : aucune méthode n'écrit vers la console.
     pub struct Link {
         stream: TcpStream,
-        silent: bool,
     }
 
     impl Link {
-        pub fn new(stream: TcpStream, silent: bool) -> Self {
-            Self { stream, silent }
+        pub fn new(stream: TcpStream) -> Self {
+            Self { stream }
         }
 
         pub fn set_read_timeout(&self, d: std::time::Duration) -> std::io::Result<()> {
@@ -65,13 +39,6 @@ mod link {
 
         pub fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
             self.stream.read(buf)
-        }
-
-        pub fn query(&mut self, q: Query) -> std::io::Result<()> {
-            if self.silent {
-                return Ok(());
-            }
-            self.stream.write_all(q.text().as_bytes())
         }
     }
 }
@@ -166,7 +133,7 @@ fn run(
             s.connected = true;
             s.error = None;
         });
-        let link = link::Link::new(stream, settings.silent);
+        let link = link::Link::new(stream);
         let err = session(link, &events, &status, &stop, &*repaint).err();
         update(&|s| {
             s.connected = false;
@@ -186,17 +153,10 @@ fn session(
 ) -> Result<(), String> {
     let lost = |e: std::io::Error| format!("{} ({e})", tr("connexion perdue", "connection lost"));
     link.set_read_timeout(Duration::from_millis(200)).map_err(lost)?;
-    link.query(Query::ProductName).map_err(lost)?;
-    let mut last_keepalive = Instant::now();
     let mut values: HashMap<(String, u32, u32), i32> = HashMap::new();
     let mut pending: Vec<u8> = Vec::new();
     let mut buf = [0u8; 4096];
     while !stop.load(Ordering::Relaxed) {
-        // Requête légère régulière : garde la connexion ouverte et détecte une console éteinte.
-        if last_keepalive.elapsed() > Duration::from_secs(5) {
-            last_keepalive = Instant::now();
-            link.query(Query::RunMode).map_err(lost)?;
-        }
         let n = match link.read(&mut buf) {
             Ok(0) => return Err(tr("la console a fermé la connexion", "the console closed the connection").into()),
             Ok(n) => n,
@@ -213,11 +173,7 @@ fn session(
             let parsed = parse_line(&line);
             if let Ok(mut s) = status.lock() {
                 s.last_rx = Some(Instant::now());
-                match &parsed {
-                    Some(Line::Model(m)) => s.model = Some(m.clone()),
-                    Some(Line::KeepAlive) => {}
-                    _ => s.last_line = Some(line.clone()),
-                }
+                s.last_line = Some(line.clone());
             }
             match parsed {
                 Some(Line::Param { address, x, y, value }) => {
@@ -239,8 +195,6 @@ fn session(
 pub enum Line {
     Param { address: String, x: u32, y: u32, value: i32 },
     Scene(u32),
-    Model(String),
-    KeepAlive,
 }
 
 /// Mots de la ligne ; un texte entre guillemets compte pour un mot.
@@ -285,8 +239,6 @@ pub fn parse_line(line: &str) -> Option<Line> {
             value: value.parse().ok()?,
         }),
         ["NOTIFY", cmd, .., n] if cmd.starts_with("sscurrent") || cmd.starts_with("ssrecall") => n.parse().ok().map(Line::Scene),
-        ["OK", "devinfo", "productname", name, ..] => Some(Line::Model(name.to_string())),
-        ["OK", "devstatus", ..] | ["OKm", "devstatus", ..] => Some(Line::KeepAlive),
         _ => None,
     }
 }
@@ -309,8 +261,6 @@ mod tests {
         );
         assert_eq!(parse_line("NOTIFY sscurrent_ex MIXER:Lib/Scene 12"), Some(Line::Scene(12)));
         assert_eq!(parse_line("NOTIFY sscurrent_ex scene_a 3"), Some(Line::Scene(3)));
-        assert_eq!(parse_line(r#"OK devinfo productname "QL5""#), Some(Line::Model("QL5".into())));
-        assert_eq!(parse_line("OK devstatus runmode \"normal\""), Some(Line::KeepAlive));
         assert_eq!(parse_line("ERROR unknown command"), None);
         assert_eq!(tokens(r#"a "b c" d"#), vec!["a", "b c", "d"]);
     }
@@ -331,12 +281,7 @@ mod tests {
             while Instant::now() < until {
                 match sock.read(&mut buf) {
                     Ok(0) => break,
-                    Ok(n) => {
-                        received.extend_from_slice(&buf[..n]);
-                        if received.ends_with(b"productname\n") {
-                            sock.write_all(b"OK devinfo productname \"QL5\"\n").unwrap();
-                        }
-                    }
+                    Ok(n) => received.extend_from_slice(&buf[..n]),
                     Err(_) => {}
                 }
             }
@@ -344,8 +289,8 @@ mod tests {
         })
     }
 
-    fn client(port: u16, silent: bool) -> ConsoleClient {
-        let settings = ConsoleSettings { enabled: true, host: "127.0.0.1".into(), port, silent };
+    fn client(port: u16) -> ConsoleClient {
+        let settings = ConsoleSettings { enabled: true, host: "127.0.0.1".into(), port };
         ConsoleClient::start(settings, Arc::new(|| {}))
     }
 
@@ -354,40 +299,14 @@ mod tests {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         let fake = fake_console(listener);
-        let client = client(port, true);
+        let client = client(port);
         let next = || client.events.recv_timeout(Duration::from_secs(3)).unwrap();
         let on = |value, previous| InputEvent::Console { address: "MIXER:Current/InCh/Fader/On".into(), x: 2, y: 0, value, previous };
         assert_eq!(next(), on(0, None));
         assert_eq!(next(), on(1, Some(0)));
         assert_eq!(next(), InputEvent::Scene { number: 7 });
         assert!(client.status().connected);
-        // Écoute stricte : la console n'a reçu aucun octet.
+        // La console n'a reçu aucun octet.
         assert_eq!(fake.join().unwrap(), b"");
-    }
-
-    #[test]
-    fn sends_only_read_queries() {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let fake = fake_console(listener);
-        let client = client(port, false);
-        for _ in 0..3 {
-            client.events.recv_timeout(Duration::from_secs(3)).unwrap();
-        }
-        let sent = String::from_utf8(fake.join().unwrap()).unwrap();
-        assert!(!sent.is_empty());
-        let allowed: Vec<&str> = Query::ALL.iter().map(|q| q.text().trim_end()).collect();
-        for line in sent.lines() {
-            assert!(allowed.contains(&line), "requête non autorisée : {line}");
-        }
-        assert_eq!(client.status().model.as_deref(), Some("QL5"));
-    }
-
-    #[test]
-    fn whitelist_is_read_only() {
-        for q in Query::ALL {
-            let verb = q.text().split_whitespace().next().unwrap();
-            assert!(matches!(verb, "devinfo" | "devstatus"), "{verb}");
-        }
     }
 }
