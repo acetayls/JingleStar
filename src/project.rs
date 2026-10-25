@@ -34,19 +34,51 @@ pub enum ModuleMode {
     Go,
 }
 
-/// Un son de la conduite (module GO).
+/// Réglages de lecture d'un son, communs aux jingles et aux cues de la Cuelist :
+/// volume, points de début, de fin et de boucle, fondus et égaliseur.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SoundSettings {
+    pub volume_db: f32,
+    /// Lecture en boucle entre `loop_start` et `loop_end`.
+    pub looping: bool,
+    /// Points d'édition en secondes (poignées de début et de fin, traits de boucle).
+    pub start: f64,
+    pub end: Option<f64>,
+    pub loop_start: Option<f64>,
+    pub loop_end: Option<f64>,
+    /// Fondus d'entrée et de sortie, en secondes.
+    pub fade_in: f64,
+    pub fade_out: f64,
+    pub eq: EqSettings,
+}
+
+/// Ce que fait la Cuelist à la fin d'un cue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CueFollow {
+    /// On attend le prochain GO.
+    #[default]
+    Stop,
+    /// Le cue suivant part tout seul à la fin de celui-ci.
+    Continue,
+}
+
+/// Un son de la Cuelist (module GO).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Cue {
     pub path: PathBuf,
     pub name: String,
+    #[serde(flatten)]
+    pub sound: SoundSettings,
     #[serde(default)]
-    pub volume_db: f32,
+    pub follow: CueFollow,
 }
 
 impl Cue {
     pub fn new(path: PathBuf) -> Self {
         let name = path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        Self { path, name, volume_db: 0.0 }
+        Self { path, name, sound: SoundSettings::default(), follow: CueFollow::Stop }
     }
 }
 
@@ -54,47 +86,18 @@ impl Cue {
 pub struct JingleSlot {
     pub path: PathBuf,
     pub name: String,
-    pub volume_db: f32,
     pub color: [u8; 3],
-    /// Lecture en boucle entre `loop_start` et `loop_end`.
-    #[serde(default)]
-    pub looping: bool,
-    /// Points d'édition en secondes (poignées de début et de fin, traits de boucle).
-    #[serde(default)]
-    pub start: f64,
-    #[serde(default)]
-    pub end: Option<f64>,
-    #[serde(default)]
-    pub loop_start: Option<f64>,
-    #[serde(default)]
-    pub loop_end: Option<f64>,
-    /// Fondus d'entrée et de sortie, en secondes.
-    #[serde(default)]
-    pub fade_in: f64,
-    #[serde(default)]
-    pub fade_out: f64,
-    #[serde(default)]
-    pub eq: EqSettings,
+    #[serde(flatten)]
+    pub sound: SoundSettings,
 }
 
 impl JingleSlot {
     pub fn new(path: PathBuf, name: String, color: [u8; 3]) -> Self {
-        Self {
-            path,
-            name,
-            volume_db: 0.0,
-            color,
-            looping: false,
-            start: 0.0,
-            end: None,
-            loop_start: None,
-            loop_end: None,
-            fade_in: 0.0,
-            fade_out: 0.0,
-            eq: EqSettings::default(),
-        }
+        Self { path, name, color, sound: SoundSettings::default() }
     }
+}
 
+impl SoundSettings {
     /// Points effectifs pour un son de `duration` secondes : (début, début de boucle, fin de boucle, fin).
     pub fn markers(&self, duration: f64) -> (f64, f64, f64, f64) {
         let end = self.end.unwrap_or(duration).clamp(0.0, duration);
@@ -404,12 +407,32 @@ mod tests {
     fn go_cues_survive_save() {
         let mut p = Project::default();
         p.modules[2].mode = ModuleMode::Go;
-        p.modules[2].cues = vec![Cue::new(PathBuf::from("/show/01 Ouverture.wav")), Cue { volume_db: -6.0, ..Cue::new(PathBuf::from("/show/02 Pluie.wav")) }];
+        p.modules[2].cues = vec![Cue::new(PathBuf::from("/show/01 Ouverture.wav")), Cue {
+            sound: SoundSettings { volume_db: -6.0, fade_in: 1.5, ..Default::default() },
+            follow: CueFollow::Continue,
+            ..Cue::new(PathBuf::from("/show/02 Pluie.wav"))
+        }];
         let json = serde_json::to_string(&p).unwrap();
         assert!(json.contains("\"mode\":\"go\""));
         let back: Project = serde_json::from_str(&json).unwrap();
         assert_eq!(back.modules[2].mode, ModuleMode::Go);
         assert_eq!(back.modules[2].cues, p.modules[2].cues);
         assert_eq!(back.modules[2].cues[0].name, "01 Ouverture");
+    }
+
+    #[test]
+    fn older_projects_still_load() {
+        // Avant le bloc commun de réglages : champs à plat, cue réduit à son volume.
+        let jingle = r#"{"path":"/a.wav","name":"A","volume_db":-3.0,"color":[1,2,3],"looping":true,"fade_out":2.0}"#;
+        let j: JingleSlot = serde_json::from_str(jingle).unwrap();
+        assert_eq!(j.sound.volume_db, -3.0);
+        assert!(j.sound.looping);
+        assert_eq!(j.sound.fade_out, 2.0);
+        let cue: Cue = serde_json::from_str(r#"{"path":"/b.wav","name":"B","volume_db":-6.0}"#).unwrap();
+        assert_eq!(cue.sound.volume_db, -6.0);
+        assert_eq!(cue.follow, CueFollow::Stop);
+        // Et l'écriture reste à plat, lisible par une version précédente.
+        let json = serde_json::to_string(&j).unwrap();
+        assert!(json.contains("\"volume_db\":-3.0") && !json.contains("\"sound\""));
     }
 }

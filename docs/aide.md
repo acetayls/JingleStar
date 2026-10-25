@@ -45,13 +45,13 @@ Chaque module a, de haut en bas :
 - le choix de **sortie** (paire stéréo 1-2, 3-4…) ;
 - le bouton **EQ** (égaliseur du module) ;
 - le bouton **✏** (mode édition) ;
-- le choix du mode : **Jingles**, **Playlist**, **GO** ou **Texte** ;
+- le choix du mode : **Jingles**, **Playlist**, **Cuelist** ou **Texte** ;
 - à droite, le **fader** de volume (-∞ à +10 dB) avec des repères à +3, 0 et -6 dB et sa valeur en dB en dessous, le **vumètre** stéréo et le bouton **■** qui arrête le module.
 
 Le cadre du module devient vert quand un son y joue.
 
 - **Volume** : glissez le fader. Un **double-clic** sur le fader le remet à 0 dB ; un **clic sur la valeur en dB** permet de la taper au clavier (Entrée valide, Échap annule). Un nombre tapé sans signe est négatif : `6` donne -6 dB ; tapez `+3` pour monter au-dessus de 0 dB.
-- **Changer de mode** : cliquez sur **Jingles**, **Playlist**, **GO** ou **Texte**. Le module s'arrête ; les jingles, la playlist, la conduite et le texte sont conservés.
+- **Changer de mode** : cliquez sur **Jingles**, **Playlist**, **Cuelist** ou **Texte**. Le module s'arrête ; les jingles, la playlist, la conduite et le texte sont conservés.
 - **Renommer** : **double-clic sur le nom** du module, tapez le nouveau nom puis Entrée (Échap annule). En mode édition (✏), le nom est aussi modifiable directement.
 - **Module Texte** : un grand champ libre pour écrire sa conduite, sauvegardé avec le projet. Échap y arrête quand même les jingles.
 - **Supprimer** : en mode édition, cliquez sur **🗑** puis confirmez avec **Supprimer ?**. Les modules suivants remontent d'un rang. Le dernier module restant ne peut pas être supprimé.
@@ -195,13 +195,15 @@ change.
 
 Hors mode édition, une ligne **Équilibrage** rappelle le réglage en cours.
 
-## Le module GO (conduite)
+## La Cuelist (conduite)
 
-Le mode **GO** suit une conduite de spectacle, à la façon de QLab : une liste ordonnée de sons
+Le mode **Cuelist** suit une conduite de spectacle, à la façon de QLab : une liste ordonnée de sons
 (les **cues**) que l'on lance un par un.
 
 - **Ajouter des sons** : **＋ Ajouter des sons…**, ou glissez des fichiers ou des dossiers sur la
   conduite. Un morceau de playlist peut aussi y être glissé, à l'endroit voulu.
+- **EN COURS** : le cadre vert, en haut, suit le dernier cue lancé qui joue encore : son nom,
+  le temps écoulé, une barre de progression et le temps restant.
 - **EN ATTENTE** : le cadre ambre affiche le cue que le prochain GO va lancer, et celui qui suit.
   Dans la liste, il est surligné et marqué ▶.
 - **GO** (ou la **barre d'espace**) : lance le cue en attente et met le suivant en attente.
@@ -213,14 +215,23 @@ Le mode **GO** suit une conduite de spectacle, à la façon de QLab : une liste 
 - **Arrêter** : arrête tous les cues de la conduite ; le cue en attente ne change pas. Pendant
   qu'un cue joue, sa ligne se remplit en vert, affiche le temps restant et un bouton **■** qui
   n'arrête que lui.
+- **Enchaîner ou arrêter** : la petite flèche à côté du numéro d'un cue. **↓** (orange) :
+  à la fin du cue, le suivant part tout seul et le cue en attente avance. **·** : à la fin, on
+  attend le prochain GO. Un clic bascule de l'un à l'autre. Un cue arrêté à la main (■, Arrêter,
+  Échap) n'enchaîne pas.
+- **Réglages d'un cue** : **double-clic** sur le cue, ou **clic droit → Réglages…**. La fenêtre
+  est celle d'un jingle : volume, fondus d'entrée et de sortie, points de début et de fin sur la
+  forme d'onde (clic dans la forme d'onde pendant la lecture pour s'y déplacer), égaliseur, et le
+  choix **À la fin : Arrêter / Enchaîner**. Pas de boucle pour les cues pour l'instant. Un badge
+  **EQ** sur la ligne signale un égaliseur actif.
 - **Volume** : un **clic** sur la valeur en dB d’un cue permet de la taper (Entrée valide ; sans signe, la valeur est négative).
 - **Ordre** : glissez un cue vers le haut ou le bas ; un trait bleu montre où il sera posé. Le
   cue en attente reste le même son.
-- **Clic droit** sur un cue : **Lancer maintenant** (sans changer le cue en attente), **Mettre en
+- **Clic droit** sur un cue : **Lancer maintenant** (sans changer le cue en attente), **Réglages…**, **Mettre en
   attente**, **Retirer de la conduite**.
 - En **mode édition** (✏), les noms des cues se modifient directement et **🗑** vide la conduite.
 
-La barre d'espace pilote le premier module GO de l'écran (sauf pendant la saisie d'un texte).
+La barre d'espace pilote la première Cuelist de l'écran (sauf pendant la saisie d'un texte).
 Les télécommandes ont les actions **Conduite : GO**, **Conduite : cue suivant** et **Conduite :
 cue précédent**, et l'OSC les adresses `go` et `cue/…` (voir [Pilotage OSC](#pilotage-osc)).
 
@@ -346,7 +357,7 @@ données avec le préfixe par défaut.
 | `/jinglestar/module/<m>/playlist/previous` | — | Morceau précédent |
 | `/jinglestar/module/<m>/playlist/shuffle` | bool | Aléatoire |
 | `/jinglestar/module/<m>/playlist/loop` | bool | Boucle sur la liste |
-| `/jinglestar/go` | — | GO du premier module GO |
+| `/jinglestar/go` | — | GO de la première Cuelist |
 | `/jinglestar/module/<m>/go` | — | GO : lance le cue en attente, passe au suivant |
 | `/jinglestar/module/<m>/cue/next` | — | Cue suivant en attente |
 | `/jinglestar/module/<m>/cue/previous` | — | Cue précédent en attente |
@@ -517,7 +528,7 @@ Le déclencheur appris s'affiche par exemple **M32 · ch/05/mix/on** (touche MUT
 |---|---|
 | Tout arrêter | **Échap** (sauf pendant la saisie d'un texte) |
 | Ouvrir ou fermer l'aide | **F1** |
-| GO du premier module GO | **Espace** (sauf pendant la saisie d'un texte) |
+| GO de la première Cuelist | **Espace** (sauf pendant la saisie d'un texte) |
 | Changer l'ordre de la conduite | Glisser un cue |
 | Lancer / arrêter un jingle | Clic sur le bouton (mode lecture) |
 | Menu d'un jingle | Clic droit sur le bouton |

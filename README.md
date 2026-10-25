@@ -7,11 +7,12 @@ audio cpal, décodage symphonia).
 ## Fonctionnalités
 
 - **Modules dynamiques** : on démarre avec un seul, on en ajoute jusqu'à 4 (« ＋ Ajouter un module »)
-  et on les supprime en mode édition (🗑). Chacun en mode **Jingles**, **Playlist**, **GO** ou **Texte**, avec son propre volume et son vumètre.
+  et on les supprime en mode édition (🗑). Chacun en mode **Jingles**, **Playlist**, **Cuelist** ou **Texte**, avec son propre volume et son vumètre.
   Double-clic sur le titre d'un module pour le renommer ; glisser la séparation entre deux modules règle leur largeur.
-- **Module GO** : une conduite de spectacle façon QLab. Le gros bouton **GO** (ou la barre d'espace)
-  lance le cue en attente, bien visible, et passe au suivant ; précédent / suivant, arrêt et volume
-  par cue, ordre au glisser-déposer, commandes OSC et télécommandes.
+- **Cuelist** : une conduite de spectacle façon QLab. Le gros bouton **GO** (ou la barre d'espace)
+  lance le cue en attente, bien visible, et passe au suivant ; cadre du cue en cours (écoulé, barre,
+  restant) ; pour chaque cue, les réglages d'un jingle (volume, points, fondus, EQ) et le choix
+  enchaîner / arrêter à la fin ; précédent / suivant, arrêt par cue, ordre au glisser-déposer, commandes OSC et télécommandes.
 - **Module Texte** : un grand champ libre pour écrire sa conduite, sauvegardé avec le projet.
 - **Routage** : chaque module sort sur une paire stéréo (1-2, 3-4, 5-6…). Multipiste avec une carte
   multicanal, ou tous les modules sur 1-2.
@@ -146,7 +147,7 @@ ci-dessous sont données avec le préfixe par défaut.
 | `/jinglestar/module/<m>/playlist/previous` | — | Morceau précédent |
 | `/jinglestar/module/<m>/playlist/shuffle` | bool | Aléatoire |
 | `/jinglestar/module/<m>/playlist/loop` | bool | Boucle sur la liste |
-| `/jinglestar/go` | — | GO du premier module GO |
+| `/jinglestar/go` | — | GO de la première Cuelist |
 | `/jinglestar/module/<m>/go` | — | GO : lance le cue en attente, passe au suivant |
 | `/jinglestar/module/<m>/cue/next` | — | Cue suivant en attente |
 | `/jinglestar/module/<m>/cue/previous` | — | Cue précédent en attente |

@@ -6,7 +6,7 @@ Ce fichier permet de reprendre le travail après une pause. Les idées à venir 
 ## Ce qui est sur `main`
 
 **Base**
-- Modules dynamiques (1 à 4, largeur réglable par la séparation entre deux modules) en mode **Jingles**, **Playlist**, **Texte** ou **GO**, chacun avec
+- Modules dynamiques (1 à 4, largeur réglable par la séparation entre deux modules) en mode **Jingles**, **Playlist**, **Texte** ou **Cuelist** (GO), chacun avec
   son volume, son vumètre, son égaliseur et sa paire de sorties stéréo.
 - Préférences audio : pilote, périphérique et buffer, avec ASIO en option. Anti-veille, langue
   FR/EN, Échap qui arrête les jingles (et les playlists en option), anti double-GO.

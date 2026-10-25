@@ -1,6 +1,8 @@
-//! Module GO : conduite de spectacle à la façon de QLab.
+//! Module Cuelist (mode GO) : conduite de spectacle à la façon de QLab.
 //!
 //! Les cues sont joués dans l'ordre : GO lance le cue en attente et passe au suivant.
+//! Chaque cue a les réglages d'un jingle (volume, points, boucle, fondus, égaliseur) et,
+//! à sa fin, enchaîne sur le suivant ou attend le prochain GO.
 //! Plusieurs cues peuvent sonner ensemble ; ils utilisent les emplacements de voix
 //! des jingles du module (inutilisés en mode GO).
 
@@ -8,11 +10,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::audio::buffer::db_to_gain;
-use crate::audio::eq::EqCoeffs;
-use crate::audio::mixer::{Command, Region, JINGLE_SLOTS};
-use crate::project::{Cue, ModuleMode};
+use crate::audio::mixer::{Command, JINGLE_SLOTS};
+use crate::project::{Cue, CueFollow, ModuleMode, SoundSettings};
 
-use super::{collect_audio, Controller};
+use super::{collect_audio, sound_region, Controller};
 
 /// État de lecture d'une conduite (non sauvegardé).
 #[derive(Debug, Default, Clone)]
@@ -21,6 +22,8 @@ pub struct GoRuntime {
     pub standby: usize,
     /// Cue joué par chaque emplacement de voix, avec l'identifiant de la voix.
     slots: [Option<(usize, u64)>; JINGLE_SLOTS],
+    /// Emplacements arrêtés à la main : leur fin ne fait pas enchaîner le cue suivant.
+    stopping: [bool; JINGLE_SLOTS],
     /// Cues lancés avant la fin de leur chargement.
     pending: Vec<usize>,
     last_go: Option<Instant>,
@@ -94,8 +97,11 @@ impl Controller {
             .unwrap_or_else(|| (0..JINGLE_SLOTS).min_by_key(|&s| rt.slots[s].map_or(0, |(_, id)| id)).unwrap_or(0));
         let id = self.voice_id();
         self.gos[m].slots[slot] = Some((i, id));
-        let region = Region::full(&buf);
-        self.engine.send(Command::Play { module: m, slot, id, buffer: buf, gain: db_to_gain(cue.volume_db), region, eq: EqCoeffs::flat() });
+        self.gos[m].stopping[slot] = false;
+        // Pas de boucle pour les cues pour l'instant : un cue joue toujours une fois.
+        let region = sound_region(&SoundSettings { looping: false, ..cue.sound.clone() }, &buf);
+        let eq = cue.sound.eq.coeffs(self.rate());
+        self.engine.send(Command::Play { module: m, slot, id, buffer: buf, gain: db_to_gain(cue.sound.volume_db), region, eq });
     }
 
     /// Lance les cues qui attendaient ce son.
@@ -117,9 +123,26 @@ impl Controller {
     }
 
     pub(super) fn on_cue_ended(&mut self, m: usize, slot: usize, id: u64) {
-        if let Some(s) = self.gos[m].slots.get_mut(slot) {
-            if s.is_some_and(|(_, sid)| sid == id) {
-                *s = None;
+        let Some(s) = self.gos[m].slots.get_mut(slot) else { return };
+        let Some((i, _)) = s.filter(|&(_, sid)| sid == id) else { return };
+        *s = None;
+        let stopped = std::mem::take(&mut self.gos[m].stopping[slot]);
+        // Fin naturelle d'un cue « Enchaîner » : le suivant part tout seul.
+        let follow = self.cues(m).get(i).is_some_and(|c| c.follow == CueFollow::Continue);
+        if follow && !stopped && self.project.modules[m].mode == ModuleMode::Go && i + 1 < self.cues(m).len() {
+            if self.gos[m].standby == i + 1 {
+                self.gos[m].standby = i + 2;
+            }
+            self.play_cue(m, i + 1);
+        }
+    }
+
+    /// Les cues qui jouent dans le module s'arrêtent à la main : pas d'enchaînement à leur fin.
+    pub(super) fn mark_cues_stopping(&mut self, m: usize) {
+        let rt = &mut self.gos[m];
+        for s in 0..JINGLE_SLOTS {
+            if rt.slots[s].is_some() {
+                rt.stopping[s] = true;
             }
         }
     }
@@ -133,11 +156,20 @@ impl Controller {
 
     /// Position (images) du dernier lancement du cue `i`, s'il joue.
     pub fn cue_position(&self, m: usize, i: usize) -> Option<(u64, u64)> {
+        self.cue_playing_slot(m, i).and_then(|s| self.engine.telemetry.position(m, s))
+    }
+
+    /// Cue en cours : le dernier lancé qui sonne encore, avec sa position et sa longueur (images).
+    pub fn cue_running(&self, m: usize) -> Option<(usize, u64, u64)> {
         let rt = &self.gos[m];
-        self.cue_slots(m, i)
-            .into_iter()
-            .max_by_key(|&s| rt.slots[s].map_or(0, |(_, id)| id))
-            .and_then(|s| self.engine.telemetry.position(m, s))
+        (0..JINGLE_SLOTS)
+            .filter_map(|s| {
+                let (i, id) = rt.slots[s]?;
+                let (pos, len) = self.engine.telemetry.position(m, s)?;
+                (!rt.stopping[s]).then_some((id, i, pos, len))
+            })
+            .max_by_key(|&(id, ..)| id)
+            .map(|(_, i, pos, len)| (i, pos, len))
     }
 
     pub fn cue_loading(&self, m: usize, i: usize) -> bool {
@@ -147,6 +179,7 @@ impl Controller {
     pub fn stop_cue(&mut self, m: usize, i: usize) {
         self.gos[m].pending.retain(|&p| p != i);
         for slot in self.cue_slots(m, i) {
+            self.gos[m].stopping[slot] = true;
             self.engine.send(Command::Stop { module: m, slot });
         }
     }
@@ -154,6 +187,7 @@ impl Controller {
     /// Arrête tous les cues du module, sans toucher au cue en attente.
     pub fn stop_cues(&mut self, m: usize) {
         self.gos[m].pending.clear();
+        self.mark_cues_stopping(m);
         for slot in 0..JINGLE_SLOTS {
             self.engine.send(Command::Stop { module: m, slot });
         }
@@ -246,11 +280,49 @@ impl Controller {
 
     pub fn set_cue_volume(&mut self, m: usize, i: usize, db: f32) {
         let Some(c) = self.project.modules[m].cues.get_mut(i) else { return };
-        c.volume_db = db;
+        c.sound.volume_db = db;
         for slot in self.cue_slots(m, i) {
             self.engine.send(Command::SetSlotGain { module: m, slot, gain: db_to_gain(db) });
         }
         self.mark_dirty();
+    }
+
+    /// Modifie un cue ; s'il joue, volume, égaliseur et points s'appliquent tout de suite.
+    pub fn update_cue(&mut self, m: usize, i: usize, f: impl FnOnce(&mut Cue)) {
+        let rate = self.rate();
+        let Some(c) = self.project.modules[m].cues.get_mut(i) else { return };
+        let before = c.clone();
+        f(c);
+        if *c == before {
+            return;
+        }
+        let c = c.clone();
+        for slot in self.cue_slots(m, i) {
+            self.engine.send(Command::SetSlotGain { module: m, slot, gain: db_to_gain(c.sound.volume_db) });
+            if c.sound.eq != before.sound.eq {
+                self.engine.send(Command::SetSlotEq { module: m, slot, eq: c.sound.eq.coeffs(rate) });
+            }
+            if let Some(buf) = self.cache.get(&c.path) {
+                self.engine.send(Command::SetRegion { module: m, slot, region: sound_region(&c.sound, buf) });
+            }
+        }
+        if c.path != before.path {
+            self.request_jingle_load(&c.path);
+        }
+        self.mark_dirty();
+    }
+
+    /// Lecture en cours du cue `i` : déplacement à l'image `frame`, avec un micro-fondu.
+    pub fn cue_seek(&mut self, m: usize, i: usize, frame: usize) {
+        if let Some(slot) = self.cue_playing_slot(m, i) {
+            self.engine.send(Command::Seek { module: m, slot, frame });
+        }
+    }
+
+    /// Emplacement du dernier lancement du cue `i`, s'il joue.
+    fn cue_playing_slot(&self, m: usize, i: usize) -> Option<usize> {
+        let rt = &self.gos[m];
+        self.cue_slots(m, i).into_iter().max_by_key(|&s| rt.slots[s].map_or(0, |(_, id)| id))
     }
 
     pub fn rename_cue(&mut self, m: usize, i: usize, name: String) {
@@ -264,6 +336,7 @@ impl Controller {
     pub(super) fn reset_go_voices(&mut self, m: usize) {
         let rt = &mut self.gos[m];
         rt.slots = Default::default();
+        rt.stopping = Default::default();
         rt.pending.clear();
     }
 }

@@ -1,11 +1,12 @@
-//! Module GO : la conduite, le cue en attente et le gros bouton GO.
+//! Module Cuelist : la conduite, le cue en cours, le cue en attente et le gros bouton GO.
 
 use egui::{pos2, vec2, Align2, Color32, CornerRadius, FontId, Id, Rect, RichText, Sense, Stroke, StrokeKind};
 
 use super::theme::*;
 use super::widgets::*;
-use super::{DropTarget, JingleStarApp, TrackPayload};
+use super::{load_status, sound_editor, DropTarget, JingleStarApp, TrackPayload};
 use crate::i18n::tr;
+use crate::project::CueFollow;
 
 /// Cue en cours de glisser pour changer l'ordre de la conduite.
 pub(super) struct CuePayload {
@@ -40,6 +41,88 @@ fn go_button(ui: &mut egui::Ui, rect: Rect, id: Id, enabled: bool) -> egui::Resp
 }
 
 impl JingleStarApp {
+    /// Réglages d'un cue : les mêmes que ceux d'un jingle (sans boucle), plus la suite à donner.
+    pub(super) fn cue_editor_window(&mut self, ctx: &egui::Context) {
+        let Some((m, i)) = self.cue_editor else { return };
+        let Some(c) = self.ctrl.cues(m).get(i).cloned() else {
+            self.cue_editor = None;
+            return;
+        };
+        let mut open = true;
+        let mut done = false;
+        egui::Window::new(format!("Cue {} — {}", i + 1, c.name))
+            .id(Id::unique("cue-editor"))
+            .open(&mut open)
+            .default_width(620.0)
+            .resizable(true)
+            .collapsible(false)
+            .max_height((ctx.content_rect().height() - 60.0).max(200.0))
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().id_salt("cue-editor-scroll").auto_shrink([false, true]).show(ui, |ui| {
+                    let mut c2 = c.clone();
+                    egui::Grid::new("cue-fields").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
+                        ui.label(tr("Nom", "Name"));
+                        ui.text_edit_singleline(&mut c2.name);
+                        ui.end_row();
+
+                        ui.label(tr("Fichier", "File"));
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(c.path.display().to_string()).color(TEXT_DIM).small());
+                            if ui.button(tr("Changer…", "Change…")).clicked() {
+                                if let Some(f) = rfd::FileDialog::new().add_filter("Audio", crate::audio::decode::AUDIO_EXTENSIONS).pick_file() {
+                                    c2.path = f;
+                                }
+                            }
+                        });
+                        ui.end_row();
+
+                        sound_editor::sound_rows(ui, &mut c2.sound, false);
+
+                        ui.label(tr("À la fin", "When it ends"));
+                        ui.horizontal(|ui| {
+                            ui.radio_value(&mut c2.follow, CueFollow::Stop, tr("Arrêter (attendre le GO)", "Stop (wait for GO)"));
+                            ui.radio_value(&mut c2.follow, CueFollow::Continue, tr("Enchaîner sur le cue suivant", "Continue with the next cue"));
+                        });
+                        ui.end_row();
+                    });
+
+                    ui.add_space(6.0);
+                    let buf = self.ctrl.buffer_of(&c.path);
+                    let status = load_status(&self.ctrl, &c.path);
+                    let playhead = self.ctrl.cue_position(m, i).map(|(p, _)| p);
+                    let rate = self.ctrl.sample_rate();
+                    if let Some(frame) = sound_editor::sound_waveform_and_eq(ui, ("cue", m, i), &mut c2.sound, buf.as_deref(), status, playhead, rate) {
+                        self.ctrl.cue_seek(m, i, frame);
+                    }
+
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        let playing = self.ctrl.cue_position(m, i).is_some();
+                        let (label, col) = if playing { (tr("■ Stop", "■ Stop"), STOP) } else { (tr("▶ Écouter", "▶ Play"), GO) };
+                        if ui.add(egui::Button::new(RichText::new(label).color(Color32::BLACK).strong()).fill(col)).clicked() {
+                            if playing {
+                                self.ctrl.stop_cue(m, i);
+                            } else {
+                                self.ctrl.play_cue(m, i);
+                            }
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button(tr("✓ Terminé", "✓ Done")).clicked() {
+                                done = true;
+                            }
+                        });
+                    });
+
+                    if c2 != c {
+                        self.ctrl.update_cue(m, i, |cue| *cue = c2);
+                    }
+                });
+            });
+        if !open || done {
+            self.cue_editor = None;
+        }
+    }
+
     pub(super) fn go_view(&mut self, ui: &mut egui::Ui, m: usize, area: Rect) {
         self.drop_targets.push((area, DropTarget::Go(m)));
         let editing = self.edit_mode[m];
@@ -61,6 +144,35 @@ impl JingleStarApp {
             ui.label(RichText::new(count).color(TEXT_DIM));
         });
 
+        // Cue en cours, façon QLab : temps écoulé, barre et temps restant.
+        if let Some((i, pos, total)) = self.ctrl.cue_running(m) {
+            if let Some(c) = cues.get(i) {
+                let dur = total as f64 / rate;
+                let (start, _, _, end) = c.sound.markers(dur);
+                let t = pos as f64 / rate;
+                let frac = ((t - start) / (end - start).max(1e-6)).clamp(0.0, 1.0) as f32;
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(0x14, 0x22, 0x16))
+                    .stroke(Stroke::new(1.0, GO.gamma_multiply(0.7)))
+                    .corner_radius(4)
+                    .inner_margin(6)
+                    .show(ui, |ui| {
+                        ui.set_width(area.width() - 12.0);
+                        ui.label(RichText::new(tr("EN COURS", "RUNNING")).small().strong().color(GO));
+                        ui.add(egui::Label::new(RichText::new(format!("{}  {}", i + 1, c.name)).strong().size(15.0).color(GO)).truncate());
+                        let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 8.0), Sense::hover());
+                        ui.painter().rect_filled(bar, CornerRadius::same(3), Color32::from_black_alpha(120));
+                        ui.painter().rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * frac, bar.height())), CornerRadius::same(3), GO);
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(fmt_tenths(t - start)).monospace().size(15.0).color(TEXT));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(RichText::new(format!("-{}", fmt_tenths((end - t).max(0.0) + 0.099))).monospace().size(15.0).strong().color(Color32::WHITE));
+                            });
+                        });
+                    });
+            }
+        }
+
         // Cue en attente : ce que le prochain GO va lancer.
         egui::Frame::new()
             .fill(Color32::from_rgb(0x1c, 0x1c, 0x20))
@@ -68,7 +180,7 @@ impl JingleStarApp {
             .corner_radius(4)
             .inner_margin(6)
             .show(ui, |ui| {
-                ui.set_width(ui.available_width());
+                ui.set_width(area.width() - 12.0);
                 ui.label(RichText::new(tr("EN ATTENTE", "STANDBY")).small().strong().color(if standby < len { ACCENT } else { TEXT_DIM }));
                 match cues.get(standby) {
                     Some(c) => {
@@ -153,6 +265,20 @@ impl JingleStarApp {
                 let marker = if is_standby { "▶" } else { " " };
                 p.text(pos2(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, marker, FontId::proportional(11.0), ACCENT);
                 p.text(pos2(rect.left() + 34.0, rect.center().y), Align2::RIGHT_CENTER, format!("{}", i + 1), FontId::monospace(12.0), TEXT_DIM);
+                // Enchaîner / arrêter à la fin du cue : flèche cliquable.
+                let follow_r = Rect::from_center_size(pos2(rect.left() + 46.0, rect.center().y), vec2(16.0, 20.0));
+                let fresp = ui.interact(follow_r, ui.make_persistent_id(("cue-follow", m, i)), Sense::click());
+                let chained = c.follow == CueFollow::Continue;
+                let fcol = if chained { ACCENT } else if fresp.hovered() { TEXT } else { TEXT_DIM.gamma_multiply(0.5) };
+                p.text(follow_r.center(), Align2::CENTER_CENTER, if chained { "↓" } else { "·" }, FontId::proportional(15.0), fcol);
+                let tip = if chained {
+                    tr("Enchaîner : à la fin, le cue suivant part tout seul (clic : arrêter)", "Continue: when it ends, the next cue starts by itself (click: stop)")
+                } else {
+                    tr("Arrêter : à la fin, on attend le prochain GO (clic : enchaîner)", "Stop: when it ends, wait for the next GO (click: continue)")
+                };
+                if fresp.on_hover_text(tip).clicked() {
+                    action = Some((i, CueAction::Follow(if chained { CueFollow::Stop } else { CueFollow::Continue })));
+                }
 
                 // À droite : arrêt et temps restant s'il sonne, puis le volume.
                 let mut right = rect.right() - 4.0;
@@ -174,14 +300,14 @@ impl JingleStarApp {
                     p.text(pos2(right, rect.center().y), Align2::RIGHT_CENTER, "…", FontId::monospace(11.0), TEXT_DIM);
                     right -= 16.0;
                 }
-                let vol_col = if c.volume_db.abs() < 0.05 { TEXT_DIM } else { ACCENT };
+                let vol_col = if c.sound.volume_db.abs() < 0.05 { TEXT_DIM } else { ACCENT };
                 let vol_w = ui.painter().layout_no_wrap("-40.0 dB".into(), FontId::monospace(11.0), vol_col).size().x;
                 if let Some(db) = db_value(
                     ui,
                     ui.make_persistent_id(("cue-vol", m, i)),
                     pos2(right, rect.center().y),
                     Align2::RIGHT_CENTER,
-                    c.volume_db,
+                    c.sound.volume_db,
                     -40.0,
                     -40.0..=10.0,
                     FontId::monospace(11.0),
@@ -191,7 +317,14 @@ impl JingleStarApp {
                 }
                 right -= vol_w + 8.0;
 
-                let name_r = Rect::from_min_max(pos2(rect.left() + 42.0, rect.top() + 2.0), pos2(right, rect.bottom() - 2.0));
+                if !c.sound.eq.is_flat() {
+                    let g = p.layout_no_wrap("EQ".into(), FontId::proportional(9.5), Color32::BLACK);
+                    let badge = Rect::from_min_size(pos2(right - g.size().x - 6.0, rect.center().y - 7.0), vec2(g.size().x + 6.0, 14.0));
+                    p.rect_filled(badge, CornerRadius::same(2), ACCENT);
+                    p.galley(badge.min + vec2(3.0, (14.0 - g.size().y) / 2.0), g, Color32::BLACK);
+                    right = badge.left() - 6.0;
+                }
+                let name_r = Rect::from_min_max(pos2(rect.left() + 58.0, rect.top() + 2.0), pos2(right, rect.bottom() - 2.0));
                 if editing {
                     let mut name = c.name.clone();
                     if ui.put(name_r, egui::TextEdit::singleline(&mut name).font(FontId::proportional(13.0))).changed() {
@@ -204,7 +337,9 @@ impl JingleStarApp {
                     p.galley(pos2(name_r.left(), rect.center().y - g.size().y / 2.0), g, col);
                 }
 
-                if resp.clicked() {
+                if resp.double_clicked() {
+                    action = Some((i, CueAction::Edit));
+                } else if resp.clicked() {
                     action = Some((i, CueAction::Standby));
                 }
                 resp.dnd_set_drag_payload(CuePayload { module: m, index: i, name: c.name.clone() });
@@ -226,6 +361,10 @@ impl JingleStarApp {
                 resp.context_menu(|ui| {
                     if ui.button(tr("Lancer maintenant", "Play now")).clicked() {
                         action = Some((i, CueAction::Play));
+                        ui.close();
+                    }
+                    if ui.button(tr("Réglages…", "Settings…")).clicked() {
+                        action = Some((i, CueAction::Edit));
                         ui.close();
                     }
                     if ui.button(tr("Mettre en attente", "Put on standby")).clicked() {
@@ -281,6 +420,8 @@ impl JingleStarApp {
             Some((i, CueAction::Remove)) => self.ctrl.remove_cue(m, i),
             Some((i, CueAction::Volume(db))) => self.ctrl.set_cue_volume(m, i, db),
             Some((i, CueAction::Rename(name))) => self.ctrl.rename_cue(m, i, name),
+            Some((i, CueAction::Follow(f))) => self.ctrl.update_cue(m, i, |c| c.follow = f),
+            Some((i, CueAction::Edit)) => self.cue_editor = Some((m, i)),
             None => {}
         }
     }
@@ -293,4 +434,6 @@ enum CueAction {
     Remove,
     Volume(f32),
     Rename(String),
+    Follow(CueFollow),
+    Edit,
 }

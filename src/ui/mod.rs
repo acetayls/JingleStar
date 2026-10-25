@@ -5,6 +5,7 @@ mod eq_view;
 mod go_view;
 mod help;
 mod remote_view;
+mod sound_editor;
 mod widgets;
 
 use std::path::PathBuf;
@@ -61,6 +62,8 @@ pub struct JingleStarApp {
     notes_focused: bool,
     /// Module renommé par double-clic sur son titre, avec le nom en cours de saisie.
     renaming: Option<(usize, String)>,
+    /// Cue de la Cuelist ouvert dans l'éditeur (module, index).
+    cue_editor: Option<(usize, usize)>,
 }
 
 impl JingleStarApp {
@@ -73,6 +76,7 @@ impl JingleStarApp {
             selected: None,
             confirm_delete: None,
             confirm_clear: None,
+            cue_editor: None,
             module_eq: None,
             settings: None,
             help: help::HelpWindow::default(),
@@ -381,7 +385,7 @@ impl JingleStarApp {
                 self.ctrl.set_module_mode(m, ModuleMode::Playlist);
             }
             if ui
-                .selectable_label(mode == ModuleMode::Go, "GO")
+                .selectable_label(mode == ModuleMode::Go, "Cuelist")
                 .on_hover_text(tr("Conduite de spectacle : des cues lancés un à un avec GO", "Show cue list: cues fired one by one with GO"))
                 .clicked()
             {
@@ -475,17 +479,17 @@ impl JingleStarApp {
             let rate = self.ctrl.device.as_ref().map(|d| d.sample_rate).unwrap_or(48_000) as f64;
             let (progress, duration_label) = match (&slot, pos) {
                 (Some(j), Some((p, len))) => {
-                    let (start, _, _, end) = j.markers(len as f64 / rate);
+                    let (start, _, _, end) = j.sound.markers(len as f64 / rate);
                     let t = p as f64 / rate;
                     let span = (end - start).max(1e-6);
                     let elapsed = fmt_tenths(t - start);
                     // En boucle, la fin n'arrive qu'à l'arrêt : « BOUCLE » à la place du temps restant.
-                    let remaining = if j.looping { tr("BOUCLE", "LOOP").to_string() } else { format!("-{}", fmt_tenths((end - t).max(0.0) + 0.099)) };
+                    let remaining = if j.sound.looping { tr("BOUCLE", "LOOP").to_string() } else { format!("-{}", fmt_tenths((end - t).max(0.0) + 0.099)) };
                     (Some((((t - start) / span) as f32, elapsed, remaining)), None)
                 }
                 (Some(j), None) => {
                     let label = self.ctrl.duration_of(&j.path).map(|d| {
-                        let (st, _, _, end) = j.markers(d);
+                        let (st, _, _, end) = j.sound.markers(d);
                         fmt_tenths(end - st)
                     });
                     (None, label)
@@ -501,18 +505,18 @@ impl JingleStarApp {
                 duration_label,
                 loading: slot.as_ref().map(|j| self.ctrl.is_loading(&j.path)).unwrap_or(false),
                 error: slot.as_ref().map(|j| self.ctrl.load_errors.contains_key(&j.path)).unwrap_or(false),
-                looping: slot.as_ref().map(|j| j.looping).unwrap_or(false),
+                looping: slot.as_ref().map(|j| j.sound.looping).unwrap_or(false),
                 selected: self.selected == Some((m, s)),
                 edit_mode: self.edit_mode[m],
                 drop_hover: hover_pos.map(|p| rect.contains(p)).unwrap_or(false)
                     || (egui::DragAndDrop::has_payload_of_type::<TrackPayload>(ui.ctx())
                         && ui.ctx().pointer_hover_pos().is_some_and(|p| rect.contains(p))),
-                eq: slot.as_ref().map(|j| !j.eq.is_flat()).unwrap_or(false),
+                eq: slot.as_ref().map(|j| !j.sound.eq.is_flat()).unwrap_or(false),
             };
             let resp = jingle_button(ui, rect, &view);
             if let Some(j) = &slot {
-                if let Some(v) = jingle_volume(ui, ui.make_persistent_id(("jingle_db", m, s)), rect, j.volume_db) {
-                    self.ctrl.update_jingle(m, s, |j| j.volume_db = v);
+                if let Some(v) = jingle_volume(ui, ui.make_persistent_id(("jingle_db", m, s)), rect, j.sound.volume_db) {
+                    self.ctrl.update_jingle(m, s, |j| j.sound.volume_db = v);
                 }
             }
             // Morceau glissé depuis une playlist : il devient le son de ce bouton.
@@ -598,27 +602,7 @@ impl JingleStarApp {
                         });
                         ui.end_row();
 
-                        ui.label("Volume");
-                        let r = ui.add(egui::Slider::new(&mut j2.volume_db, -40.0..=10.0).suffix(" dB").step_by(0.5));
-                        let rail = Rect::from_min_size(r.rect.min, vec2(ui.spacing().slider_width, r.rect.height()));
-                        db_marks(ui, rail, false, &(-40.0..=10.0), false);
-                        ui.end_row();
-
-                        ui.label(tr("Lecture", "Playback"));
-                        ui.horizontal(|ui| {
-                            ui.radio_value(&mut j2.looping, false, tr("Une fois", "Once"));
-                            ui.radio_value(&mut j2.looping, true, tr("En boucle", "Loop"));
-                        });
-                        ui.end_row();
-
-                        ui.label(tr("Fondus", "Fades"));
-                        ui.horizontal(|ui| {
-                            ui.label(tr("entrée", "in"));
-                            ui.add(egui::DragValue::new(&mut j2.fade_in).range(0.0..=30.0).speed(0.05).suffix(" s").max_decimals(2));
-                            ui.label(tr("sortie", "out"));
-                            ui.add(egui::DragValue::new(&mut j2.fade_out).range(0.0..=30.0).speed(0.05).suffix(" s").max_decimals(2));
-                        });
-                        ui.end_row();
+                        sound_editor::sound_rows(ui, &mut j2.sound, true);
 
                         ui.label(tr("Couleur", "Color"));
                         ui.horizontal(|ui| {
@@ -637,82 +621,13 @@ impl JingleStarApp {
                     });
 
                     ui.add_space(6.0);
-                    if let Some(buf) = self.ctrl.buffer_of(&j.path) {
-                        let dur = buf.duration_secs();
-                        let (st, ls, le, end) = j2.markers(dur);
-                        let mut mk = Markers { start: st, loop_start: ls, loop_end: le, end };
-                        let rate = buf.sample_rate as f64;
-                        let playhead = self.ctrl.engine.telemetry.position(m, s).map(|(p, _)| p as f64 / rate);
-                        let mut seek = None;
-                        let edited = waveform_editor(ui, |a, b, n| buf.peaks(a, b, n), dur, &mut mk, j2.looping, &mut j2.fade_in, &mut j2.fade_out, playhead, &mut seek);
-                        if let Some(t) = seek {
-                            self.ctrl.jingle_seek(m, s, (t * rate) as usize);
-                        }
-                        if edited {
-                            j2.start = mk.start;
-                            j2.end = Some(mk.end);
-                            j2.loop_start = Some(mk.loop_start);
-                            j2.loop_end = Some(mk.loop_end);
-                        }
-                        // Saisie précise des points, en secondes.
-                        let before = mk;
-                        ui.horizontal(|ui| {
-                            let field = |ui: &mut egui::Ui, label: &str, v: &mut f64| {
-                                ui.label(RichText::new(label).color(TEXT_DIM));
-                                ui.add(egui::DragValue::new(v).range(0.0..=dur).speed(0.01).max_decimals(2).suffix(" s"));
-                            };
-                            field(ui, tr("Début", "Start"), &mut mk.start);
-                            if j2.looping {
-                                field(ui, tr("Boucle", "Loop"), &mut mk.loop_start);
-                                field(ui, "→", &mut mk.loop_end);
-                            }
-                            field(ui, tr("Fin", "End"), &mut mk.end);
-                        });
-                        if mk != before {
-                            mk.end = mk.end.max(mk.start);
-                            mk.loop_start = mk.loop_start.clamp(mk.start, mk.end);
-                            mk.loop_end = mk.loop_end.clamp(mk.loop_start, mk.end);
-                            j2.start = mk.start;
-                            j2.end = Some(mk.end);
-                            j2.loop_start = Some(mk.loop_start);
-                            j2.loop_end = Some(mk.loop_end);
-                        }
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(format!(
-                                "{} {}  ·  {} {}  ·  {} {}",
-                                tr("Début", "Start"),
-                                fmt_secs(mk.start),
-                                tr("Fin", "End"),
-                                fmt_secs(mk.end),
-                                tr("Durée", "Duration"),
-                                fmt_secs(mk.end - mk.start)
-                            )).monospace().color(TEXT_DIM));
-                            if j2.looping {
-                                ui.label(RichText::new(format!("{} {} → {}", tr("Boucle", "Loop"), fmt_secs(mk.loop_start), fmt_secs(mk.loop_end))).monospace().color(ACCENT));
-                            }
-                            if ui.small_button(tr("Réinitialiser les points", "Reset points")).clicked() {
-                                j2.start = 0.0;
-                                j2.end = None;
-                                j2.loop_start = None;
-                                j2.loop_end = None;
-                            }
-                        });
-                    } else if self.ctrl.is_loading(&j.path) {
-                        ui.label(tr("Chargement de la forme d'onde…", "Loading waveform…"));
-                    } else if let Some(e) = self.ctrl.load_errors.get(&j.path) {
-                        ui.label(RichText::new(format!("⚠ {e}")).color(STOP));
+                    let buf = self.ctrl.buffer_of(&j.path);
+                    let status = load_status(&self.ctrl, &j.path);
+                    let playhead = self.ctrl.engine.telemetry.position(m, s).map(|(p, _)| p);
+                    let rate = self.ctrl.sample_rate();
+                    if let Some(frame) = sound_editor::sound_waveform_and_eq(ui, ("jingle", m, s), &mut j2.sound, buf.as_deref(), status, playhead, rate) {
+                        self.ctrl.jingle_seek(m, s, frame);
                     }
-
-                    ui.add_space(6.0);
-                    let eq_title = if j2.eq.is_flat() {
-                        RichText::new(tr("Égaliseur", "Equalizer"))
-                    } else {
-                        RichText::new(tr("Égaliseur (actif)", "Equalizer (on)")).color(ACCENT)
-                    };
-                    egui::CollapsingHeader::new(eq_title).id_salt(("jingle-eq", m, s)).default_open(!j.eq.is_flat()).show(ui, |ui| {
-                        let rate = self.ctrl.sample_rate();
-                        eq_view::eq_editor(ui, ("jingle", m, s), &mut j2.eq, rate);
-                    });
 
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
@@ -1370,9 +1285,13 @@ fn os_cursor_pos(_ctx: &egui::Context, _frame: &eframe::Frame) -> Option<egui::P
     None
 }
 
-fn fmt_secs(t: f64) -> String {
-    let t = t.max(0.0);
-    format!("{}:{:05.2}", (t / 60.0) as u64, t % 60.0)
+/// Message à la place de la forme d'onde d'un son pas encore chargé (ou illisible).
+pub(super) fn load_status(ctrl: &Controller, path: &std::path::Path) -> Option<RichText> {
+    if ctrl.is_loading(path) {
+        Some(RichText::new(tr("Chargement de la forme d'onde…", "Loading waveform…")))
+    } else {
+        ctrl.load_errors.get(path).map(|e| RichText::new(format!("⚠ {e}")).color(STOP))
+    }
 }
 
 /// « JingleStar 0.1.0 · a1b2c3d · 2026-10-24 » : version du Cargo.toml, commit et date de compilation.
@@ -1435,6 +1354,7 @@ impl eframe::App for JingleStarApp {
             painter.galley(r.min + vec2(6.0, 3.0), galley, Color32::WHITE);
         }
         self.jingle_editor(&ctx);
+        self.cue_editor_window(&ctx);
         self.module_eq_window(&ctx);
         self.settings_window(&ctx);
         self.help.show(&ctx);

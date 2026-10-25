@@ -25,7 +25,7 @@ mod cues;
 pub use cues::GoRuntime;
 
 use crate::project::{
-    autosave_path, loudness_cache_path, AudioSettings, ConsoleSettings, M32Settings, JingleSlot, MidiSettings, ModuleConfig, ModuleMode, OscSettings, Project, Transition, DEFAULT_COLORS,
+    autosave_path, loudness_cache_path, AudioSettings, ConsoleSettings, JingleSlot, M32Settings, MidiSettings, ModuleConfig, ModuleMode, OscSettings, Project, SoundSettings, Transition, DEFAULT_COLORS,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -599,6 +599,10 @@ impl Controller {
     pub fn stop_all_jingles(&mut self) {
         self.engine.send(Command::StopJingles);
         self.pending_play.clear();
+        // Les cues arrêtés ainsi n'enchaînent pas sur le suivant.
+        for m in 0..MAX_MODULES {
+            self.mark_cues_stopping(m);
+        }
     }
 
     /// Touche Échap : les jingles, et les playlists si l'option est active.
@@ -662,9 +666,9 @@ impl Controller {
         let Some(j) = self.jingle(m, s).cloned() else { return };
         if let Some(buf) = self.cache.get(&j.path).cloned() {
             let id = self.voice_id();
-            let region = jingle_region(&j, &buf);
-            let eq = j.eq.coeffs(self.rate());
-            self.engine.send(Command::Play { module: m, slot: s, id, buffer: buf, gain: db_to_gain(j.volume_db), region, eq });
+            let region = sound_region(&j.sound, &buf);
+            let eq = j.sound.eq.coeffs(self.rate());
+            self.engine.send(Command::Play { module: m, slot: s, id, buffer: buf, gain: db_to_gain(j.sound.volume_db), region, eq });
         } else {
             self.pending_play.insert((m, s));
             self.request_jingle_load(&j.path);
@@ -692,15 +696,15 @@ impl Controller {
     pub fn update_jingle(&mut self, m: usize, s: usize, f: impl FnOnce(&mut JingleSlot)) {
         let rate = self.rate();
         if let Some(j) = self.project.modules[m].jingles[s].as_mut() {
-            let old_eq = j.eq;
+            let old_eq = j.sound.eq;
             f(j);
-            let gain = db_to_gain(j.volume_db);
+            let gain = db_to_gain(j.sound.volume_db);
             self.engine.send(Command::SetSlotGain { module: m, slot: s, gain });
-            if j.eq != old_eq {
-                self.engine.send(Command::SetSlotEq { module: m, slot: s, eq: j.eq.coeffs(rate) });
+            if j.sound.eq != old_eq {
+                self.engine.send(Command::SetSlotEq { module: m, slot: s, eq: j.sound.eq.coeffs(rate) });
             }
             if let Some(buf) = self.cache.get(&j.path) {
-                let region = jingle_region(j, buf);
+                let region = sound_region(&j.sound, buf);
                 self.engine.send(Command::SetRegion { module: m, slot: s, region });
             }
             self.mark_dirty();
@@ -1228,7 +1232,7 @@ impl Controller {
             OscCommand::JinglePlay(m, s) if m < n && mode(self, m) == ModuleMode::Jingle => self.start_jingle(m, s),
             OscCommand::JingleStop(m, s) if m < n && mode(self, m) == ModuleMode::Jingle => self.stop_jingle(m, s),
             OscCommand::JingleToggle(m, s) if m < n && mode(self, m) == ModuleMode::Jingle => self.trigger_jingle(m, s),
-            OscCommand::JingleVolume(m, s, db) if m < n => self.update_jingle(m, s, |j| j.volume_db = db),
+            OscCommand::JingleVolume(m, s, db) if m < n => self.update_jingle(m, s, |j| j.sound.volume_db = db),
             OscCommand::PlaylistPlay(m, track) if m < n && mode(self, m) == ModuleMode::Playlist => match track {
                 Some(i) => self.playlist_play(m, i),
                 None => self.playlist_go(m),
@@ -1404,7 +1408,7 @@ impl Controller {
         for (i, cmd) in commands {
             let current = match cmd {
                 OscCommand::ModuleVolume(m, _) => Some(self.project.modules[m].volume_db),
-                OscCommand::JingleVolume(m, s, _) => self.project.modules[m].jingles[s].as_ref().map(|j| j.volume_db),
+                OscCommand::JingleVolume(m, s, _) => self.project.modules[m].jingles[s].as_ref().map(|j| j.sound.volume_db),
                 _ => None,
             };
             let target = match cmd {
@@ -1442,7 +1446,7 @@ impl Controller {
                         .map(|(s, j)| {
                             j.as_ref().map(|j| osc::JingleState {
                                 name: j.name.clone(),
-                                volume_db: j.volume_db,
+                                volume_db: j.sound.volume_db,
                                 playing: self.is_jingle_playing(m, s),
                             })
                         })
@@ -1532,8 +1536,8 @@ impl Controller {
     }
 }
 
-/// Convertit les points du jingle (secondes) en zone de lecture (images).
-pub fn jingle_region(j: &JingleSlot, buf: &AudioBuffer) -> Region {
+/// Convertit les points d'un son (secondes) en zone de lecture (images).
+pub fn sound_region(j: &SoundSettings, buf: &AudioBuffer) -> Region {
     let sr = buf.sample_rate as f64;
     let (start, ls, le, end) = j.markers(buf.duration_secs());
     let f = |t: f64| (t * sr).round() as usize;
