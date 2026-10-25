@@ -45,13 +45,13 @@ Chaque module a, de haut en bas :
 - le choix de **sortie** (paire stéréo 1-2, 3-4…) ;
 - le bouton **EQ** (égaliseur du module) ;
 - le bouton **✏** (mode édition) ;
-- le choix du mode : **Jingles**, **Playlist** ou **Texte** ;
+- le choix du mode : **Jingles**, **Playlist**, **GO** ou **Texte** ;
 - à droite, le **fader** de volume (-∞ à +10 dB) avec des repères à +3, 0 et -6 dB et sa valeur en dB en dessous, le **vumètre** stéréo et le bouton **■** qui arrête le module.
 
 Le cadre du module devient vert quand un son y joue.
 
 - **Volume** : glissez le fader. Un **double-clic** sur le fader le remet à 0 dB ; un **double-clic sur la valeur en dB** permet de la taper au clavier (Entrée valide, Échap annule).
-- **Changer de mode** : cliquez sur **Jingles**, **Playlist** ou **Texte**. Le module s'arrête ; les jingles, la playlist et le texte sont conservés.
+- **Changer de mode** : cliquez sur **Jingles**, **Playlist**, **GO** ou **Texte**. Le module s'arrête ; les jingles, la playlist, la conduite et le texte sont conservés.
 - **Renommer** : **double-clic sur le nom** du module, tapez le nouveau nom puis Entrée (Échap annule). En mode édition (✏), le nom est aussi modifiable directement.
 - **Module Texte** : un grand champ libre pour écrire sa conduite, sauvegardé avec le projet. Échap y arrête quand même les jingles.
 - **Supprimer** : en mode édition, cliquez sur **🗑** puis confirmez avec **Supprimer ?**. Les modules suivants remontent d'un rang. Le dernier module restant ne peut pas être supprimé.
@@ -182,6 +182,35 @@ change.
 
 Hors mode édition, une ligne **Équilibrage** rappelle le réglage en cours.
 
+## Le module GO (conduite)
+
+Le mode **GO** suit une conduite de spectacle, à la façon de QLab : une liste ordonnée de sons
+(les **cues**) que l'on lance un par un.
+
+- **Ajouter des sons** : **＋ Ajouter des sons…**, ou glissez des fichiers ou des dossiers sur la
+  conduite. Un morceau de playlist peut aussi y être glissé, à l'endroit voulu.
+- **EN ATTENTE** : le cadre ambre affiche le cue que le prochain GO va lancer, et celui qui suit.
+  Dans la liste, il est surligné et marqué ▶.
+- **GO** (ou la **barre d'espace**) : lance le cue en attente et met le suivant en attente.
+  Les cues lancés continuent de jouer ensemble jusqu'à leur fin. Le délai anti double-GO des
+  préférences protège aussi ce bouton. Après le dernier cue, le cadre affiche **Fin de la
+  conduite** et GO s'éteint.
+- **Précédent** / **Suivant** : déplacent le cue en attente sans rien lancer. Un **clic** sur un
+  cue le met en attente.
+- **Arrêter** : arrête tous les cues de la conduite ; le cue en attente ne change pas. Pendant
+  qu'un cue joue, sa ligne se remplit en vert, affiche le temps restant et un bouton **■** qui
+  n'arrête que lui.
+- **Volume** : un **double-clic** sur la valeur en dB d'un cue permet de la taper (Entrée valide).
+- **Ordre** : glissez un cue vers le haut ou le bas ; un trait bleu montre où il sera posé. Le
+  cue en attente reste le même son.
+- **Clic droit** sur un cue : **Lancer maintenant** (sans changer le cue en attente), **Mettre en
+  attente**, **Retirer de la conduite**.
+- En **mode édition** (✏), les noms des cues se modifient directement et **🗑** vide la conduite.
+
+La barre d'espace pilote le premier module GO de l'écran (sauf pendant la saisie d'un texte).
+Les télécommandes ont les actions **Conduite : GO**, **Conduite : cue suivant** et **Conduite :
+cue précédent**, et l'OSC les adresses `go` et `cue/…` (voir [Pilotage OSC](#pilotage-osc)).
+
 ## L'égaliseur
 
 Chaque jingle et chaque module ont leur égaliseur. Celui du module s'applique à tout ce que le
@@ -294,7 +323,7 @@ données avec le préfixe par défaut.
 | `/jinglestar/stop_all` | — | Arrête tout |
 | `/jinglestar/module/<m>/stop` | — | Arrête le module |
 | `/jinglestar/module/<m>/volume` | float, dB (-60 à +10) | Volume du module |
-| `/jinglestar/module/<m>/mode` | `jingle` ou `playlist` | Change le mode du module |
+| `/jinglestar/module/<m>/mode` | `jingle`, `playlist`, `text` ou `go` | Change le mode du module |
 | `/jinglestar/module/<m>/jingle/<j>/play` | — | Lance le jingle depuis le début (le relance s'il joue) |
 | `/jinglestar/module/<m>/jingle/<j>/stop` | — | Arrête le jingle |
 | `/jinglestar/module/<m>/jingle/<j>/toggle` | — | Lance ou arrête, comme un clic |
@@ -308,6 +337,11 @@ données avec le préfixe par défaut.
 | `/jinglestar/module/<m>/playlist/previous` | — | Morceau précédent |
 | `/jinglestar/module/<m>/playlist/shuffle` | bool | Aléatoire |
 | `/jinglestar/module/<m>/playlist/loop` | bool | Boucle sur la liste |
+| `/jinglestar/go` | — | GO du premier module GO |
+| `/jinglestar/module/<m>/go` | — | GO : lance le cue en attente, passe au suivant |
+| `/jinglestar/module/<m>/cue/next` | — | Cue suivant en attente |
+| `/jinglestar/module/<m>/cue/previous` | — | Cue précédent en attente |
+| `/jinglestar/module/<m>/cue/standby` | int | Met le cue n° en attente |
 
 - Les déclencheurs (`play`, `stop`, `toggle`, `next`…) partent sans argument ou avec une valeur non nulle : un bouton qui envoie 1 à l'appui puis 0 au relâché ne déclenche qu'une fois.
 - Les booléens acceptent `T`/`F`, un entier ou un float (≥ 0,5 = vrai), ou `true`/`false`/`on`/`off`.
@@ -433,6 +467,8 @@ du canal 32) ou **QL · Scène 12**.
 |---|---|
 | Tout arrêter | **Échap** (sauf pendant la saisie d'un texte) |
 | Ouvrir ou fermer l'aide | **F1** |
+| GO du premier module GO | **Espace** (sauf pendant la saisie d'un texte) |
+| Changer l'ordre de la conduite | Glisser un cue |
 | Lancer / arrêter un jingle | Clic sur le bouton (mode lecture) |
 | Menu d'un jingle | Clic droit sur le bouton |
 | Remplir des boutons | Glisser-déposer un ou plusieurs fichiers |

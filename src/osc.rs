@@ -39,6 +39,12 @@ pub enum OscCommand {
     PlaylistStep(usize, isize),
     PlaylistShuffle(usize, bool),
     PlaylistLoop(usize, bool),
+    /// GO d'une conduite ; `None` : le premier module GO.
+    CueGo(Option<usize>),
+    /// Déplace le cue en attente.
+    CueStep(usize, isize),
+    /// Met le cue n° en attente.
+    CueStandby(usize, usize),
 }
 
 // ------------------------------------------------------------------ état publié
@@ -56,6 +62,16 @@ pub struct ModuleState {
     pub volume_db: f32,
     pub jingles: Vec<Option<JingleState>>,
     pub playlist: PlaylistState,
+    pub cues: CueListState,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CueListState {
+    pub names: Vec<String>,
+    /// Cue en attente (index) ; `== names.len()` : fin de la conduite.
+    pub standby: usize,
+    /// Nombre de cues qui sonnent.
+    pub playing: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,6 +162,7 @@ pub fn parse(prefix: &str, msg: &OscMessage) -> Result<Option<OscCommand>, Strin
     let flag = || arg_bool(args).ok_or_else(|| format!("{} : {}", tr("valeur booléenne attendue", "boolean expected"), msg.addr));
     match segs.as_slice() {
         ["stop_all"] => trigger(OscCommand::StopAll),
+        ["go"] => trigger(OscCommand::CueGo(None)),
         ["module", m, tail @ ..] => {
             let m = index(Some(m), MAX_MODULES)?;
             match tail {
@@ -156,10 +173,24 @@ pub fn parse(prefix: &str, msg: &OscMessage) -> Result<Option<OscCommand>, Strin
                         Some(OscType::String(s)) if s.eq_ignore_ascii_case("jingle") => ModuleMode::Jingle,
                         Some(OscType::String(s)) if s.eq_ignore_ascii_case("playlist") => ModuleMode::Playlist,
                         Some(OscType::String(s)) if s.eq_ignore_ascii_case("text") => ModuleMode::Text,
-                        _ => return Err(format!("{} : {}", tr("mode attendu (jingle, playlist ou text)", "mode expected (jingle, playlist or text)"), msg.addr)),
+                        Some(OscType::String(s)) if s.eq_ignore_ascii_case("go") => ModuleMode::Go,
+                        _ => return Err(format!("{} : {}", tr("mode attendu (jingle, playlist, text ou go)", "mode expected (jingle, playlist, text or go)"), msg.addr)),
                     };
                     Ok(Some(OscCommand::ModuleMode(m, mode)))
                 }
+                ["go"] => trigger(OscCommand::CueGo(Some(m))),
+                ["cue", action] => match *action {
+                    "next" => trigger(OscCommand::CueStep(m, 1)),
+                    "previous" => trigger(OscCommand::CueStep(m, -1)),
+                    "standby" => {
+                        let n = value()?;
+                        if n < 1.0 {
+                            return Err(format!("{} : {n}", tr("numéro de cue invalide", "invalid cue number")));
+                        }
+                        Ok(Some(OscCommand::CueStandby(m, n as usize - 1)))
+                    }
+                    _ => Err(format!("{} : {}", tr("adresse inconnue", "unknown address"), msg.addr)),
+                },
                 ["jingle", s, action] => {
                     let s = index(Some(s), JINGLE_SLOTS)?;
                     match *action {
@@ -260,6 +291,7 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
     let mut root = json!({ "FULL_PATH": "/", "ACCESS": 0, "DESCRIPTION": "JingleStar", "CONTENTS": {} });
     let mut add = |path: String, node: Value| insert(&mut root, &format!("{p}{path}"), node);
     add("/stop_all".into(), trigger_leaf("Arrête tous les sons"));
+    add("/go".into(), trigger_leaf("GO du premier module GO"));
     for (mi, m) in snap.modules.iter().enumerate() {
         let base = format!("/module/{}", mi + 1);
         add(format!("{base}/name"), leaf("s", ACCESS_READ, "Nom du module", Some(json!(m.name)), None));
@@ -267,10 +299,11 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
             ModuleMode::Jingle => "jingle",
             ModuleMode::Playlist => "playlist",
             ModuleMode::Text => "text",
+            ModuleMode::Go => "go",
         };
         add(
             format!("{base}/mode"),
-            leaf("s", ACCESS_RW, "Mode du module", Some(json!(mode)), Some(json!({ "VALS": ["jingle", "playlist", "text"] }))),
+            leaf("s", ACCESS_RW, "Mode du module", Some(json!(mode)), Some(json!({ "VALS": ["jingle", "playlist", "text", "go"] }))),
         );
         add(
             format!("{base}/volume"),
@@ -285,6 +318,26 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
         add(format!("{base}/stop"), trigger_leaf("Arrête tous les sons du module"));
         match m.mode {
             ModuleMode::Text => {}
+            ModuleMode::Go => {
+                let c = &m.cues;
+                add(format!("{base}/go"), trigger_leaf("Lance le cue en attente et passe au suivant"));
+                add(format!("{base}/cue/next"), trigger_leaf("Cue suivant en attente"));
+                add(format!("{base}/cue/previous"), trigger_leaf("Cue précédent en attente"));
+                add(
+                    format!("{base}/cue/standby"),
+                    leaf(
+                        "i",
+                        ACCESS_RW,
+                        "Numéro du cue en attente (0 : fin de la conduite)",
+                        Some(json!(if c.standby < c.names.len() { c.standby + 1 } else { 0 })),
+                        Some(json!({ "MIN": 1, "MAX": c.names.len().max(1) })),
+                    ),
+                );
+                let standby_name = c.names.get(c.standby).cloned().unwrap_or_default();
+                add(format!("{base}/cue/name"), leaf("s", ACCESS_READ, "Nom du cue en attente", Some(json!(standby_name)), None));
+                add(format!("{base}/cue/count"), leaf("i", ACCESS_READ, "Nombre de cues", Some(json!(c.names.len())), None));
+                add(format!("{base}/cue/playing"), leaf("i", ACCESS_READ, "Nombre de cues qui sonnent", Some(json!(c.playing)), None));
+            }
             ModuleMode::Jingle => {
                 for (si, j) in m.jingles.iter().enumerate() {
                     let jb = format!("{base}/jingle/{}", si + 1);
@@ -602,6 +655,15 @@ mod tests {
         );
         assert_eq!(parse(p, &msg("/jinglestar/module/3/playlist/previous", vec![])), Ok(Some(OscCommand::PlaylistStep(2, -1))));
         assert_eq!(parse(p, &msg("/jinglestar/module/2/playlist/pause", vec![])), Ok(Some(OscCommand::PlaylistPause(1, None))));
+        assert_eq!(parse(p, &msg("/jinglestar/go", vec![])), Ok(Some(OscCommand::CueGo(None))));
+        assert_eq!(parse(p, &msg("/jinglestar/module/4/go", vec![OscType::Int(1)])), Ok(Some(OscCommand::CueGo(Some(3)))));
+        assert_eq!(parse(p, &msg("/jinglestar/module/4/go", vec![OscType::Int(0)])), Ok(None));
+        assert_eq!(parse(p, &msg("/jinglestar/module/4/cue/previous", vec![])), Ok(Some(OscCommand::CueStep(3, -1))));
+        assert_eq!(parse(p, &msg("/jinglestar/module/4/cue/standby", vec![OscType::Int(5)])), Ok(Some(OscCommand::CueStandby(3, 4))));
+        assert_eq!(
+            parse(p, &msg("/jinglestar/module/1/mode", vec![OscType::String("go".into())])),
+            Ok(Some(OscCommand::ModuleMode(0, ModuleMode::Go)))
+        );
         assert_eq!(parse(p, &msg("/jinglestar/module/2/playlist/pause", vec![OscType::Int(0)])), Ok(None));
         assert_eq!(
             parse(p, &msg("/jinglestar/module/2/playlist/paused", vec![OscType::Bool(false)])),
@@ -645,6 +707,7 @@ mod tests {
                     volume_db: 0.0,
                     jingles,
                     playlist: PlaylistState::default(),
+                    cues: CueListState::default(),
                 },
                 ModuleState {
                     name: "Musique".into(),
@@ -652,6 +715,15 @@ mod tests {
                     volume_db: -6.0,
                     jingles: vec![None; JINGLE_SLOTS],
                     playlist: PlaylistState { tracks: 5, current: Some(1), playing: true, ..Default::default() },
+                    cues: CueListState::default(),
+                },
+                ModuleState {
+                    name: "Conduite".into(),
+                    mode: ModuleMode::Go,
+                    volume_db: 0.0,
+                    jingles: vec![None; JINGLE_SLOTS],
+                    playlist: PlaylistState::default(),
+                    cues: CueListState { names: vec!["Ouverture".into(), "Pluie".into()], standby: 1, playing: 1 },
                 },
             ],
         }
@@ -672,6 +744,10 @@ mod tests {
         assert_eq!((code, v["RANGE"][0]["MIN"].as_f64()), (200, Some(-60.0)));
         assert_eq!(answer("/jinglestar/module/2/jingle", &settings, &snap).0, 404);
         assert_eq!(answer("/jinglestar/stop_all?VALUE", &settings, &snap).0, 204);
+        let (code, v) = answer("/jinglestar/module/3/cue/standby?VALUE", &settings, &snap);
+        assert_eq!((code, v), (200, json!({ "VALUE": [2] })));
+        let (_, v) = answer("/jinglestar/module/3/cue/name?VALUE", &settings, &snap);
+        assert_eq!(v, json!({ "VALUE": ["Pluie"] }));
         let (_, info) = answer("/?HOST_INFO", &settings, &snap);
         assert_eq!(info["OSC_PORT"], 8000);
         assert_eq!(info["OSC_TRANSPORT"], "UDP");

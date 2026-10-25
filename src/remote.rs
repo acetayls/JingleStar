@@ -182,11 +182,14 @@ pub enum ActionKind {
     PlaylistTrack,
     PlaylistShuffle,
     PlaylistLoop,
+    CueGo,
+    CueNext,
+    CuePrevious,
     StopAll,
 }
 
 impl ActionKind {
-    pub const ALL: [ActionKind; 15] = [
+    pub const ALL: [ActionKind; 18] = [
         ActionKind::JingleToggle,
         ActionKind::JinglePlay,
         ActionKind::JingleStop,
@@ -201,6 +204,9 @@ impl ActionKind {
         ActionKind::PlaylistTrack,
         ActionKind::PlaylistShuffle,
         ActionKind::PlaylistLoop,
+        ActionKind::CueGo,
+        ActionKind::CueNext,
+        ActionKind::CuePrevious,
         ActionKind::StopAll,
     ];
 
@@ -220,6 +226,9 @@ impl ActionKind {
             ActionKind::PlaylistTrack => tr("Playlist : morceau n° (valeur)", "Playlist: track no. (value)"),
             ActionKind::PlaylistShuffle => tr("Playlist : aléatoire", "Playlist: shuffle"),
             ActionKind::PlaylistLoop => tr("Playlist : boucle", "Playlist: loop"),
+            ActionKind::CueGo => tr("Conduite : GO", "Cue list: GO"),
+            ActionKind::CueNext => tr("Conduite : cue suivant", "Cue list: next cue"),
+            ActionKind::CuePrevious => tr("Conduite : cue précédent", "Cue list: previous cue"),
             ActionKind::StopAll => tr("Tout arrêter", "Stop everything"),
         }
     }
@@ -274,6 +283,9 @@ impl Mapping {
             ActionKind::PlaylistPause => press(OscCommand::PlaylistPause(m, None)),
             ActionKind::PlaylistNext => press(OscCommand::PlaylistStep(m, 1)),
             ActionKind::PlaylistPrevious => press(OscCommand::PlaylistStep(m, -1)),
+            ActionKind::CueGo => press(OscCommand::CueGo(Some(m))),
+            ActionKind::CueNext => press(OscCommand::CueStep(m, 1)),
+            ActionKind::CuePrevious => press(OscCommand::CueStep(m, -1)),
             ActionKind::PlaylistTrack => ev.track().map(|n| OscCommand::PlaylistPlay(m, Some(n - 1))),
             ActionKind::PlaylistShuffle if ev.state().is_some() || ev.press() => set(Flag::Shuffle, OscCommand::PlaylistShuffle),
             ActionKind::PlaylistLoop if ev.state().is_some() || ev.press() => set(Flag::Loop, OscCommand::PlaylistLoop),
