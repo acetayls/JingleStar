@@ -26,7 +26,7 @@ Formats lus : WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 - **＋ Ajouter un module** : ajoute un module à la fin (4 au maximum). Le compteur indique le nombre de modules.
 - Les modules sont côte à côte sur une rangée. **Glissez la séparation** entre deux modules pour régler leur largeur ; un **double-clic** sur une séparation remet toutes les largeurs à égalité. Les largeurs sont enregistrées avec le projet.
 - **Ouvrir…** / **Enregistrer sous…** : ouvre ou enregistre un projet (fichier `.jinglestar`).
-- **Télécommandes** : pilotage MIDI et console Yamaha, correspondances et mode apprendre. Voir [Pilotage MIDI](#pilotage-midi) et [Pilotage depuis une console Yamaha](#pilotage-depuis-une-console-yamaha).
+- **Télécommandes** : pilotage MIDI, console Yamaha et Midas M32, correspondances et mode apprendre. Voir [Pilotage MIDI](#pilotage-midi), [Pilotage depuis une console Yamaha](#pilotage-depuis-une-console-yamaha) et [Pilotage depuis une Midas M32 / Behringer X32](#pilotage-depuis-une-midas-m32--behringer-x32).
 - **⚙ Préférences** : audio, langue, anti-veille et OSC.
 - **? Aide** : ce manuel. Le champ **🔍 Rechercher** en haut (ou **Ctrl+F**) n'affiche que les passages qui contiennent les mots tapés, sans tenir compte des accents ni des majuscules ; **✕** revient au sommaire.
 - **? Aide** : ouvre cette aide (touche **F1**).
@@ -475,7 +475,43 @@ ON allumé = option activée.
 
 Comme en MIDI : **＋ Ajouter et apprendre**, puis appuyez sur le ON, bougez le fader ou rappelez la
 scène sur la console. Le déclencheur s'affiche, par exemple **QL · InCh/Fader/On 32** (touche ON
-du canal 32) ou **QL · Scène 12**.
+du canal 32) ou **Console · Scène 12**.
+
+## Pilotage depuis une Midas M32 / Behringer X32
+
+JingleStar écoute aussi les consoles Midas M32 et Behringer X32 sur le réseau (OSC, port UDP
+**10023**), avec le même tableau de correspondances et le même mode apprendre.
+
+### Se connecter
+
+Dans **Télécommandes**, section **Console Midas M32 / Behringer X32**, saisissez l'**IP** de la
+console (SETUP → Network sur la console), laissez le port **10023** et cliquez sur **Connecter**.
+Le modèle s'affiche dès que la console répond, et la ligne **Reçu** montre son dernier message.
+
+### Ce qui est envoyé à la console
+
+Contrairement aux Yamaha, la M32 n'envoie ses changements qu'aux clients qui s'y abonnent, et
+l'abonnement dure 10 secondes. Une écoute sans aucun envoi est donc impossible. JingleStar
+envoie uniquement :
+
+- `/xremote` toutes les 8 secondes : l'abonnement aux changements ;
+- `/info` en même temps : le nom du modèle et la version.
+
+Ces deux requêtes n'ont aucun argument et ne modifient rien sur la console. JingleStar ne
+contient aucune autre commande pour la M32. Comme pour les Yamaha, donnez à l'ordinateur une
+adresse IP libre sur le réseau de la console.
+
+### Ce qui peut déclencher une action
+
+- **Touche MUTE d'un canal, d'un bus ou d'un DCA** (paramètre `…/mix/on`) : chaque appui
+  déclenche l'action, comme le ON des Yamaha. Les **groupes de mute** (`/config/mute/1` à 6)
+  marchent de la même façon. Un canal libre devient ainsi un bouton.
+- **Fader** : règle un volume. La position est convertie en dB selon la loi de la M32
+  (0 dB sur la console = 0 dB dans JingleStar), avec la reprise en douceur.
+- **Rappel de scène** : déclenche l'action de la scène apprise ; avec **Playlist : morceau n°**,
+  la scène 1 lance le morceau 1, etc.
+
+Le déclencheur appris s'affiche par exemple **M32 · ch/05/mix/on** (touche MUTE du canal 5).
 
 ## Raccourcis clavier et souris
 

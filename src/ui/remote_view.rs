@@ -6,7 +6,7 @@ use super::theme::*;
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 use crate::controller::Controller;
 use crate::i18n::tr;
-use crate::project::ConsoleSettings;
+use crate::project::{ConsoleSettings, M32Settings};
 use crate::remote::{ActionKind, Mapping, Trigger};
 
 #[derive(Default)]
@@ -15,6 +15,7 @@ pub struct RemoteWindow {
     midi_ports: Vec<String>,
     /// Adresse de la console en cours de saisie, appliquée avec « Connecter ».
     console: Option<ConsoleSettings>,
+    m32: Option<M32Settings>,
 }
 
 impl RemoteWindow {
@@ -41,6 +42,8 @@ impl RemoteWindow {
                 self.midi_section(ui, ctrl);
                 ui.separator();
                 self.console_section(ui, ctrl);
+                ui.separator();
+                self.m32_section(ui, ctrl);
                 ui.separator();
                 mappings(ui, ctrl);
             });
@@ -154,6 +157,61 @@ impl RemoteWindow {
     }
 }
 
+impl RemoteWindow {
+    fn m32_section(&mut self, ui: &mut Ui, ctrl: &mut Controller) {
+        ui.heading(tr("Console Midas M32 / Behringer X32 (réseau)", "Midas M32 / Behringer X32 console (network)"));
+        let current = ctrl.project.preferences.m32.clone();
+        let draft = self.m32.get_or_insert_with(|| current.clone());
+        let mut enabled = current.enabled;
+        let mut apply = false;
+        ui.horizontal(|ui| {
+            apply |= ui.checkbox(&mut enabled, tr("Écouter la console", "Listen to the console")).changed();
+            ui.label("IP");
+            let r = ui.add(egui::TextEdit::singleline(&mut draft.host).desired_width(130.0));
+            apply |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            ui.label(tr("port", "port"));
+            ui.add(egui::DragValue::new(&mut draft.port).range(1..=65535));
+            let changed = draft.host != current.host || draft.port != current.port;
+            if ui.add_enabled(changed || ctrl.m32.is_some(), egui::Button::new(tr("Connecter", "Connect"))).clicked() {
+                apply = true;
+                enabled = true;
+            }
+        });
+        if apply {
+            draft.enabled = enabled;
+            let settings = draft.clone();
+            if settings == current {
+                ctrl.restart_m32();
+            } else {
+                ctrl.set_m32_settings(settings);
+            }
+        }
+        ui.label(RichText::new(tr(
+            "Port 10023. La M32 n'envoie ses changements qu'aux clients abonnés : JingleStar envoie \
+             « /xremote » toutes les 8 s et « /info », deux requêtes sans argument qui ne modifient rien. \
+             Aucune autre donnée n'est envoyée.",
+            "Port 10023. The M32 only sends its changes to subscribed clients: JingleStar sends \
+             “/xremote” every 8 s and “/info”, two requests with no argument that change nothing. \
+             No other data is sent.",
+        )).small().color(TEXT_DIM));
+        if let Some(c) = ctrl.m32.as_ref() {
+            let st = c.status();
+            if st.connected {
+                let model = st.model.unwrap_or_else(|| "M32".into());
+                ui.label(RichText::new(format!("{} {model} ({})", tr("Connecté à", "Connected to"), current.host)).small().color(GO));
+            } else if let Some(e) = st.error {
+                ui.label(RichText::new(e).small().color(STOP));
+            } else {
+                ui.label(RichText::new(tr("En attente de réponse de la console…", "Waiting for the console to answer…")).small().color(TEXT_DIM));
+            }
+            if let Some(line) = st.last_line {
+                let ago = st.last_rx.map(|t| t.elapsed().as_secs()).unwrap_or(0);
+                ui.label(RichText::new(format!("{} ({} {ago} s) : {line}", tr("Reçu", "Received"), tr("il y a", "ago"))).small().monospace().color(TEXT_DIM));
+            }
+        }
+    }
+}
+
 /// Édition à la main d'un déclencheur appris (ou saisi sans apprentissage).
 /// Canaux, programmes et touches de console sont affichés à partir de 1, comme sur le matériel.
 fn trigger_editor(ui: &mut Ui, t: &mut Trigger) {
@@ -164,6 +222,7 @@ fn trigger_editor(ui: &mut Ui, t: &mut Trigger) {
         ("Program Change", Trigger::Program { channel: 0, program: 0 }),
         (tr("Touche de console", "Console key"), Trigger::Console { address: "MIXER:Current/InCh/Fader/On".into(), x: 0, y: 0 }),
         (tr("Scène de console", "Console scene"), Trigger::Scene { number: 1 }),
+        (tr("Paramètre M32", "M32 parameter"), Trigger::Console { address: "/ch/01/mix/on".into(), x: 0, y: 0 }),
     ];
     let current = std::mem::discriminant(t);
     ui.horizontal(|ui| {
@@ -213,16 +272,19 @@ fn trigger_editor(ui: &mut Ui, t: &mut Trigger) {
                 ui.label(tr("Adresse", "Address"));
                 ui.add(egui::TextEdit::singleline(address).desired_width(260.0));
             });
-            ui.horizontal(|ui| {
-                ui.label(tr("Voie", "Channel"));
-                let mut n = *x + 1;
-                ui.add(egui::DragValue::new(&mut n).range(1..=512));
-                *x = n - 1;
-                ui.label(tr("Index", "Index"));
-                let mut n = *y + 1;
-                ui.add(egui::DragValue::new(&mut n).range(1..=64));
-                *y = n - 1;
-            });
+            // Les adresses OSC de la M32 contiennent déjà la voie.
+            if !address.starts_with('/') {
+                ui.horizontal(|ui| {
+                    ui.label(tr("Voie", "Channel"));
+                    let mut n = *x + 1;
+                    ui.add(egui::DragValue::new(&mut n).range(1..=512));
+                    *x = n - 1;
+                    ui.label(tr("Index", "Index"));
+                    let mut n = *y + 1;
+                    ui.add(egui::DragValue::new(&mut n).range(1..=64));
+                    *y = n - 1;
+                });
+            }
         }
         Trigger::Scene { number } => {
             ui.horizontal(|ui| {

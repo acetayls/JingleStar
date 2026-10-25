@@ -25,7 +25,7 @@ Supported formats: WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 - **＋ Add module**: adds a module at the end (4 maximum). The counter shows the number of modules.
 - Modules sit side by side in one row. **Drag the divider** between two modules to set their width; **double-click** a divider to make all widths equal again. Widths are saved with the project.
 - **Open…** / **Save as…**: opens or saves a project (`.jinglestar` file).
-- **Remote**: MIDI and Yamaha console control, mappings and learn mode. See [MIDI control](#midi-control) and [Control from a Yamaha console](#control-from-a-yamaha-console).
+- **Remote**: MIDI, Yamaha console and Midas M32 control, mappings and learn mode. See [MIDI control](#midi-control), [Control from a Yamaha console](#control-from-a-yamaha-console) and [Control from a Midas M32 / Behringer X32](#control-from-a-midas-m32--behringer-x32).
 - **⚙ Preferences**: audio, language, sleep prevention and OSC.
 - **? Help**: this manual. The **🔍 Search** field at the top (or **Ctrl+F**) shows only the passages containing the typed words, ignoring accents and case; **✕** goes back to the contents.
 - **? Help**: opens this help (**F1** key).
@@ -463,7 +463,43 @@ on.
 
 As with MIDI: **＋ Add and learn**, then press the ON key, move the fader or recall the scene on
 the console. The trigger is shown, for example **QL · InCh/Fader/On 32** (ON key of channel 32)
-or **QL · Scene 12**.
+or **Console · Scene 12**.
+
+## Control from a Midas M32 / Behringer X32
+
+JingleStar also listens to Midas M32 and Behringer X32 consoles over the network (OSC, UDP port
+**10023**), with the same mapping table and learn mode.
+
+### Connecting
+
+In **Remote**, **Midas M32 / Behringer X32 console** section, enter the console's **IP** (SETUP →
+Network on the console), keep port **10023** and click **Connect**. The model is shown as soon
+as the console answers, and the **Received** line shows its last message.
+
+### What is sent to the console
+
+Unlike Yamaha consoles, the M32 only sends its changes to clients that subscribe, and the
+subscription lasts 10 seconds. Listening without sending anything is therefore impossible.
+JingleStar only sends:
+
+- `/xremote` every 8 seconds: the subscription to changes;
+- `/info` at the same time: the model name and version.
+
+Both requests have no argument and change nothing on the console. JingleStar contains no other
+command for the M32. As with Yamaha consoles, give the computer a free IP address on the
+console's network.
+
+### What can trigger an action
+
+- **MUTE key of a channel, bus or DCA** (`…/mix/on` parameter): each press triggers the action,
+  like the Yamaha ON key. **Mute groups** (`/config/mute/1` to 6) work the same way. A spare
+  channel becomes a button this way.
+- **Fader**: sets a volume. The position is converted to dB with the M32 fader law (0 dB on the
+  console = 0 dB in JingleStar), with soft takeover.
+- **Scene recall**: triggers the learned scene's action; with **Playlist: track no.**, scene 1
+  plays track 1, and so on.
+
+The learned trigger is shown, for example, as **M32 · ch/05/mix/on** (MUTE key of channel 5).
 
 ## Keyboard and mouse shortcuts
 

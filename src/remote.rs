@@ -101,8 +101,10 @@ impl InputEvent {
     }
 }
 
+/// Touche qui bascule à chaque appui : ON d'un canal (Yamaha « …/On », Midas « …/mix/on »)
+/// ou groupe de mute Midas.
 fn is_on_param(address: &str) -> bool {
-    address.ends_with("/On")
+    address.ends_with("/On") || address.ends_with("/on") || address.starts_with("/config/mute/")
 }
 
 fn console_value(v: i32) -> String {
@@ -151,6 +153,8 @@ impl Trigger {
             Trigger::Note { channel, note } => format!("Note {note} · {}", ch(channel)),
             Trigger::Cc { channel, cc } => format!("CC {cc} · {}", ch(channel)),
             Trigger::Program { channel, program } => format!("Program {} · {}", program + 1, ch(channel)),
+            // Adresses OSC des Midas M32 / Behringer X32.
+            Trigger::Console { address, .. } if address.starts_with('/') => format!("M32 · {}", address.trim_start_matches('/')),
             Trigger::Console { address, x, y } => {
                 let short = address.strip_prefix("MIXER:Current/").unwrap_or(address);
                 if *y == 0 {
@@ -159,7 +163,7 @@ impl Trigger {
                     format!("QL · {short} {}/{}", x + 1, y + 1)
                 }
             }
-            Trigger::Scene { number } => format!("QL · {} {number}", tr("Scène", "Scene")),
+            Trigger::Scene { number } => format!("{} {number}", tr("Console · Scène", "Console · Scene")),
         }
     }
 }
@@ -430,6 +434,15 @@ mod tests {
         assert!(p.take(-3.0, -3.5));
         // Premier mouvement déjà au bon endroit.
         assert!(Pickup::default().take(-6.0, -6.4));
+    }
+
+    #[test]
+    fn m32_mute_key_toggles() {
+        let ev = |value, previous| InputEvent::Console { address: "/ch/05/mix/on".into(), x: 0, y: 0, value, previous };
+        let m = map(ev(1, None).trigger(), ActionKind::JingleToggle, 0, 3);
+        assert_eq!(m.command(&ev(0, Some(1)), |_, _| false), Some(OscCommand::JingleToggle(0, 3)));
+        assert_eq!(m.command(&ev(1, Some(0)), |_, _| false), Some(OscCommand::JingleToggle(0, 3)));
+        assert_eq!(ev(1, None).trigger().label(), "M32 · ch/05/mix/on");
     }
 
     #[test]

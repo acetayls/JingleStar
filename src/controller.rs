@@ -17,6 +17,7 @@ use crate::audio::eq::{EqCoeffs, EqSettings};
 use crate::audio::mixer::{is_playlist_slot, Command, Event, Queued, Region, MAX_MODULES, PLAYLIST_SLOTS};
 use crate::i18n::{set_lang, tr, Lang};
 use crate::console::ConsoleClient;
+use crate::m32::M32Client;
 use crate::midi::MidiListener;
 use crate::remote::{Flag, InputEvent, Mapping, Pickup};
 use crate::osc::{self, OscCommand, OscServer};
@@ -24,7 +25,7 @@ mod cues;
 pub use cues::GoRuntime;
 
 use crate::project::{
-    autosave_path, loudness_cache_path, AudioSettings, ConsoleSettings, JingleSlot, MidiSettings, ModuleConfig, ModuleMode, OscSettings, Project, Transition, DEFAULT_COLORS,
+    autosave_path, loudness_cache_path, AudioSettings, ConsoleSettings, M32Settings, JingleSlot, MidiSettings, ModuleConfig, ModuleMode, OscSettings, Project, Transition, DEFAULT_COLORS,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -155,6 +156,8 @@ pub struct Controller {
     midi_retry: Instant,
     /// Écoute de la console Yamaha.
     pub console: Option<ConsoleClient>,
+    /// Écoute de la console Midas M32 / Behringer X32.
+    pub m32: Option<M32Client>,
     /// Reprise en douceur des volumes, par correspondance.
     pickup: HashMap<usize, Pickup>,
     /// Correspondance en attente d'apprentissage.
@@ -211,6 +214,7 @@ impl Controller {
             midi_error: None,
             midi_retry: Instant::now(),
             console: None,
+            m32: None,
             pickup: HashMap::new(),
             learn: None,
             last_input: None,
@@ -224,6 +228,7 @@ impl Controller {
         c.restart_osc();
         c.restart_midi();
         c.restart_console();
+        c.restart_m32();
         c.analyze_playlists();
         c
     }
@@ -1282,6 +1287,23 @@ impl Controller {
         }
     }
 
+    pub fn set_m32_settings(&mut self, settings: M32Settings) {
+        if self.project.preferences.m32 != settings {
+            self.project.preferences.m32 = settings;
+            self.mark_dirty();
+            self.restart_m32();
+        }
+    }
+
+    /// (Re)lance l'écoute de la M32 selon les préférences.
+    pub fn restart_m32(&mut self) {
+        self.m32 = None;
+        let settings = self.project.preferences.m32.clone();
+        if settings.enabled {
+            self.m32 = Some(M32Client::start(settings, self.repaint.clone()));
+        }
+    }
+
     pub fn add_mapping(&mut self, mapping: Mapping) {
         self.project.preferences.mappings.push(mapping);
         self.pickup.clear();
@@ -1319,6 +1341,9 @@ impl Controller {
         if let Some(c) = self.console.as_ref() {
             events.extend(c.events.try_iter().map(|e| ("QL", e)));
         }
+        if let Some(c) = self.m32.as_ref() {
+            events.extend(c.events.try_iter().map(|e| ("M32", e)));
+        }
         // Port débranché puis rebranché : on retente régulièrement.
         if self.project.preferences.midi.enabled && self.midi_retry.elapsed() > Duration::from_secs(3) {
             self.midi_retry = Instant::now();
@@ -1338,8 +1363,9 @@ impl Controller {
     }
 
     fn on_input(&mut self, source: &str, ev: InputEvent) {
-        // Les déclencheurs de la console portent déjà leur source (« QL · … »).
-        self.last_input = Some(if source == "QL" { ev.label() } else { format!("{source} · {}", ev.label()) });
+        // Les déclencheurs des consoles portent déjà leur source (« QL · … », « M32 · … »).
+        let labelled = matches!(ev, InputEvent::Console { .. } | InputEvent::Scene { .. });
+        self.last_input = Some(if labelled { ev.label() } else { format!("{source} · {}", ev.label()) });
         if let Some(i) = self.learn {
             if ev.learnable() {
                 if let Some(m) = self.project.preferences.mappings.get(i) {
@@ -1443,6 +1469,7 @@ impl Controller {
                 let osc_changed = p.preferences.osc != self.project.preferences.osc;
                 let midi_changed = p.preferences.midi != self.project.preferences.midi;
                 let console_changed = p.preferences.console != self.project.preferences.console;
+                let m32_changed = p.preferences.m32 != self.project.preferences.m32;
                 self.project = p;
                 set_lang(self.project.preferences.language);
                 if osc_changed {
@@ -1453,6 +1480,9 @@ impl Controller {
                 }
                 if console_changed {
                     self.restart_console();
+                }
+                if m32_changed {
+                    self.restart_m32();
                 }
                 self.learn = None;
                 self.project_path = Some(path);

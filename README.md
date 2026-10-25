@@ -56,6 +56,8 @@ audio cpal, décodage symphonia).
   (bouton **Télécommandes**, voir l'aide intégrée).
 - **Pilotage depuis une console Yamaha** (QL, CL, TF…) par le réseau, sans matériel en plus :
   touches ON, faders et rappels de scène affectés aux actions (protocole TCP 49280).
+- **Pilotage depuis une Midas M32 / Behringer X32** (OSC, UDP 10023) : touches MUTE, faders et
+  rappels de scène, avec le même mode apprendre.
 - **Langue** : français ou anglais (Préférences → Système).
 - **Aide intégrée** (bouton « ? Aide » ou **F1**), dans la langue choisie. Le manuel est aussi dans
   [`docs/aide.md`](docs/aide.md) (français) et [`docs/help.md`](docs/help.md) (anglais).

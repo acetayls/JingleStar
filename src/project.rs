@@ -222,6 +222,7 @@ pub struct Preferences {
     pub osc: OscSettings,
     pub midi: MidiSettings,
     pub console: ConsoleSettings,
+    pub m32: M32Settings,
     /// Correspondances des télécommandes (MIDI, console) vers les actions.
     pub mappings: Vec<Mapping>,
     /// Échap arrête aussi les playlists (sinon seulement les jingles).
@@ -238,6 +239,7 @@ impl Default for Preferences {
             osc: OscSettings::default(),
             midi: MidiSettings::default(),
             console: ConsoleSettings::default(),
+            m32: M32Settings::default(),
             mappings: Vec::new(),
             escape_stops_playlist: false,
             double_go_ms: 300,
@@ -269,6 +271,21 @@ pub struct ConsoleSettings {
 impl Default for ConsoleSettings {
     fn default() -> Self {
         Self { enabled: false, host: "192.168.0.128".into(), port: 49280, silent: true }
+    }
+}
+
+/// Écoute d'une console Midas M32 / Behringer X32 (OSC, UDP 10023).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct M32Settings {
+    pub enabled: bool,
+    pub host: String,
+    pub port: u16,
+}
+
+impl Default for M32Settings {
+    fn default() -> Self {
+        Self { enabled: false, host: "192.168.0.64".into(), port: 10023 }
     }
 }
 

@@ -5,6 +5,7 @@ mod audio;
 mod console;
 mod controller;
 mod i18n;
+mod m32;
 mod midi;
 mod osc;
 mod project;
