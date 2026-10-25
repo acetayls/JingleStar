@@ -28,6 +28,16 @@ use crate::project::{
     autosave_path, loudness_cache_path, AudioSettings, ConsoleSettings, JingleSlot, M32Settings, MidiSettings, ModuleConfig, ModuleMode, OscSettings, Project, SoundSettings, Transition, DEFAULT_COLORS,
 };
 
+/// Sons des jingles et des cues : combien sont prêts en mémoire, lesquels sont illisibles.
+#[derive(Debug, Default, Clone)]
+pub struct MemoryStatus {
+    pub total: usize,
+    pub ready: usize,
+    pub failed: Vec<String>,
+    /// Mémoire des sons décodés (jingles, cues et morceaux de playlist préchargés), en octets.
+    pub bytes: usize,
+}
+
 #[derive(Debug, Clone, Copy)]
 enum LoadKind {
     Jingle,
@@ -309,6 +319,31 @@ impl Controller {
         self.loading.insert(path.to_path_buf());
         self.load_errors.remove(path);
         let _ = self.jobs.send(LoadJob { path: path.to_path_buf(), rate: self.rate(), kind: LoadKind::Jingle, analyze: false });
+    }
+
+    /// État du préchargement des jingles et des cues, et mémoire occupée par les sons décodés.
+    pub fn memory_status(&self) -> MemoryStatus {
+        let mut paths: Vec<&Path> = self
+            .project
+            .modules
+            .iter()
+            .take(self.project.module_count)
+            .flat_map(|m| m.jingles.iter().flatten().map(|j| j.path.as_path()).chain(m.cues.iter().map(|c| c.path.as_path())))
+            .collect();
+        paths.sort();
+        paths.dedup();
+        let mut st = MemoryStatus { total: paths.len(), ..Default::default() };
+        for p in paths {
+            if self.cache.contains_key(p) {
+                st.ready += 1;
+            } else if self.load_errors.contains_key(p) {
+                st.failed.push(p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+            }
+        }
+        let size = |b: &AudioBuffer| (b.samples.len() + b.overview.len() + b.detail.len()) * std::mem::size_of::<f32>();
+        st.bytes = self.cache.values().map(|b| size(b)).sum::<usize>()
+            + self.playlists.iter().filter_map(|rt| rt.armed.as_ref()).map(|(_, _, b)| size(b)).sum::<usize>();
+        st
     }
 
     pub fn is_loading(&self, path: &Path) -> bool {

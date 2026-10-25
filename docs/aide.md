@@ -13,6 +13,11 @@ avec son propre volume, son égaliseur et sa paire de sorties.
 3. Cliquez sur un bouton rempli pour lancer le son, cliquez à nouveau pour l'arrêter.
 4. **Échap** ou le bouton rouge **TOUT ARRÊTER** coupe tous les sons.
 5. Vérifiez la sortie audio dans la barre du bas. Pour en changer : **Préférences → Audio**.
+6. À droite de la barre du bas, **● Tout est chargé** (vert) indique que tous les sons des jingles
+   et des cues sont décodés en mémoire et partiront instantanément. Pendant le chargement, le voyant
+   est orange et compte les sons prêts ; **⚠** (rouge) signale un fichier introuvable ou illisible
+   (son nom s'affiche au survol). À côté, la mémoire occupée par les sons décodés (environ 23 Mo
+   par minute de son).
 
 Tout est enregistré automatiquement : en relançant JingleStar, vous retrouvez la session telle
 que vous l'avez laissée.

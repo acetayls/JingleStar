@@ -12,6 +12,10 @@ equalizer and output pair.
 3. Click a filled button to play the sound, click it again to stop it.
 4. **Esc** or the red **STOP ALL** button stops every sound.
 5. Check the audio output in the bottom bar. To change it: **Preferences → Audio**.
+6. On the right of the bottom bar, **● All loaded** (green) means every jingle and cue sound is
+   decoded in memory and will start instantly. While loading, the light is amber and counts the
+   ready sounds; **⚠** (red) flags a missing or unreadable file (hover for its name). Next to it,
+   the memory used by decoded sounds (about 23 MB per minute of sound).
 
 Everything is saved automatically: when you restart JingleStar, the session is restored as you
 left it.

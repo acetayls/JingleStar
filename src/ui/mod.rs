@@ -191,6 +191,28 @@ impl JingleStarApp {
             if let Some(s) = &self.ctrl.status {
                 ui.label(RichText::new(s).color(TEXT_DIM));
             }
+            // À droite : tout est-il prêt pour un départ instantané ?
+            let mem = self.ctrl.memory_status();
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.label(RichText::new(fmt_bytes(mem.bytes)).monospace().color(TEXT_DIM))
+                    .on_hover_text(tr("Mémoire occupée par les sons décodés", "Memory used by decoded sounds"));
+                let (dot, col, text) = if !mem.failed.is_empty() {
+                    let n = mem.failed.len();
+                    ("⚠", STOP, if n == 1 { tr("1 son illisible", "1 unreadable sound").to_string() } else { format!("{n} {}", tr("sons illisibles", "unreadable sounds")) })
+                } else if mem.ready < mem.total {
+                    ("●", ACCENT, format!("{} {}/{}", tr("Chargement", "Loading"), mem.ready, mem.total))
+                } else {
+                    ("●", GO, tr("Tout est chargé", "All loaded").to_string())
+                };
+                let r = ui.label(RichText::new(text).color(col));
+                ui.label(RichText::new(dot).color(col));
+                let tip = if mem.failed.is_empty() {
+                    format!("{} : {}/{}", tr("Jingles et cues prêts en mémoire", "Jingles and cues ready in memory"), mem.ready, mem.total)
+                } else {
+                    format!("{} :\n{}", tr("Introuvables ou illisibles", "Missing or unreadable"), mem.failed.join("\n"))
+                };
+                r.on_hover_text(tip);
+            });
         });
     }
 
@@ -1293,6 +1315,13 @@ fn os_cursor_pos(_ctx: &egui::Context, _frame: &eframe::Frame) -> Option<egui::P
 }
 
 /// Message à la place de la forme d'onde d'un son pas encore chargé (ou illisible).
+/// « 1,2 Go », « 350 Mo ».
+fn fmt_bytes(b: usize) -> String {
+    let mb = b as f64 / 1_000_000.0;
+    let s = if mb >= 1000.0 { format!("{:.1} {}", mb / 1000.0, tr("Go", "GB")) } else { format!("{mb:.0} {}", tr("Mo", "MB")) };
+    if crate::i18n::is_en() { s } else { s.replace('.', ",") }
+}
+
 pub(super) fn load_status(ctrl: &Controller, path: &std::path::Path) -> Option<RichText> {
     if ctrl.is_loading(path) {
         Some(RichText::new(tr("Chargement de la forme d'onde…", "Loading waveform…")))
