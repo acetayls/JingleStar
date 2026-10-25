@@ -116,9 +116,17 @@ impl JingleStarApp {
             logo(ui, 26.0);
             ui.add_space(16.0);
             let n = self.ctrl.project.module_count;
+            // Un « + » épais et orange, dessiné : le bouton se repère d'un coup d'œil.
+            let can_add = n < MAX_MODULES;
+            let plus_col = if can_add { ACCENT } else { TEXT_DIM };
+            let label = format!("      {}", tr("Ajouter un module", "Add module"));
             let add = ui
-                .add_enabled(n < MAX_MODULES, egui::Button::new(tr("＋ Ajouter un module", "＋ Add module")))
+                .add_enabled(can_add, egui::Button::new(RichText::new(label).size(14.0)).stroke(Stroke::new(1.0, plus_col.gamma_multiply(0.6))))
                 .on_disabled_hover_text(tr("4 modules au maximum", "4 modules maximum"));
+            let c = egui::pos2(add.rect.left() + 15.0, add.rect.center().y);
+            let stroke = Stroke::new(3.0, plus_col);
+            ui.painter().line_segment([c - vec2(6.0, 0.0), c + vec2(6.0, 0.0)], stroke);
+            ui.painter().line_segment([c - vec2(0.0, 6.0), c + vec2(0.0, 6.0)], stroke);
             if add.clicked() {
                 self.ctrl.add_module();
             }
