@@ -103,15 +103,17 @@ pub fn normalize_prefix(prefix: &str) -> String {
     }
 }
 
+/// Nombre reçu ; une valeur non numérique (« nan », infini) est refusée.
 fn arg_f32(args: &[OscType]) -> Option<f32> {
-    match args.first()? {
-        OscType::Float(v) => Some(*v),
-        OscType::Double(v) => Some(*v as f32),
-        OscType::Int(v) => Some(*v as f32),
-        OscType::Long(v) => Some(*v as f32),
-        OscType::String(s) => s.trim().parse().ok(),
-        _ => None,
-    }
+    let v = match args.first()? {
+        OscType::Float(v) => *v,
+        OscType::Double(v) => *v as f32,
+        OscType::Int(v) => *v as f32,
+        OscType::Long(v) => *v as f32,
+        OscType::String(s) => s.trim().parse().ok()?,
+        _ => return None,
+    };
+    v.is_finite().then_some(v)
 }
 
 fn arg_bool(args: &[OscType]) -> Option<bool> {
@@ -653,6 +655,11 @@ mod tests {
             parse(p, &msg("/jinglestar/module/3/playlist/play", vec![OscType::Int(4)])),
             Ok(Some(OscCommand::PlaylistPlay(2, Some(3))))
         );
+        // Valeur non numérique : refusée, le volume ne bouge pas.
+        for bad in [OscType::String("nan".into()), OscType::Float(f32::NAN), OscType::Double(f64::INFINITY), OscType::String("inf".into())] {
+            assert!(parse(p, &msg("/jinglestar/module/1/volume", vec![bad.clone()])).is_err(), "{bad:?}");
+            assert!(parse(p, &msg("/jinglestar/module/1/jingle/1/volume", vec![bad])).is_err());
+        }
         assert_eq!(parse(p, &msg("/jinglestar/module/3/playlist/previous", vec![])), Ok(Some(OscCommand::PlaylistStep(2, -1))));
         assert_eq!(parse(p, &msg("/jinglestar/module/2/playlist/pause", vec![])), Ok(Some(OscCommand::PlaylistPause(1, None))));
         assert_eq!(parse(p, &msg("/jinglestar/go", vec![])), Ok(Some(OscCommand::CueGo(None))));

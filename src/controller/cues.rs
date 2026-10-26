@@ -5,12 +5,15 @@
 //! à sa fin, enchaîne sur le suivant ou attend le prochain GO.
 //! Plusieurs cues peuvent sonner ensemble ; ils utilisent les emplacements de voix
 //! des jingles du module (inutilisés en mode GO).
+//!
+//! Un cue « Enchaîner » dont le suivant est déjà chargé confie l'enchaînement au mixeur
+//! (`PlayAfter`) : le suivant part à l'image près, sans dépendre de l'interface.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::audio::buffer::db_to_gain;
-use crate::audio::mixer::{Command, JINGLE_SLOTS};
+use crate::audio::mixer::{Command, FollowOn, JINGLE_SLOTS};
 use crate::project::{Cue, CueFollow, ModuleMode, SoundSettings};
 
 use super::{collect_audio, sound_region, Controller};
@@ -21,12 +24,26 @@ pub struct GoRuntime {
     /// Cue en attente : le prochain GO le lance. `== len` : fin de la conduite.
     pub standby: usize,
     /// Cue joué par chaque emplacement de voix, avec l'identifiant de la voix.
-    slots: [Option<(usize, u64)>; JINGLE_SLOTS],
+    pub(super) slots: [Option<(usize, u64)>; JINGLE_SLOTS],
     /// Emplacements arrêtés à la main : leur fin ne fait pas enchaîner le cue suivant.
     stopping: [bool; JINGLE_SLOTS],
     /// Cues lancés avant la fin de leur chargement.
     pending: Vec<usize>,
     last_go: Option<Instant>,
+    /// Enchaînements confiés au mixeur : à la fin de la voix `after_id`, le cue `index`
+    /// part sur `slot` avec la voix `id`. `active` : encore prévu (sinon gardé seulement
+    /// pour reconnaître une voix partie juste avant l'annulation).
+    pub(super) planned: Vec<Planned>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Planned {
+    pub(super) after_id: u64,
+    after_slot: usize,
+    pub(super) index: usize,
+    pub(super) slot: usize,
+    pub(super) id: u64,
+    active: bool,
 }
 
 impl GoRuntime {
@@ -36,6 +53,18 @@ impl GoRuntime {
             *s = s.and_then(|(i, id)| f(i).map(|j| (j, id)));
         }
         self.pending = self.pending.iter().filter_map(|&i| f(i)).collect();
+        self.planned.retain_mut(|p| match f(p.index) {
+            Some(j) => {
+                p.index = j;
+                true
+            }
+            None => false,
+        });
+    }
+
+    /// Emplacements réservés à un enchaînement prévu.
+    fn reserved(&self, slot: usize) -> bool {
+        self.planned.iter().any(|p| p.active && p.slot == slot)
     }
 }
 
@@ -86,22 +115,78 @@ impl Controller {
             if !self.gos[m].pending.contains(&i) {
                 self.gos[m].pending.push(i);
             }
-            self.request_jingle_load(&cue.path);
+            self.request_urgent_load(&cue.path);
             return;
         };
-        // Un emplacement libre, sinon celui du son lancé il y a le plus longtemps.
-        let rt = &self.gos[m];
-        let tel = &self.engine.telemetry;
-        let slot = (0..JINGLE_SLOTS)
-            .find(|&s| rt.slots[s].is_none() || tel.position(m, s).is_none())
-            .unwrap_or_else(|| (0..JINGLE_SLOTS).min_by_key(|&s| rt.slots[s].map_or(0, |(_, id)| id)).unwrap_or(0));
+        let slot = self.free_cue_slot(m, None);
         let id = self.voice_id();
         self.gos[m].slots[slot] = Some((i, id));
         self.gos[m].stopping[slot] = false;
+        let next = self.cue_voice(&cue, slot, id, buf);
+        self.engine.send(Command::Play { module: m, slot, id, buffer: next.buffer, gain: next.gain, region: next.region, eq: next.eq });
+        self.plan_follow(m, i, slot, id);
+    }
+
+    /// Un emplacement libre (ni en lecture ni réservé), sinon celui du son lancé il y a le plus longtemps.
+    fn free_cue_slot(&self, m: usize, except: Option<usize>) -> usize {
+        let rt = &self.gos[m];
+        let tel = &self.engine.telemetry;
+        let usable = |s: usize| Some(s) != except && !rt.reserved(s);
+        (0..JINGLE_SLOTS)
+            .find(|&s| usable(s) && (rt.slots[s].is_none() || tel.position(m, s).is_none()))
+            .unwrap_or_else(|| {
+                (0..JINGLE_SLOTS).filter(|&s| usable(s)).min_by_key(|&s| rt.slots[s].map_or(0, |(_, id)| id)).unwrap_or(0)
+            })
+    }
+
+    fn cue_voice(&self, cue: &Cue, slot: usize, id: u64, buf: std::sync::Arc<crate::audio::buffer::AudioBuffer>) -> FollowOn {
         // Pas de boucle pour les cues pour l'instant : un cue joue toujours une fois.
         let region = sound_region(&SoundSettings { looping: false, ..cue.sound.clone() }, &buf);
-        let eq = cue.sound.eq.coeffs(self.rate());
-        self.engine.send(Command::Play { module: m, slot, id, buffer: buf, gain: db_to_gain(cue.sound.volume_db), region, eq });
+        FollowOn { slot, id, gain: db_to_gain(cue.sound.volume_db), region, eq: cue.sound.eq.coeffs(self.rate()), buffer: buf }
+    }
+
+    /// Cue `i` lancé sur `slot` (voix `id`) : s'il enchaîne et que le suivant est chargé,
+    /// le mixeur lancera le suivant à l'image près.
+    fn plan_follow(&mut self, m: usize, i: usize, slot: usize, id: u64) {
+        let cues = self.cues(m);
+        let follows = cues.get(i).is_some_and(|c| c.follow == CueFollow::Continue);
+        let Some(next) = cues.get(i + 1).cloned().filter(|_| follows && self.project.modules[m].mode == ModuleMode::Go) else { return };
+        let Some(buf) = self.cache.get(&next.path).cloned() else {
+            // Pas encore chargé : l'enchaînement se fera à la fin du cue, dès que possible.
+            self.request_jingle_load(&next.path);
+            return;
+        };
+        let next_slot = self.free_cue_slot(m, Some(slot));
+        let next_id = self.voice_id();
+        let voice = self.cue_voice(&next, next_slot, next_id, buf);
+        self.gos[m].planned.push(Planned { after_id: id, after_slot: slot, index: i + 1, slot: next_slot, id: next_id, active: true });
+        self.engine.send(Command::PlayAfter { module: m, after_slot: slot, after_id: id, next: voice });
+    }
+
+    /// Les cues ont changé (réglages, ordre, chargement) : les enchaînements prévus sont refaits.
+    pub(super) fn replan_follows(&mut self, m: usize) {
+        if self.gos[m].planned.iter().all(|p| !p.active) && self.gos[m].slots.iter().all(|s| s.is_none()) {
+            return;
+        }
+        for p in self.gos[m].planned.iter_mut().filter(|p| p.active) {
+            p.active = false;
+            self.engine.send(Command::CancelFollow { module: m, slot: p.after_slot });
+        }
+        for slot in 0..JINGLE_SLOTS {
+            let rt = &self.gos[m];
+            let Some((i, id)) = rt.slots[slot] else { continue };
+            if !rt.stopping[slot] && self.engine.telemetry.position(m, slot).is_some() {
+                self.plan_follow(m, i, slot, id);
+            }
+        }
+    }
+
+    pub(super) fn replan_all_follows(&mut self) {
+        for m in 0..self.project.module_count {
+            if self.project.modules[m].mode == ModuleMode::Go {
+                self.replan_follows(m);
+            }
+        }
     }
 
     /// Lance les cues qui attendaient ce son.
@@ -122,7 +207,23 @@ impl Controller {
         }
     }
 
-    pub(super) fn on_cue_ended(&mut self, m: usize, slot: usize, id: u64) {
+    pub(super) fn on_cue_ended(&mut self, m: usize, slot: usize, id: u64, follow: Option<(usize, u64)>) {
+        // Le mixeur a déjà lancé le cue suivant, à l'image près.
+        let planned: Vec<Planned> = self.gos[m].planned.iter().copied().filter(|p| p.after_id == id).collect();
+        self.gos[m].planned.retain(|p| p.after_id != id);
+        if let Some(p) = follow.and_then(|(fs, fid)| planned.iter().find(|p| p.slot == fs && p.id == fid)) {
+            if let Some(s) = self.gos[m].slots.get_mut(slot).filter(|s| s.is_some_and(|(_, sid)| sid == id)) {
+                *s = None;
+            }
+            self.gos[m].stopping[slot] = false;
+            self.gos[m].slots[p.slot] = Some((p.index, p.id));
+            self.gos[m].stopping[p.slot] = false;
+            if self.gos[m].standby == p.index {
+                self.gos[m].standby = p.index + 1;
+            }
+            self.plan_follow(m, p.index, p.slot, p.id);
+            return;
+        }
         let Some(s) = self.gos[m].slots.get_mut(slot) else { return };
         let Some((i, _)) = s.filter(|&(_, sid)| sid == id) else { return };
         *s = None;
@@ -232,6 +333,7 @@ impl Controller {
         if rt.standby > at || (rt.standby == at && at < len) {
             rt.standby += n;
         }
+        self.replan_follows(m);
         self.mark_dirty();
     }
 
@@ -250,6 +352,7 @@ impl Controller {
         if rt.standby > i {
             rt.standby -= 1;
         }
+        self.replan_follows(m);
         self.mark_dirty();
     }
 
@@ -275,15 +378,18 @@ impl Controller {
         if rt.standby < len {
             rt.standby = moved_index(rt.standby, from, to);
         }
+        self.replan_follows(m);
         self.mark_dirty();
     }
 
     pub fn set_cue_volume(&mut self, m: usize, i: usize, db: f32) {
+        let Some(db) = super::clean_db(db, crate::osc::JINGLE_DB) else { return };
         let Some(c) = self.project.modules[m].cues.get_mut(i) else { return };
         c.sound.volume_db = db;
         for slot in self.cue_slots(m, i) {
             self.engine.send(Command::SetSlotGain { module: m, slot, gain: db_to_gain(db) });
         }
+        self.replan_follows(m);
         self.mark_dirty();
     }
 
@@ -293,6 +399,9 @@ impl Controller {
         let Some(c) = self.project.modules[m].cues.get_mut(i) else { return };
         let before = c.clone();
         f(c);
+        if !c.sound.volume_db.is_finite() {
+            c.sound.volume_db = before.sound.volume_db;
+        }
         if *c == before {
             return;
         }
@@ -309,6 +418,7 @@ impl Controller {
         if c.path != before.path {
             self.request_jingle_load(&c.path);
         }
+        self.replan_follows(m);
         self.mark_dirty();
     }
 
@@ -338,6 +448,7 @@ impl Controller {
         rt.slots = Default::default();
         rt.stopping = Default::default();
         rt.pending.clear();
+        rt.planned.clear();
     }
 }
 

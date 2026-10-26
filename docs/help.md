@@ -41,6 +41,17 @@ It shows the active audio output (driver, device, channel count, sample rate) wi
 or a red light when there is no output. Errors and messages (project saved, unreadable file…) are
 shown there too.
 
+On the right: the state of the sounds ("All loaded", unreadable sounds), an orange ⚠ for sounds to
+check (damaged or truncated file, very long sound: hover it for the list) and the memory used, in
+red above the warning threshold set in Preferences. When sounds are missing, **Locate…** looks for
+them by file name in a folder and its subfolders.
+
+**Audio output lost** (interface unplugged, driver stopped): a red banner says so at the top of the
+window and JingleStar reconnects to the same device by itself as soon as it is back (a try every
+2 s, or right away with **Reconnect**). Sounds playing when the output dropped are stopped. If the
+chosen interface is missing at launch, an orange banner shows the fallback output in use;
+JingleStar switches back as soon as the interface is plugged in and nothing is playing.
+
 ## Modules
 
 Each module has, from top to bottom:
@@ -298,6 +309,7 @@ nothing changed in the audio settings, playback is not interrupted.
 ### System
 
 - **Language**: Français or English. The interface and this help switch immediately.
+- **Memory warning above**: threshold (in MB) above which the sound memory turns red in the bottom bar (0 = never). Jingles and cues are kept whole in memory; long tracks belong in a playlist.
 - **Prevent sleep during playback**: while a sound is playing (or paused), the computer and screen do not go to sleep. On Windows, JingleStar asks the system (see `powercfg /requests`); on macOS, through a power assertion (see `pmset -g assertions`). Closing a laptop's lid still puts it to sleep.
 
 At the bottom of the window, the **build version** (version, commit and build date) tells you which
@@ -306,12 +318,24 @@ update is installed; click it to copy it.
 ## Projects and saving
 
 - The session is **saved automatically** and restored on next launch (modules, jingles, playlists, preferences).
+- **Save** (Ctrl+S) saves into the open project; a dot (●) flags unsaved changes. With no open project, it asks where to save.
 - **Save as…** creates a `.jinglestar` file (a project), to keep several setups.
-- **Open…** loads a project: every sound stops, then the project replaces the current session.
+- **Open…** loads a project: every sound stops, then the project replaces the current session. The audio device, preferences and remote mappings stay those of this computer (kept separately, in `machine.json`).
 
-A project stores the **path** of the sound files, not the sounds themselves: if you move or rename
-a file, the matching button shows an error. Pick the file again (**Change…** or right-click →
-**Choose a file…**).
+A project stores the **path** of the sound files, not the sounds themselves. If a sound is missing:
+
+- when opening a project copied from another computer, JingleStar looks for each sound at the same
+  place relative to the project file (keep the project in the show folder);
+- **Locate…** in the bottom bar looks for missing sounds in a folder, by name;
+- a drive plugged back in is picked up by itself (a new try every 5 s), and a file replaced on
+  disk is reloaded;
+- otherwise, pick the file again (**Change…** or right-click → **Choose a file…**).
+
+**Session safety**: every save is written and flushed to disk before it replaces the previous one,
+kept as `session.json.bak`. At launch, a dated copy goes to the `sauvegardes` folder (the last 5).
+An unreadable session is never overwritten: it is set aside (`session-illisible-<date>.json`), the
+backup is loaded and a banner says so. These files and the `jinglestar.log` log (errors, crashes)
+are in the configuration folder: `%APPDATA%\acetayls\JingleStar\config` on Windows.
 
 ## OSC control
 
@@ -540,7 +564,9 @@ The learned trigger is shown, for example, as **M32 · ch/05/mix/on** (MUTE key 
 
 ## Troubleshooting
 
-- **No audio output** (red light): open **Preferences → Audio**, pick a device, click **Refresh list** if needed, then **Apply**.
+- **No audio output** (red light): open **Preferences → Audio**, pick a device, click **Refresh list** if needed, then **Apply** (which always reopens a failed output).
+- **Audio output lost** (red banner): plug the interface back in, JingleStar reconnects by itself; **Reconnect** forces a try.
+- **Odd behaviour or a crash**: the `jinglestar.log` log, in the configuration folder, keeps errors and crash traces.
 - **Crackles**: increase the **buffer size** (512 or 1024 samples).
 - **A button shows an error**: the file was moved, renamed, or its format is not supported. Pick the file again.
 - **A module plays on the wrong output**: check its **Output** menu; an orange ⚠ means the pair does not exist on the active device.

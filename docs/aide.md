@@ -43,6 +43,17 @@ Elle affiche la sortie audio en service (pilote, périphérique, nombre de canau
 d'échantillonnage) avec un voyant vert, ou un voyant rouge s'il n'y a aucune sortie. Les erreurs
 et les messages (projet enregistré, fichier illisible…) s'y affichent aussi.
 
+À droite : l'état des sons (« Tout est chargé », sons illisibles), un ⚠ orange pour les sons à
+vérifier (fichier abîmé ou tronqué, son très long : survolez-le pour la liste) et la mémoire
+occupée, en rouge au-delà du seuil d'alerte des Préférences. Quand des sons sont introuvables,
+**Rechercher…** les cherche par nom de fichier dans un dossier et ses sous-dossiers.
+
+**Sortie audio perdue** (carte son débranchée, pilote arrêté) : un bandeau rouge l'annonce en haut
+de la fenêtre et JingleStar se reconnecte tout seul au même périphérique dès qu'il revient (essai
+toutes les 2 s, ou tout de suite avec **Reconnecter**). Les sons en cours au moment de la coupure
+sont arrêtés. Si l'interface choisie est absente au lancement, un bandeau orange indique la sortie
+de secours utilisée ; JingleStar repasse sur l'interface dès qu'elle est branchée et que rien ne joue.
+
 ## Les modules
 
 Chaque module a, de haut en bas :
@@ -303,6 +314,7 @@ rien n'a changé dans l'audio, la lecture n'est pas interrompue.
 ### Système
 
 - **Langue** : Français ou English. L'interface et cette aide changent immédiatement.
+- **Alerte mémoire au-delà de** : seuil (en Mo) au-delà duquel la mémoire des sons s'affiche en rouge dans la barre du bas (0 = jamais). Jingles et cues sont gardés entiers en mémoire ; les longs morceaux vont mieux dans une playlist.
 - **Empêcher la mise en veille pendant la lecture** : tant qu'un son joue (ou est en pause), l'ordinateur et l'écran ne se mettent pas en veille. Sous Windows, JingleStar le demande au système (visible avec `powercfg /requests`) ; sous macOS, par une assertion d'alimentation (visible avec `pmset -g assertions`). Un portable qu'on referme se met quand même en veille.
 
 En bas de la fenêtre, la **version de build** (version, commit et date de compilation) permet de
@@ -311,12 +323,25 @@ vérifier quelle mise à jour est installée ; un clic la copie.
 ## Projets et sauvegarde
 
 - La session est **enregistrée automatiquement** et restaurée au lancement suivant (modules, jingles, playlists, préférences).
+- **Enregistrer** (Ctrl+S) enregistre dans le projet ouvert ; un point (●) signale des modifications pas encore enregistrées. Sans projet ouvert, il demande où l'enregistrer.
 - **Enregistrer sous…** crée un fichier `.jinglestar` (un projet), pour garder plusieurs configurations.
-- **Ouvrir…** charge un projet : tous les sons sont arrêtés, puis le projet remplace la session en cours.
+- **Ouvrir…** charge un projet : tous les sons sont arrêtés, puis le projet remplace la session en cours. La carte son, les préférences et les télécommandes restent celles de cet ordinateur (gardées à part, dans `machine.json`).
 
-Un projet garde le **chemin** des fichiers son, pas les sons eux-mêmes : si vous déplacez ou
-renommez un fichier, le bouton correspondant signale une erreur. Rechoisissez le fichier
-(**Changer…** ou clic droit → **Choisir un fichier…**).
+Un projet garde le **chemin** des fichiers son, pas les sons eux-mêmes. Si un son est introuvable :
+
+- à l'ouverture d'un projet copié depuis un autre ordinateur, JingleStar cherche chaque son à la
+  même place par rapport au fichier projet (gardez le projet dans le dossier du spectacle) ;
+- **Rechercher…** dans la barre du bas cherche les sons manquants dans un dossier, par nom ;
+- un disque rebranché est vu tout seul (nouvel essai toutes les 5 s), et un fichier remplacé sur
+  le disque est relu ;
+- sinon, rechoisissez le fichier (**Changer…** ou clic droit → **Choisir un fichier…**).
+
+**Sécurité de la session** : chaque sauvegarde est écrite puis forcée sur le disque avant de
+remplacer l'ancienne, gardée en `session.json.bak`. Au lancement, une copie datée part dans le
+dossier `sauvegardes` (les 5 dernières). Une session illisible n'est jamais écrasée : elle est mise
+de côté (`session-illisible-<date>.json`), la copie de secours est chargée et un bandeau le
+signale. Ces fichiers et le journal `jinglestar.log` (erreurs, plantages) sont dans le dossier de
+configuration : `%APPDATA%\acetayls\JingleStar\config` sous Windows.
 
 ## Pilotage OSC
 
@@ -552,7 +577,9 @@ Le déclencheur appris s'affiche par exemple **M32 · ch/05/mix/on** (touche MUT
 
 ## En cas de problème
 
-- **Aucune sortie audio** (voyant rouge) : ouvrez **Préférences → Audio**, choisissez un périphérique, cliquez sur **Rafraîchir la liste** si besoin, puis **Appliquer**.
+- **Aucune sortie audio** (voyant rouge) : ouvrez **Préférences → Audio**, choisissez un périphérique, cliquez sur **Rafraîchir la liste** si besoin, puis **Appliquer** (qui rouvre toujours une sortie en panne).
+- **Sortie audio perdue** (bandeau rouge) : rebranchez l'interface, JingleStar se reconnecte seul ; **Reconnecter** force un essai.
+- **Un comportement étrange ou un plantage** : le journal `jinglestar.log`, dans le dossier de configuration, garde les erreurs et la trace des plantages.
 - **Craquements** : augmentez la **taille de buffer** (512 ou 1024 échantillons).
 - **Un bouton affiche une erreur** : le fichier a été déplacé, renommé, ou son format n'est pas lu. Rechoisissez le fichier.
 - **Un module ne sort pas où il faut** : vérifiez son menu **Sortie** ; un ⚠ orange signale une paire absente de la carte en service.

@@ -4,6 +4,7 @@ use egui::{pos2, vec2, Align2, Color32, CornerRadius, FontId, Id, Rect, RichText
 
 use super::theme::*;
 use super::widgets::*;
+use super::dialogs::{Kind, Pick};
 use super::{load_status, sound_editor, DropTarget, JingleStarApp, TrackPayload};
 use crate::i18n::tr;
 use crate::project::CueFollow;
@@ -78,9 +79,7 @@ impl JingleStarApp {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(c.path.display().to_string()).color(TEXT_DIM).small());
                             if ui.button(tr("Changer…", "Change…")).clicked() {
-                                if let Some(f) = rfd::FileDialog::new().add_filter("Audio", crate::audio::decode::AUDIO_EXTENSIONS).pick_file() {
-                                    c2.path = f;
-                                }
+                                self.dialogs.show(ui.ctx(), Pick::CueFile(m, i), Kind::Audio);
                             }
                         });
                         ui.end_row();
@@ -133,9 +132,7 @@ impl JingleStarApp {
 
         ui.horizontal(|ui| {
             if add_button(ui, tr("Ajouter des sons…", "Add sounds…"), true).clicked() {
-                if let Some(files) = rfd::FileDialog::new().add_filter("Audio", crate::audio::decode::AUDIO_EXTENSIONS).pick_files() {
-                    self.ctrl.add_cues(m, files, None);
-                }
+                self.dialogs.show(ui.ctx(), Pick::CueFiles(m), Kind::AudioMany);
             }
             if editing && len > 0 && ui.button("🗑").on_hover_text(tr("Vider la conduite", "Clear the cue list")).clicked() {
                 self.ctrl.clear_cues(m);

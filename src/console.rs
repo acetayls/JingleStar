@@ -83,11 +83,11 @@ impl ConsoleClient {
 }
 
 impl Drop for ConsoleClient {
+    /// Le thread s'arrête de lui-même ; on ne l'attend pas (il peut être dans une tentative
+    /// de connexion de 2 s), pour ne jamais figer l'interface ni le pilotage.
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
+        drop(self.thread.take());
     }
 }
 

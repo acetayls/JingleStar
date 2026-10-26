@@ -1,6 +1,7 @@
 //! Interface principale.
 
 mod theme;
+mod dialogs;
 mod eq_view;
 mod go_view;
 mod help;
@@ -8,7 +9,9 @@ mod remote_view;
 mod sound_editor;
 mod widgets;
 
+use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard, TryLockError};
 use std::time::{Duration, Instant};
 
 use egui::{vec2, Align, Color32, CornerRadius, FontId, Key, Layout, Rect, RichText, Stroke, UiBuilder};
@@ -19,8 +22,61 @@ use crate::audio::loudness::{Loudness, NormalizeMode};
 use crate::controller::{Controller, TrackGain};
 use crate::i18n::{tr, Lang};
 use crate::project::{AudioSettings, ModuleMode, Transition, DEFAULT_COLORS};
+use dialogs::{Dialogs, Kind, Pick};
 use theme::*;
 use widgets::*;
+
+/// Contrôleur partagé avec le thread de pilotage. L'interface le verrouille le temps de
+/// dessiner une image ; entre deux images, le thread de pilotage traite les événements du
+/// mixeur (fin de morceau, enchaînements) et les télécommandes (MIDI, OSC, consoles),
+/// même si l'interface ne se dessine plus (fenêtre déplacée ou réduite).
+struct SharedCtrl {
+    mutex: &'static Mutex<Controller>,
+    guard: Option<MutexGuard<'static, Controller>>,
+}
+
+impl SharedCtrl {
+    fn new(ctrl: Controller) -> Self {
+        // Un seul contrôleur pour toute la vie du programme.
+        let mutex: &'static Mutex<Controller> = Box::leak(Box::new(Mutex::new(ctrl)));
+        std::thread::Builder::new()
+            .name("pilotage".into())
+            .spawn(move || loop {
+                std::thread::sleep(Duration::from_millis(5));
+                // Verrou pris par l'interface : elle fait le travail elle-même à cette image.
+                match mutex.try_lock() {
+                    Ok(mut c) => c.poll(),
+                    Err(TryLockError::Poisoned(p)) => p.into_inner().poll(),
+                    Err(TryLockError::WouldBlock) => {}
+                }
+            })
+            .expect("thread de pilotage");
+        Self { mutex, guard: None }
+    }
+
+    fn lock(&mut self) {
+        if self.guard.is_none() {
+            self.guard = Some(self.mutex.lock().unwrap_or_else(|e| e.into_inner()));
+        }
+    }
+
+    fn unlock(&mut self) {
+        self.guard = None;
+    }
+}
+
+impl Deref for SharedCtrl {
+    type Target = Controller;
+    fn deref(&self) -> &Controller {
+        self.guard.as_deref().expect("contrôleur verrouillé pendant l'image")
+    }
+}
+
+impl DerefMut for SharedCtrl {
+    fn deref_mut(&mut self) -> &mut Controller {
+        self.guard.as_deref_mut().expect("contrôleur verrouillé pendant l'image")
+    }
+}
 
 /// Morceau de playlist en cours de glisser vers un bouton de jingle.
 struct TrackPayload(PathBuf);
@@ -39,7 +95,9 @@ struct SettingsDraft {
 }
 
 pub struct JingleStarApp {
-    ctrl: Controller,
+    ctrl: SharedCtrl,
+    /// Boîtes de dialogue de fichiers, dans leur propre thread.
+    dialogs: Dialogs,
     edit_mode: [bool; MAX_MODULES],
     /// Jingle ouvert dans l'éditeur.
     selected: Option<(usize, usize)>,
@@ -75,7 +133,8 @@ impl JingleStarApp {
         theme::apply(&cc.egui_ctx);
         let ctx = cc.egui_ctx.clone();
         Self {
-            ctrl: Controller::new(move || ctx.request_repaint()),
+            ctrl: SharedCtrl::new(Controller::new(move || ctx.request_repaint())),
+            dialogs: Dialogs::default(),
             edit_mode: [false; MAX_MODULES],
             selected: None,
             confirm_delete: None,
@@ -154,19 +213,21 @@ impl JingleStarApp {
                     self.open_settings();
                 }
                 if ui.button(tr("Enregistrer sous…", "Save as…")).clicked() {
-                    if let Some(p) = rfd::FileDialog::new()
-                        .add_filter(tr("Projet JingleStar", "JingleStar project"), &["jinglestar"])
-                        .set_file_name("projet.jinglestar")
-                        .save_file()
-                    {
-                        self.ctrl.save_project_as(p);
-                    }
+                    self.dialogs.show(ui.ctx(), Pick::SaveProject, Kind::SaveProject);
+                }
+                // « Enregistrer » : dans le projet ouvert ; un point signale des modifications.
+                let name = self.ctrl.project_path.as_ref().and_then(|p| p.file_stem()).map(|n| n.to_string_lossy().into_owned());
+                let label = if self.ctrl.modified { format!("● {}", tr("Enregistrer", "Save")) } else { tr("Enregistrer", "Save").to_string() };
+                let tip = match &name {
+                    Some(n) if self.ctrl.modified => format!("{} « {n} » (Ctrl+S) : {}", tr("Enregistre le projet", "Saves the project"), tr("modifications non enregistrées", "unsaved changes")),
+                    Some(n) => format!("{} « {n} » (Ctrl+S)", tr("Enregistre le projet", "Saves the project")),
+                    None => tr("Aucun projet ouvert : choisit où l'enregistrer (Ctrl+S)", "No open project: choose where to save it (Ctrl+S)").to_string(),
+                };
+                if ui.button(label).on_hover_text(tip).clicked() {
+                    self.save(ui.ctx());
                 }
                 if ui.button(tr("Ouvrir…", "Open…")).clicked() {
-                    if let Some(p) = rfd::FileDialog::new().add_filter(tr("Projet JingleStar", "JingleStar project"), &["jinglestar", "json"]).pick_file() {
-                        self.selected = None;
-                        self.ctrl.open_project(p);
-                    }
+                    self.dialogs.show(ui.ctx(), Pick::OpenProject, Kind::OpenProject);
                 }
                 // Nouveau projet, après confirmation : le projet en cours est remplacé.
                 if self.confirm_new {
@@ -202,6 +263,10 @@ impl JingleStarApp {
                     ui.label(tr("Aucune sortie audio", "No audio output"));
                 }
             }
+            if self.ctrl.is_opening_device() {
+                ui.spinner();
+                ui.label(RichText::new(tr("Ouverture de la sortie audio…", "Opening audio output…")).color(TEXT_DIM));
+            }
             if let Some(e) = &self.ctrl.device_error {
                 ui.label(RichText::new(format!("⚠ {e}")).color(STOP));
             }
@@ -210,9 +275,34 @@ impl JingleStarApp {
             }
             // À droite : tout est-il prêt pour un départ instantané ?
             let mem = self.ctrl.memory_status();
+            let mut relocate = false;
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(RichText::new(fmt_bytes(mem.bytes)).monospace().color(TEXT_DIM))
-                    .on_hover_text(tr("Mémoire occupée par les sons décodés", "Memory used by decoded sounds"));
+                let mem_col = if mem.over_limit { STOP } else { TEXT_DIM };
+                ui.label(RichText::new(format!("{}{}", if mem.over_limit { "⚠ " } else { "" }, fmt_bytes(mem.bytes))).monospace().color(mem_col))
+                    .on_hover_text(if mem.over_limit {
+                        format!(
+                            "{} ({} {}). {}",
+                            tr("Mémoire occupée par les sons décodés : au-delà du seuil d'alerte", "Memory used by decoded sounds: above the warning threshold"),
+                            self.ctrl.project.preferences.memory_warn_mb,
+                            tr("Mo", "MB"),
+                            tr("Les longs morceaux vont mieux dans un module Playlist (seuls le morceau en cours et le suivant sont en mémoire).", "Long tracks belong in a Playlist module (only the current and next track are in memory)."),
+                        )
+                    } else {
+                        tr("Mémoire occupée par les sons décodés", "Memory used by decoded sounds").to_string()
+                    });
+                if !mem.failed.is_empty() {
+                    relocate = ui
+                        .small_button(tr("Rechercher…", "Locate…"))
+                        .on_hover_text(tr(
+                            "Chercher les sons introuvables dans un dossier (et ses sous-dossiers), par nom de fichier",
+                            "Look for missing sounds in a folder (and its subfolders), by file name",
+                        ))
+                        .clicked();
+                }
+                if !mem.warnings.is_empty() {
+                    ui.label(RichText::new(format!("⚠ {}", mem.warnings.len())).color(ACCENT))
+                        .on_hover_text(format!("{} :\n{}", tr("Sons à vérifier", "Sounds to check"), mem.warnings.join("\n")));
+                }
                 let (dot, col, text) = if !mem.failed.is_empty() {
                     let n = mem.failed.len();
                     ("⚠", STOP, if n == 1 { tr("1 son illisible", "1 unreadable sound").to_string() } else { format!("{n} {}", tr("sons illisibles", "unreadable sounds")) })
@@ -230,6 +320,9 @@ impl JingleStarApp {
                 };
                 r.on_hover_text(tip);
             });
+            if relocate {
+                self.dialogs.show(ui.ctx(), Pick::Relocate, Kind::Folder);
+            }
         });
     }
 
@@ -604,17 +697,17 @@ impl JingleStarApp {
             } else if resp.clicked() {
                 if self.edit_mode[m] {
                     if slot.is_none() {
-                        self.pick_jingle_file(m, s);
+                        self.pick_jingle_file(&ui.ctx().clone(), m, s);
                     }
                     self.selected = Some((m, s));
                 } else {
                     // Bouton vide : on propose directement de choisir un son.
-                    self.pick_jingle_file(m, s);
+                    self.pick_jingle_file(&ui.ctx().clone(), m, s);
                 }
             }
             resp.context_menu(|ui| {
                 if ui.button(tr("Choisir un fichier…", "Choose a file…")).clicked() {
-                    self.pick_jingle_file(m, s);
+                    self.pick_jingle_file(&ui.ctx().clone(), m, s);
                     ui.close();
                 }
                 if slot.is_some() {
@@ -632,12 +725,97 @@ impl JingleStarApp {
         }
     }
 
-    fn pick_jingle_file(&mut self, m: usize, s: usize) {
-        if let Some(p) = rfd::FileDialog::new()
-            .add_filter("Audio", crate::audio::decode::AUDIO_EXTENSIONS)
-            .pick_file()
-        {
-            self.ctrl.assign_jingle(m, s, p);
+    /// Enregistre dans le projet ouvert, sinon demande où.
+    fn save(&mut self, ctx: &egui::Context) {
+        if !self.ctrl.save_project() {
+            self.dialogs.show(ctx, Pick::SaveProject, Kind::SaveProject);
+        }
+    }
+
+    fn pick_jingle_file(&mut self, ctx: &egui::Context, m: usize, s: usize) {
+        self.dialogs.show(ctx, Pick::JingleFile(m, s), Kind::Audio);
+    }
+
+    /// Réponse d'une boîte de dialogue de fichiers.
+    fn on_picked(&mut self, pick: Pick, files: Vec<PathBuf>) {
+        let Some(first) = files.first().cloned() else { return };
+        match pick {
+            Pick::SaveProject => self.ctrl.save_project_as(first),
+            Pick::OpenProject => {
+                self.selected = None;
+                self.cue_editor = None;
+                self.ctrl.open_project(first);
+            }
+            Pick::JingleFile(m, s) => self.ctrl.assign_jingle(m, s, first),
+            Pick::PlaylistFiles(m) | Pick::PlaylistAddFolder(m) => self.ctrl.add_playlist_files(m, files),
+            Pick::PlaylistSetFolder(m) => self.ctrl.set_playlist_folder(m, first),
+            Pick::CueFile(m, i) => self.ctrl.update_cue(m, i, |c| c.path = first),
+            Pick::CueFiles(m) => self.ctrl.add_cues(m, files, None),
+            Pick::Relocate => self.ctrl.relocate_files(&first),
+        }
+    }
+
+    /// Bandeaux d'alerte en haut de la fenêtre : sortie audio perdue (rouge), interface
+    /// absente (orange), message important à lire (session réparée…).
+    fn alerts(&mut self, ui: &mut egui::Ui) {
+        let banner = |ui: &mut egui::Ui, fill: Color32, text: String, add: &mut dyn FnMut(&mut egui::Ui)| {
+            egui::Frame::new().fill(fill).inner_margin(egui::Margin::symmetric(12, 6)).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(text).strong().color(Color32::WHITE));
+                    add(ui);
+                });
+            });
+        };
+        let lost = self.ctrl.device_lost || (self.ctrl.device.is_none() && !self.ctrl.is_opening_device());
+        if lost {
+            let name = self.ctrl.project.audio.device.clone().unwrap_or_else(|| tr("sortie par défaut", "default output").into());
+            let text = if self.ctrl.device_lost {
+                format!("⚠ {} ({name}) — {}", tr("SORTIE AUDIO PERDUE", "AUDIO OUTPUT LOST"), tr("reconnexion automatique en cours…", "reconnecting automatically…"))
+            } else {
+                format!("⚠ {} ({name})", tr("AUCUNE SORTIE AUDIO", "NO AUDIO OUTPUT"))
+            };
+            let mut reconnect = false;
+            let mut prefs = false;
+            banner(ui, STOP, text, &mut |ui| {
+                reconnect |= ui.button(tr("Reconnecter", "Reconnect")).clicked();
+                prefs |= ui.button(tr("Préférences…", "Preferences…")).clicked();
+            });
+            if reconnect {
+                if self.ctrl.device_lost {
+                    self.ctrl.reconnect_now();
+                } else {
+                    self.ctrl.open_device();
+                }
+            }
+            if prefs {
+                self.open_settings();
+            }
+        } else if let Some(missing) = self.ctrl.device.as_ref().and_then(|d| d.wanted_missing.clone().map(|w| (w, d.name.clone()))) {
+            let text = format!(
+                "⚠ {} « {} » {} « {} »",
+                tr("Interface", "Interface"),
+                missing.0,
+                tr("absente : lecture sur", "missing: playing on"),
+                missing.1
+            );
+            let mut prefs = false;
+            banner(ui, Color32::from_rgb(0xb0, 0x62, 0x10), text, &mut |ui| {
+                ui.label(RichText::new(tr("(reprise automatique dès qu'elle revient)", "(switches back as soon as it returns)")).color(Color32::WHITE));
+                prefs |= ui.button(tr("Préférences…", "Preferences…")).clicked();
+            });
+            if prefs {
+                self.open_settings();
+            }
+        }
+        if let Some(a) = self.ctrl.alert.clone() {
+            let mut close = false;
+            banner(ui, EDIT, format!("ⓘ {a}"), &mut |ui| {
+                close |= ui.button("OK").clicked();
+            });
+            if close {
+                self.ctrl.alert = None;
+            }
         }
     }
 
@@ -673,7 +851,7 @@ impl JingleStarApp {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(j.path.display().to_string()).color(TEXT_DIM).small());
                             if ui.button(tr("Changer…", "Change…")).clicked() {
-                                self.pick_jingle_file(m, s);
+                                self.pick_jingle_file(&ui.ctx().clone(), m, s);
                             }
                         });
                         ui.end_row();
@@ -773,25 +951,16 @@ impl JingleStarApp {
             egui::Popup::menu(&add).show(|ui| {
                 if ui.button(tr("Des fichiers…", "Files…")).clicked() {
                     ui.close();
-                    if let Some(files) = rfd::FileDialog::new()
-                        .add_filter("Audio", crate::audio::decode::AUDIO_EXTENSIONS)
-                        .pick_files()
-                    {
-                        self.ctrl.add_playlist_files(m, files);
-                    }
+                    self.dialogs.show(ui.ctx(), Pick::PlaylistFiles(m), Kind::AudioMany);
                 }
                 if ui.button(tr("Un dossier…", "A folder…")).clicked() {
                     ui.close();
-                    if let Some(dir) = rfd::FileDialog::new().pick_folder() {
-                        self.ctrl.add_playlist_files(m, vec![dir]);
-                    }
+                    self.dialogs.show(ui.ctx(), Pick::PlaylistAddFolder(m), Kind::Folder);
                 }
                 ui.separator();
                 if ui.button(tr("Ouvrir un dossier (remplace la liste)…", "Open a folder (replaces the list)…")).clicked() {
                     ui.close();
-                    if let Some(dir) = rfd::FileDialog::new().pick_folder() {
-                        self.ctrl.set_playlist_folder(m, dir);
-                    }
+                    self.dialogs.show(ui.ctx(), Pick::PlaylistSetFolder(m), Kind::Folder);
                 }
             });
             if pl.folder.is_some() && ui.button("⟳").on_hover_text(tr("Relire le dossier", "Rescan folder")).clicked() {
@@ -1214,6 +1383,20 @@ impl JingleStarApp {
                 if ui.checkbox(&mut ps, tr("Empêcher la mise en veille pendant la lecture", "Prevent sleep during playback")).changed() {
                     self.ctrl.set_prevent_sleep(ps);
                 }
+                ui.horizontal(|ui| {
+                    let mut mb = self.ctrl.project.preferences.memory_warn_mb;
+                    ui.label(tr("Alerte mémoire au-delà de", "Memory warning above"));
+                    if ui
+                        .add(egui::DragValue::new(&mut mb).range(0..=64_000).speed(50).suffix(tr(" Mo", " MB")))
+                        .on_hover_text(tr(
+                            "La mémoire des sons décodés passe en rouge au-delà de ce seuil (0 = jamais)",
+                            "Decoded sound memory turns red above this threshold (0 = never)",
+                        ))
+                        .changed()
+                    {
+                        self.ctrl.set_memory_warn_mb(mb);
+                    }
+                });
 
 
                 ui.separator();
@@ -1242,9 +1425,14 @@ impl JingleStarApp {
             draft.hosts = host_names();
         }
         if apply {
-            // Ne rouvre le périphérique (et n'interrompt la lecture) que si l'audio a changé.
+            // Ne rouvre le périphérique (et n'interrompt la lecture) que si l'audio a changé,
+            // ou si la sortie ne marche pas (perdue, en erreur, ou sortie de secours).
             let a = draft.audio.clone();
-            if a != self.ctrl.project.audio || self.ctrl.device.is_none() {
+            let broken = self.ctrl.device.is_none()
+                || self.ctrl.device_lost
+                || self.ctrl.device_error.is_some()
+                || self.ctrl.device.as_ref().is_some_and(|d| d.wanted_missing.is_some());
+            if a != self.ctrl.project.audio || broken {
                 self.ctrl.set_audio_settings(a);
             }
         }
@@ -1385,9 +1573,27 @@ pub fn build_version() -> String {
 
 impl eframe::App for JingleStarApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        self.ctrl.lock();
+        self.frame(ui, frame);
+        self.ctrl.unlock();
+    }
+
+    fn on_exit(&mut self) {
+        // Le verrou reste pris : le thread de pilotage ne touche plus à rien.
+        self.ctrl.lock();
+        self.ctrl.stop_all();
+        self.ctrl.flush();
+    }
+}
+
+impl JingleStarApp {
+    fn frame(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.drag_pos = file_drag_pos(&ctx, frame);
         self.ctrl.poll();
+        if let Some((pick, files)) = self.dialogs.take() {
+            self.on_picked(pick, files);
+        }
         self.update_meters();
         self.drop_targets.clear();
 
@@ -1405,6 +1611,9 @@ impl eframe::App for JingleStarApp {
                 }
             }
         }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, Key::S)) {
+            self.save(&ctx);
+        }
         if ctx.input(|i| i.key_pressed(Key::F1)) {
             self.help.toggle();
         }
@@ -1417,6 +1626,7 @@ impl eframe::App for JingleStarApp {
             .exact_size(26.0)
             .frame(egui::Frame::new().fill(PANEL).inner_margin(egui::Margin::symmetric(12, 4)))
             .show(ui, |ui| self.status_bar(ui));
+        egui::Panel::top("alerts").frame(egui::Frame::new()).show_separator_line(false).show(ui, |ui| self.alerts(ui));
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(BG).inner_margin(10))
             .show(ui, |ui| self.modules_grid(ui));
@@ -1442,11 +1652,6 @@ impl eframe::App for JingleStarApp {
 
         let busy = self.ctrl.anything_playing() || self.meters.iter().flatten().any(|d| *d > -100.0);
         ctx.request_repaint_after(Duration::from_millis(if busy { 33 } else { 250 }));
-    }
-
-    fn on_exit(&mut self) {
-        self.ctrl.stop_all();
-        self.ctrl.flush();
     }
 }
 

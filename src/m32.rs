@@ -102,11 +102,10 @@ impl M32Client {
 }
 
 impl Drop for M32Client {
+    /// Le thread s'arrête de lui-même (au plus 200 ms) ; on ne l'attend pas.
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
+        drop(self.thread.take());
     }
 }
 
@@ -143,7 +142,11 @@ fn run(
             Ok(l) => break l,
             Err(e) => {
                 set_error(Some(format!("{} {}:{} ({e})", tr("Adresse invalide", "Invalid address"), settings.host.trim(), settings.port)));
-                std::thread::sleep(Duration::from_secs(3));
+                // Attente interruptible avant une nouvelle tentative.
+                let until = Instant::now() + Duration::from_secs(3);
+                while Instant::now() < until && !stop.load(Ordering::Relaxed) {
+                    std::thread::sleep(Duration::from_millis(100));
+                }
             }
         }
     };

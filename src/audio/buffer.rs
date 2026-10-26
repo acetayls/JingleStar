@@ -21,17 +21,24 @@ pub const DETAIL_FRAMES: usize = 64;
 impl AudioBuffer {
     pub fn from_planar(left: Vec<f32>, right: Vec<f32>, sample_rate: u32) -> Self {
         let frames = left.len().min(right.len());
-        let mut samples = Vec::with_capacity(frames * 2);
-        for i in 0..frames {
-            samples.push(left[i]);
-            samples.push(right[i]);
+        // Entrelacement sur place, dans le tampon du canal gauche : pas de troisième copie
+        // du son en mémoire pendant la conversion. On part de la fin : la case écrite (2i, 2i+1)
+        // n'est jamais une case gauche encore à lire (j ≤ i).
+        let mut samples = left;
+        samples.truncate(frames);
+        samples.reserve_exact(frames);
+        samples.resize(frames * 2, 0.0);
+        for i in (0..frames).rev() {
+            samples[i * 2] = samples[i];
+            samples[i * 2 + 1] = right[i];
         }
+        drop(right);
         let mut overview = vec![0f32; OVERVIEW_BINS.min(frames.max(1))];
         let mut detail = vec![0f32; frames.div_ceil(DETAIL_FRAMES).max(1)];
         let bins = overview.len();
         for i in 0..frames {
             let b = i * bins / frames.max(1);
-            let v = left[i].abs().max(right[i].abs());
+            let v = samples[i * 2].abs().max(samples[i * 2 + 1].abs());
             if v > overview[b] {
                 overview[b] = v;
             }
@@ -77,11 +84,17 @@ impl AudioBuffer {
     }
 }
 
+/// Volume le plus fort accepté (dB). Au-delà, c'est une valeur aberrante
+/// (projet modifié à la main, message réseau mal formé).
+pub const MAX_DB: f32 = 24.0;
+
+/// Gain linéaire d'un volume en dB : silence à -60 dB et en dessous, et pour une valeur
+/// non numérique (NaN), plafonné à `MAX_DB`.
 pub fn db_to_gain(db: f32) -> f32 {
-    if db <= -60.0 {
+    if db.is_nan() || db <= -60.0 {
         0.0
     } else {
-        10f32.powf(db / 20.0)
+        10f32.powf(db.min(MAX_DB) / 20.0)
     }
 }
 
@@ -103,5 +116,30 @@ mod tests {
             assert!((max - 0.9).abs() < 1e-6, "crête vue entre {t0} et {t1} : {max}");
         }
         assert!(b.peaks(0.0, 4.0, 300).iter().all(|&v| (v - 0.1).abs() < 1e-6));
+    }
+
+    #[test]
+    fn interleaving_keeps_both_channels() {
+        let l: Vec<f32> = (0..1000).map(|i| i as f32).collect();
+        let r: Vec<f32> = (0..1000).map(|i| -(i as f32)).collect();
+        let b = AudioBuffer::from_planar(l, r, 1000);
+        assert_eq!(b.frames, 1000);
+        for i in 0..1000 {
+            assert_eq!(b.samples[i * 2], i as f32);
+            assert_eq!(b.samples[i * 2 + 1], -(i as f32));
+        }
+        // Canaux de longueurs différentes : la plus courte l'emporte.
+        let b = AudioBuffer::from_planar(vec![1.0; 10], vec![2.0; 7], 1000);
+        assert_eq!(b.samples, [1.0, 2.0].repeat(7));
+    }
+
+    #[test]
+    fn aberrant_volumes_are_safe() {
+        assert_eq!(db_to_gain(f32::NAN), 0.0);
+        assert_eq!(db_to_gain(f32::NEG_INFINITY), 0.0);
+        assert_eq!(db_to_gain(-60.0), 0.0);
+        assert!((db_to_gain(0.0) - 1.0).abs() < 1e-6);
+        assert!((db_to_gain(f32::INFINITY) - db_to_gain(MAX_DB)).abs() < 1e-3);
+        assert!((db_to_gain(200.0) - db_to_gain(MAX_DB)).abs() < 1e-3);
     }
 }
