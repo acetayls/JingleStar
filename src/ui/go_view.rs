@@ -132,7 +132,7 @@ impl JingleStarApp {
         let rate = self.ctrl.device.as_ref().map(|d| d.sample_rate).unwrap_or(48_000) as f64;
 
         ui.horizontal(|ui| {
-            if ui.button(tr("＋ Ajouter des sons…", "＋ Add sounds…")).clicked() {
+            if add_button(ui, tr("Ajouter des sons…", "Add sounds…"), true).clicked() {
                 if let Some(files) = rfd::FileDialog::new().add_filter("Audio", crate::audio::decode::AUDIO_EXTENSIONS).pick_files() {
                     self.ctrl.add_cues(m, files, None);
                 }
@@ -160,9 +160,16 @@ impl JingleStarApp {
                         ui.set_width(area.width() - 12.0);
                         ui.label(RichText::new(tr("EN COURS", "RUNNING")).small().strong().color(GO));
                         ui.add(egui::Label::new(RichText::new(format!("{}  {}", i + 1, c.name)).strong().size(15.0).color(GO)).truncate());
-                        let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 8.0), Sense::hover());
+                        // Clic dans la barre : la lecture saute à cet endroit.
+                        let (bar, bresp) = ui.allocate_exact_size(vec2(ui.available_width(), 10.0), Sense::click());
+                        let bresp = bresp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr("Cliquer pour aller à cet endroit", "Click to jump there"));
                         ui.painter().rect_filled(bar, CornerRadius::same(3), Color32::from_black_alpha(120));
                         ui.painter().rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * frac, bar.height())), CornerRadius::same(3), GO);
+                        if let Some(pt) = bresp.interact_pointer_pos().filter(|_| bresp.clicked()) {
+                            let f = ((pt.x - bar.left()) / bar.width().max(1.0)).clamp(0.0, 1.0) as f64;
+                            let frame = ((start + f * (end - start)) * rate) as usize;
+                            self.ctrl.cue_seek(m, i, frame);
+                        }
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(fmt_tenths(t - start)).monospace().size(15.0).color(TEXT));
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -181,7 +188,15 @@ impl JingleStarApp {
             .inner_margin(6)
             .show(ui, |ui| {
                 ui.set_width(area.width() - 12.0);
-                ui.label(RichText::new(tr("EN ATTENTE", "STANDBY")).small().strong().color(if standby < len { ACCENT } else { TEXT_DIM }));
+                // « ENCHAÎNÉ » si le cue d'avant lance celui-ci tout seul à sa fin, sinon « SUIVANT » (au prochain GO).
+                let chained = standby > 0 && standby < len && cues[standby - 1].follow == CueFollow::Continue;
+                let title = if chained { tr("ENCHAÎNÉ", "CHAINED") } else { tr("SUIVANT", "NEXT") };
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(title).small().strong().color(if standby < len { ACCENT } else { TEXT_DIM }));
+                    if chained {
+                        ui.label(RichText::new(format!("{} {}", tr("part seul à la fin du cue", "starts by itself when cue"), standby)).small().color(TEXT_DIM));
+                    }
+                });
                 match cues.get(standby) {
                     Some(c) => {
                         ui.add(egui::Label::new(RichText::new(format!("{}  {}", standby + 1, c.name)).strong().size(18.0).color(ACCENT)).truncate());
@@ -265,12 +280,11 @@ impl JingleStarApp {
                 let marker = if is_standby { "▶" } else { " " };
                 p.text(pos2(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, marker, FontId::proportional(11.0), ACCENT);
                 p.text(pos2(rect.left() + 34.0, rect.center().y), Align2::RIGHT_CENTER, format!("{}", i + 1), FontId::monospace(12.0), TEXT_DIM);
-                // Enchaîner / arrêter à la fin du cue : flèche cliquable.
-                let follow_r = Rect::from_center_size(pos2(rect.left() + 46.0, rect.center().y), vec2(16.0, 20.0));
+                // Enchaîner / arrêter à la fin du cue : pastille cliquable.
+                let follow_r = Rect::from_center_size(pos2(rect.left() + 47.0, rect.center().y), vec2(18.0, 18.0));
                 let fresp = ui.interact(follow_r, ui.make_persistent_id(("cue-follow", m, i)), Sense::click());
                 let chained = c.follow == CueFollow::Continue;
-                let fcol = if chained { ACCENT } else if fresp.hovered() { TEXT } else { TEXT_DIM.gamma_multiply(0.5) };
-                p.text(follow_r.center(), Align2::CENTER_CENTER, if chained { "↓" } else { "·" }, FontId::proportional(15.0), fcol);
+                follow_icon(&p, follow_r, chained, fresp.hovered());
                 let tip = if chained {
                     tr("Enchaîner : à la fin, le cue suivant part tout seul (clic : arrêter)", "Continue: when it ends, the next cue starts by itself (click: stop)")
                 } else {
@@ -324,7 +338,7 @@ impl JingleStarApp {
                     p.galley(badge.min + vec2(3.0, (14.0 - g.size().y) / 2.0), g, Color32::BLACK);
                     right = badge.left() - 6.0;
                 }
-                let name_r = Rect::from_min_max(pos2(rect.left() + 58.0, rect.top() + 2.0), pos2(right, rect.bottom() - 2.0));
+                let name_r = Rect::from_min_max(pos2(rect.left() + 62.0, rect.top() + 2.0), pos2(right, rect.bottom() - 2.0));
                 if editing {
                     let mut name = c.name.clone();
                     if ui.put(name_r, egui::TextEdit::singleline(&mut name).font(FontId::proportional(13.0))).changed() {
@@ -337,8 +351,9 @@ impl JingleStarApp {
                     p.galley(pos2(name_r.left(), rect.center().y - g.size().y / 2.0), g, col);
                 }
 
+                // Double-clic : GO sur ce cue (en mode édition : ses réglages).
                 if resp.double_clicked() {
-                    action = Some((i, CueAction::Edit));
+                    action = Some((i, if editing { CueAction::Edit } else { CueAction::Go }));
                 } else if resp.clicked() {
                     action = Some((i, CueAction::Standby));
                 }
@@ -422,6 +437,10 @@ impl JingleStarApp {
             Some((i, CueAction::Rename(name))) => self.ctrl.rename_cue(m, i, name),
             Some((i, CueAction::Follow(f))) => self.ctrl.update_cue(m, i, |c| c.follow = f),
             Some((i, CueAction::Edit)) => self.cue_editor = Some((m, i)),
+            Some((i, CueAction::Go)) => {
+                self.ctrl.set_standby(m, i);
+                self.ctrl.cue_go(m);
+            }
             None => {}
         }
     }
@@ -436,4 +455,25 @@ enum CueAction {
     Rename(String),
     Follow(CueFollow),
     Edit,
+    Go,
+}
+
+/// Mode d'enchaînement d'un cue : flèche noire sur pastille orange (enchaîner),
+/// ou barre grise sur pastille sombre (arrêter et attendre le GO).
+fn follow_icon(p: &egui::Painter, r: Rect, chained: bool, hovered: bool) {
+    let c = r.center();
+    if chained {
+        p.rect_filled(r, CornerRadius::same(3), ACCENT);
+        let ink = Color32::BLACK;
+        p.line_segment([pos2(c.x, r.top() + 3.5), pos2(c.x, r.bottom() - 7.0)], Stroke::new(2.5, ink));
+        p.add(egui::Shape::convex_polygon(
+            vec![pos2(c.x - 5.0, r.bottom() - 8.0), pos2(c.x + 5.0, r.bottom() - 8.0), pos2(c.x, r.bottom() - 3.0)],
+            ink,
+            Stroke::NONE,
+        ));
+    } else {
+        let col = if hovered { TEXT } else { TEXT_DIM };
+        p.rect_stroke(r, CornerRadius::same(3), Stroke::new(1.0, col.gamma_multiply(0.6)), StrokeKind::Inside);
+        p.line_segment([pos2(r.left() + 4.5, c.y), pos2(r.right() - 4.5, c.y)], Stroke::new(2.5, col));
+    }
 }

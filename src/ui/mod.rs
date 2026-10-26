@@ -66,6 +66,8 @@ pub struct JingleStarApp {
     cue_editor: Option<(usize, usize)>,
     /// « Nouveau » attend sa confirmation.
     confirm_new: bool,
+    /// Type de module choisi en mode édition, en attente de validation.
+    mode_draft: Option<(usize, ModuleMode)>,
 }
 
 impl JingleStarApp {
@@ -80,6 +82,7 @@ impl JingleStarApp {
             confirm_clear: None,
             cue_editor: None,
             confirm_new: false,
+            mode_draft: None,
             module_eq: None,
             settings: None,
             help: help::HelpWindow::default(),
@@ -121,15 +124,8 @@ impl JingleStarApp {
             let n = self.ctrl.project.module_count;
             // Un « + » épais et orange, dessiné : le bouton se repère d'un coup d'œil.
             let can_add = n < MAX_MODULES;
-            let plus_col = if can_add { ACCENT } else { TEXT_DIM };
-            let label = format!("      {}", tr("Ajouter un module", "Add module"));
-            let add = ui
-                .add_enabled(can_add, egui::Button::new(RichText::new(label).size(14.0)).stroke(Stroke::new(1.0, plus_col.gamma_multiply(0.6))))
+            let add = add_button(ui, tr("Ajouter un module", "Add module"), can_add)
                 .on_disabled_hover_text(tr("4 modules au maximum", "4 modules maximum"));
-            let c = egui::pos2(add.rect.left() + 15.0, add.rect.center().y);
-            let stroke = Stroke::new(3.0, plus_col);
-            ui.painter().line_segment([c - vec2(6.0, 0.0), c + vec2(6.0, 0.0)], stroke);
-            ui.painter().line_segment([c - vec2(0.0, 6.0), c + vec2(0.0, 6.0)], stroke);
             if add.clicked() {
                 self.ctrl.add_module();
             }
@@ -392,6 +388,11 @@ impl JingleStarApp {
                     self.renaming = Some((m, name));
                 }
             }
+            if !editing {
+                let mode = self.ctrl.project.modules[m].mode;
+                ui.label(RichText::new(mode_label(mode).to_uppercase()).small().strong().color(TEXT_DIM))
+                    .on_hover_text(tr("Type du module : se change en mode édition (✏)", "Module type: change it in edit mode (✏)"));
+            }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if editing && self.ctrl.project.module_count > 1 {
                     if self.confirm_delete == Some(m) {
@@ -407,6 +408,7 @@ impl JingleStarApp {
                 if edit.clicked() {
                     self.edit_mode[m] = !editing;
                     self.confirm_delete = None;
+                    self.mode_draft = None;
                     if editing && self.selected.map(|(sm, _)| sm == m).unwrap_or(false) {
                         self.selected = None;
                     }
@@ -427,25 +429,43 @@ impl JingleStarApp {
                 self.output_combo(ui, m);
             });
         });
-        ui.horizontal(|ui| {
+        // Le type du module ne se change qu'en mode édition, et après validation :
+        // en spectacle, rien ne peut le basculer par erreur.
+        if self.edit_mode[m] {
+            ui.horizontal(|ui| {
+                let mode = self.ctrl.project.modules[m].mode;
+                let draft = self.mode_draft.filter(|(dm, _)| *dm == m).map_or(mode, |(_, d)| d);
+                let mut pick = draft;
+                ui.label(RichText::new(tr("Type", "Type")).color(TEXT_DIM));
+                egui::ComboBox::from_id_salt(("module-type", m)).selected_text(mode_label(pick)).show_ui(ui, |ui| {
+                    for mm in [ModuleMode::Jingle, ModuleMode::Playlist, ModuleMode::Go, ModuleMode::Text] {
+                        ui.selectable_value(&mut pick, mm, mode_label(mm));
+                    }
+                });
+                if pick != draft {
+                    self.mode_draft = Some((m, pick));
+                }
+                if pick != mode {
+                    if ui.add(egui::Button::new(RichText::new(tr("Valider", "Apply")).strong().color(Color32::BLACK)).fill(ACCENT)).clicked() {
+                        self.ctrl.set_module_mode(m, pick);
+                        self.mode_draft = None;
+                    }
+                    if ui.button(tr("Annuler", "Cancel")).clicked() {
+                        self.mode_draft = None;
+                    }
+                }
+            });
             let mode = self.ctrl.project.modules[m].mode;
-            if ui.selectable_label(mode == ModuleMode::Jingle, "Jingles").clicked() {
-                self.ctrl.set_module_mode(m, ModuleMode::Jingle);
+            if self.mode_draft.is_some_and(|(dm, d)| dm == m && d != mode) {
+                let playing = (0..crate::audio::mixer::SLOTS).any(|s| self.ctrl.engine.telemetry.position(m, s).is_some());
+                let warn = if playing {
+                    RichText::new(tr("⚠ Le son en cours de ce module sera coupé.", "⚠ This module's sound will be cut.")).color(STOP)
+                } else {
+                    RichText::new(tr("Le contenu actuel est gardé : on le retrouve en revenant à ce type.", "Current content is kept: switch back to find it again.")).color(TEXT_DIM)
+                };
+                ui.label(warn.small());
             }
-            if ui.selectable_label(mode == ModuleMode::Playlist, "Playlist").clicked() {
-                self.ctrl.set_module_mode(m, ModuleMode::Playlist);
-            }
-            if ui
-                .selectable_label(mode == ModuleMode::Go, "Cuelist")
-                .on_hover_text(tr("Conduite de spectacle : des cues lancés un à un avec GO", "Show cue list: cues fired one by one with GO"))
-                .clicked()
-            {
-                self.ctrl.set_module_mode(m, ModuleMode::Go);
-            }
-            if ui.selectable_label(mode == ModuleMode::Text, tr("Texte", "Text")).on_hover_text(tr("Champ libre pour écrire sa conduite", "Free text field for your running order")).clicked() {
-                self.ctrl.set_module_mode(m, ModuleMode::Text);
-            }
-        });
+        }
     }
 
     fn output_combo(&mut self, ui: &mut egui::Ui, m: usize) {
@@ -552,6 +572,7 @@ impl JingleStarApp {
                 name: slot.as_ref().map(|j| j.name.as_str()),
                 color: slot.as_ref().map(|j| j.color).unwrap_or(DEFAULT_COLORS[0]),
                 playing: pos.is_some(),
+                fading: pos.is_some() && self.ctrl.engine.telemetry.is_fading(m, s),
                 progress,
                 duration_label,
                 loading: slot.as_ref().map(|j| self.ctrl.is_loading(&j.path)).unwrap_or(false),
@@ -566,7 +587,7 @@ impl JingleStarApp {
             };
             let resp = jingle_button(ui, rect, &view);
             if let Some(j) = &slot {
-                if let Some(v) = jingle_volume(ui, ui.make_persistent_id(("jingle_db", m, s)), rect, j.sound.volume_db) {
+                if let Some(v) = jingle_volume(ui, ui.make_persistent_id(("jingle_db", m, s)), rect, j.sound.volume_db, pos.is_some()) {
                     self.ctrl.update_jingle(m, s, |j| j.sound.volume_db = v);
                 }
             }
@@ -748,7 +769,8 @@ impl JingleStarApp {
 
         ui.horizontal(|ui| {
             // Fichiers ou dossiers ajoutés à la suite de la liste en cours, ou dossier qui la remplace.
-            ui.menu_button(tr("＋ Ajouter", "＋ Add"), |ui| {
+            let add = add_button(ui, tr("Ajouter", "Add"), true);
+            egui::Popup::menu(&add).show(|ui| {
                 if ui.button(tr("Des fichiers…", "Files…")).clicked() {
                     ui.close();
                     if let Some(files) = rfd::FileDialog::new()
@@ -1425,5 +1447,14 @@ impl eframe::App for JingleStarApp {
     fn on_exit(&mut self) {
         self.ctrl.stop_all();
         self.ctrl.flush();
+    }
+}
+
+fn mode_label(mode: ModuleMode) -> &'static str {
+    match mode {
+        ModuleMode::Jingle => "Jingles",
+        ModuleMode::Playlist => "Playlist",
+        ModuleMode::Go => "Cuelist",
+        ModuleMode::Text => tr("Texte", "Text"),
     }
 }
