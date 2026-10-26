@@ -1,6 +1,6 @@
 [package]
 name = "jinglestar"
-version = "0.1.0"
+version = "0.1.1"
 description = "Lecteur de jingles et de playlists multi-sorties (Windows, macOS, Linux)"
 authors = ["Pierrick"]
 edition = "2021"

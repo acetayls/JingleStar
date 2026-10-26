@@ -13,6 +13,11 @@ avec son propre volume, son égaliseur et sa paire de sorties.
 3. Cliquez sur un bouton rempli pour lancer le son, cliquez à nouveau pour l'arrêter.
 4. **Échap** ou le bouton rouge **TOUT ARRÊTER** coupe tous les sons.
 5. Vérifiez la sortie audio dans la barre du bas. Pour en changer : **Préférences → Audio**.
+6. À droite de la barre du bas, **● Tout est chargé** (vert) indique que tous les sons des jingles
+   et des cues sont décodés en mémoire et partiront instantanément. Pendant le chargement, le voyant
+   est orange et compte les sons prêts ; **⚠** (rouge) signale un fichier introuvable ou illisible
+   (son nom s'affiche au survol). À côté, la mémoire occupée par les sons décodés (environ 23 Mo
+   par minute de son).
 
 Tout est enregistré automatiquement : en relançant JingleStar, vous retrouvez la session telle
 que vous l'avez laissée.
@@ -23,8 +28,9 @@ Formats lus : WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 
 ### Barre du haut
 
-- **＋ Ajouter un module** : ajoute un module à la fin (4 au maximum). Le compteur indique le nombre de modules.
+- **Ajouter un module** (+ orange) : ajoute un module à la fin (4 au maximum). Le compteur indique le nombre de modules.
 - Les modules sont côte à côte sur une rangée. **Glissez la séparation** entre deux modules pour régler leur largeur ; un **double-clic** sur une séparation remet toutes les largeurs à égalité. Les largeurs sont enregistrées avec le projet.
+- **Nouveau** : projet vierge avec un module **Jingles** et un module **Playlist**. Un second clic sur **Remplacer le projet ?** confirme (**Annuler** sinon) ; les préférences (audio, télécommandes, langue) sont gardées. Enregistrez d'abord le projet en cours si vous voulez le retrouver.
 - **Ouvrir…** / **Enregistrer sous…** : ouvre ou enregistre un projet (fichier `.jinglestar`).
 - **Télécommandes** : pilotage OSC, MIDI, console Yamaha et Midas M32, correspondances et mode apprendre. Voir [Pilotage MIDI](#pilotage-midi), [Pilotage depuis une console Yamaha](#pilotage-depuis-une-console-yamaha) et [Pilotage depuis une Midas M32 / Behringer X32](#pilotage-depuis-une-midas-m32--behringer-x32).
 - **⚙ Préférences** : audio, langue et anti-veille.
@@ -45,13 +51,13 @@ Chaque module a, de haut en bas :
 - le choix de **sortie** (paire stéréo 1-2, 3-4…) ;
 - le bouton **EQ** (égaliseur du module) ;
 - le bouton **✏** (mode édition) ;
-- le choix du mode : **Jingles**, **Playlist**, **Cuelist** ou **Texte** ;
+- à côté du nom, le type du module en petites capitales : **JINGLES**, **PLAYLIST**, **CUELIST** ou **TEXTE** ;
 - à droite, le **fader** de volume (-∞ à +10 dB) avec des repères à +3, 0 et -6 dB et sa valeur en dB en dessous, le **vumètre** stéréo et le bouton **■** qui arrête le module.
 
 Le cadre du module devient vert quand un son y joue.
 
 - **Volume** : glissez le fader. Un **double-clic** sur le fader le remet à 0 dB ; un **clic sur la valeur en dB** permet de la taper au clavier (Entrée valide, Échap annule). Un nombre tapé sans signe est négatif : `6` donne -6 dB ; tapez `+3` pour monter au-dessus de 0 dB.
-- **Changer de mode** : cliquez sur **Jingles**, **Playlist**, **Cuelist** ou **Texte**. Le module s'arrête ; les jingles, la playlist, la conduite et le texte sont conservés.
+- **Changer de type** : passez en mode édition (✏), choisissez **Jingles**, **Playlist**, **Cuelist** ou **Texte** dans le menu **Type**, puis cliquez sur **Valider** (**Annuler** sinon). Le type ne peut pas changer par erreur pendant le spectacle. Si le module joue, un avertissement rouge prévient que le son sera coupé. Les jingles, la playlist, la conduite et le texte sont conservés : on les retrouve en revenant au type d'avant.
 - **Renommer** : **double-clic sur le nom** du module, tapez le nouveau nom puis Entrée (Échap annule). En mode édition (✏), le nom est aussi modifiable directement.
 - **Module Texte** : un grand champ libre pour écrire sa conduite, sauvegardé avec le projet. Échap y arrête quand même les jingles.
 - **Supprimer** : en mode édition, cliquez sur **🗑** puis confirmez avec **Supprimer ?**. Les modules suivants remontent d'un rang. Le dernier module restant ne peut pas être supprimé.
@@ -70,7 +76,7 @@ En fermant l'éditeur d'un jingle (**✓ Terminé** ou la croix), le module repa
 Un module en mode **Jingles** offre 12 boutons (3 colonnes, 4 rangées). Chaque bouton montre son
 numéro, le nom du son, sa couleur et sa durée. Pendant la lecture, une barre de progression
 indique le temps écoulé et le temps restant ; un jingle en boucle affiche **BOUCLE** à la place du
-temps restant. Le jingle qui joue est entouré d'un cadre vert épais. Le volume du jingle est affiché en haut à droite (en orange s'il n'est pas à
+temps restant. Au repos, le bouton est de sa couleur, assombrie ; le jingle qui joue prend sa couleur vive, avec un texte foncé, et un cadre vert épais. Pendant un fondu de sortie (arrêt en fondu ou fondu de fin), une **diagonale orange** descend sur le bouton, la barre devient orange et **FONDU** remplace le temps restant. Le volume du jingle est affiché en haut à droite (en orange s'il n'est pas à
 0 dB). Des repères complètent le bouton : en haut à gauche, après le numéro, un badge orange **⟲** pour un jingle en boucle et **EQ** si son égaliseur est actif ; **…** pendant le chargement du son et
 **⚠** si le fichier est introuvable ou illisible.
 
@@ -92,7 +98,7 @@ Ouvrez l'éditeur par le mode édition (✏ puis clic sur le bouton) ou par **cl
   - **En boucle** : le fondu d'entrée ne joue qu'au premier départ, pas à chaque tour. Le fondu de sortie ne sert qu'à l'arrêt, et en entier : c'est ainsi qu'on fait disparaître lentement un fond sonore. Arrêté pendant l'intro (avant le début de la boucle), il coupe tout de suite.
   - **Échap**, **TOUT ARRÊTER** et le **■** du module coupent toujours en 1 s au plus.
 - **Couleur** : 8 couleurs au choix.
-- **▶ Écouter / ■ Stop** : pour tester le son depuis l'éditeur.
+- **Écouter / Stop** : le gros bouton vert en haut de l'éditeur, pour tester le son.
 - **Vider l'emplacement** : retire le son du bouton.
 - **✓ Terminé** : ferme l'éditeur.
 
@@ -117,7 +123,7 @@ pointeur ; le défilement horizontal ou un glisser hors des poignées déplace l
 ou **Tout afficher** revient au son entier. Zoomé, une **barre de défilement** sous la forme d'onde
 montre la partie visible : glissez-la pour vous promener dans le son, ou cliquez à côté pour y aller.
 
-Pendant la lecture (bouton du jingle ou **▶ Écouter**), un **clic dans la forme d'onde**, hors des
+Pendant la lecture (bouton du jingle ou **Écouter**), un **clic dans la forme d'onde**, hors des
 poignées, fait repartir la lecture à cet endroit, avec un micro-fondu sans clic.
 
 Les parties exclues sont assombries et les fondus sont dessinés en rampe. Le début et la fin se
@@ -141,7 +147,7 @@ Elle s'affiche en orange avec la mention « actif » quand il modifie le son. Vo
 Un module en mode **Playlist** lit une liste de fichiers audio : un dossier entier, trié par nom,
 ou des fichiers choisis un par un.
 
-- **＋ Ajouter** :
+- **Ajouter** (+ orange) :
   - **Des fichiers…** ou **Un dossier…** : ajoute les sons à la fin de la liste en cours ;
   - **Ouvrir un dossier (remplace la liste)…** : la liste devient le contenu du dossier.
   Vous pouvez aussi glisser des fichiers ou un dossier sur la playlist.
@@ -200,26 +206,26 @@ Hors mode édition, une ligne **Équilibrage** rappelle le réglage en cours.
 Le mode **Cuelist** suit une conduite de spectacle, à la façon de QLab : une liste ordonnée de sons
 (les **cues**) que l'on lance un par un.
 
-- **Ajouter des sons** : **＋ Ajouter des sons…**, ou glissez des fichiers ou des dossiers sur la
+- **Ajouter des sons** : bouton **Ajouter des sons…** (+ orange), ou glissez des fichiers ou des dossiers sur la
   conduite. Un morceau de playlist peut aussi y être glissé, à l'endroit voulu.
 - **EN COURS** : le cadre vert, en haut, suit le dernier cue lancé qui joue encore : son nom,
-  le temps écoulé, une barre de progression et le temps restant.
-- **EN ATTENTE** : le cadre ambre affiche le cue que le prochain GO va lancer, et celui qui suit.
+  le temps écoulé, une barre de progression et le temps restant. Un **clic dans la barre** fait sauter la lecture à cet endroit.
+- **SUIVANT** : le cadre ambre affiche le cue que le prochain GO va lancer (le cue « en attente »), et celui qui suit. Il s'intitule **ENCHAÎNÉ** quand ce cue partira tout seul à la fin du précédent.
   Dans la liste, il est surligné et marqué ▶.
 - **GO** (ou la **barre d'espace**) : lance le cue en attente et met le suivant en attente.
   Les cues lancés continuent de jouer ensemble jusqu'à leur fin. Le délai anti double-GO des
   préférences protège aussi ce bouton. Après le dernier cue, le cadre affiche **Fin de la
   conduite** et GO s'éteint.
 - **Précédent** / **Suivant** : déplacent le cue en attente sans rien lancer. Un **clic** sur un
-  cue le met en attente.
+  cue le met en attente ; un **double-clic** fait GO sur ce cue (il part, et le suivant passe en attente).
 - **Arrêter** : arrête tous les cues de la conduite ; le cue en attente ne change pas. Pendant
   qu'un cue joue, sa ligne se remplit en vert, affiche le temps restant et un bouton **■** qui
   n'arrête que lui.
-- **Enchaîner ou arrêter** : la petite flèche à côté du numéro d'un cue. **↓** (orange) :
-  à la fin du cue, le suivant part tout seul et le cue en attente avance. **·** : à la fin, on
+- **Enchaîner ou arrêter** : la petite pastille à côté du numéro d'un cue. **Flèche noire sur fond orange** :
+  à la fin du cue, le suivant part tout seul et le cue en attente avance. **Trait gris dans une case** : à la fin, on
   attend le prochain GO. Un clic bascule de l'un à l'autre. Un cue arrêté à la main (■, Arrêter,
   Échap) n'enchaîne pas.
-- **Réglages d'un cue** : **double-clic** sur le cue, ou **clic droit → Réglages…**. La fenêtre
+- **Réglages d'un cue** : **clic droit → Réglages…**, ou double-clic sur le cue en mode édition (✏). La fenêtre
   est celle d'un jingle : volume, fondus d'entrée et de sortie, points de début et de fin sur la
   forme d'onde (clic dans la forme d'onde pendant la lecture pour s'y déplacer), égaliseur, et le
   choix **À la fin : Arrêter / Enchaîner**. Pas de boucle pour les cues pour l'instant. Un badge

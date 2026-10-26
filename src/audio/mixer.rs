@@ -10,7 +10,7 @@
 //! changement de sortie en fondu, et un son interrompu par un nouveau départ
 //! s'éteint en fondu court sur une voix « de traîne ».
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crossbeam_channel::{Receiver, Sender};
@@ -135,6 +135,8 @@ pub struct Telemetry {
     pub len: [[AtomicU64; SLOTS]; MAX_MODULES],
     /// Crête depuis la dernière lecture, en bits de f32 (positifs, donc ordonnés comme des u32).
     pub peak: [[AtomicU32; 2]; MAX_MODULES],
+    /// Vrai pendant un fondu de sortie audible : arrêt en fondu ou fondu de fin réglé.
+    pub fading: [[AtomicBool; SLOTS]; MAX_MODULES],
 }
 
 impl Telemetry {
@@ -143,6 +145,7 @@ impl Telemetry {
             pos: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(NOT_PLAYING))),
             len: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
             peak: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU32::new(0))),
+            fading: std::array::from_fn(|_| std::array::from_fn(|_| AtomicBool::new(false))),
         }
     }
 
@@ -150,6 +153,11 @@ impl Telemetry {
     pub fn position(&self, module: usize, slot: usize) -> Option<(u64, u64)> {
         let p = self.pos[module][slot].load(Ordering::Relaxed);
         (p != NOT_PLAYING).then(|| (p, self.len[module][slot].load(Ordering::Relaxed)))
+    }
+
+    /// L'emplacement est-il en train de s'éteindre en fondu ?
+    pub fn is_fading(&self, module: usize, slot: usize) -> bool {
+        self.fading[module][slot].load(Ordering::Relaxed)
     }
 
     pub fn take_peak(&self, module: usize) -> [f32; 2] {
@@ -160,6 +168,7 @@ impl Telemetry {
         for m in 0..MAX_MODULES {
             for s in 0..SLOTS {
                 self.pos[m][s].store(NOT_PLAYING, Ordering::Relaxed);
+                self.fading[m][s].store(false, Ordering::Relaxed);
             }
         }
     }
@@ -260,6 +269,19 @@ impl Voice {
                 self.fade_len = ((max as f32 / level.max(1e-6)).round() as usize).max(max);
             }
             Some(_) => {}
+        }
+    }
+
+    /// Fondu de sortie en cours, plus long que le micro-fondu anti-clic : arrêt en fondu,
+    /// ou entrée dans le fondu de fin d'un son joué une fois.
+    fn is_fading_out(&self, declick: usize) -> bool {
+        match self.fade_left {
+            Some(_) => self.fade_len > declick,
+            None => {
+                self.region.looping.is_none()
+                    && self.region.fade_out > declick
+                    && self.pos + self.region.fade_out >= self.region.end
+            }
         }
     }
 
@@ -673,6 +695,7 @@ impl Mixer {
                     }
                     st.slot_eq[slot].reset();
                     tel.pos[m][slot].store(NOT_PLAYING, Ordering::Relaxed);
+                    tel.fading[m][slot].store(false, Ordering::Relaxed);
                     let _ = self.events.try_send(Event::Ended { module: m, slot, id: ended_id });
                 } else if let Some(v) = self.modules[m].voices[slot].as_ref() {
                     if advanced {
@@ -680,6 +703,7 @@ impl Mixer {
                         let _ = self.events.try_send(Event::Advanced { module: m, id: v.id, slot });
                     }
                     tel.pos[m][slot].store(v.pos as u64, Ordering::Relaxed);
+                    tel.fading[m][slot].store(v.is_fading_out(ramps.stop), Ordering::Relaxed);
                 }
             }
 
@@ -978,5 +1002,37 @@ mod tests {
         assert!((out[5 * 2] - 0.5).abs() < 1e-6);
         assert!((out[50 * 2] - 1.0).abs() < 1e-6);
         assert!((out[90 * 2] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn telemetry_flags_audible_fade_outs() {
+        let (mut mx, tx, _) = setup(2);
+        let tel = mx.telemetry.clone();
+        let buf = ramp(1000);
+        // Son joué une fois : en fondu dès qu'il entre dans son fondu de fin.
+        let region = Region { start: 0, end: 1000, looping: None, fade_in: 0, fade_out: 200 };
+        tx.send(Command::Play { module: 0, slot: 0, id: 1, region, buffer: buf.clone(), gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
+        let mut out = vec![0.0; 2 * 500];
+        mx.process(&mut out);
+        assert!(!tel.is_fading(0, 0));
+        mx.process(&mut out[..2 * 350]);
+        assert!(tel.is_fading(0, 0));
+
+        // Boucle arrêtée après son intro : son fondu de sortie entier est signalé.
+        let region = Region { start: 0, end: 1000, looping: Some((100, 900)), fade_in: 0, fade_out: 300 };
+        tx.send(Command::Play { module: 0, slot: 1, id: 2, region, buffer: buf.clone(), gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
+        mx.process(&mut out[..2 * 200]);
+        assert!(!tel.is_fading(0, 1));
+        tx.send(Command::Stop { module: 0, slot: 1 }).unwrap();
+        mx.process(&mut out[..2 * 10]);
+        assert!(tel.is_fading(0, 1));
+
+        // Arrêt pendant l'intro : simple micro-fondu, pas de repère.
+        let region = Region { start: 0, end: 1000, looping: Some((500, 900)), fade_in: 0, fade_out: 300 };
+        tx.send(Command::Play { module: 0, slot: 2, id: 3, region, buffer: buf, gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
+        mx.process(&mut out[..2 * 100]);
+        tx.send(Command::Stop { module: 0, slot: 2 }).unwrap();
+        mx.process(&mut out[..2 * 2]);
+        assert!(!tel.is_fading(0, 2));
     }
 }

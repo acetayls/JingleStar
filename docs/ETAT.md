@@ -7,7 +7,7 @@ Ce fichier permet de reprendre le travail après une pause. Les idées à venir 
 
 **Base**
 - Modules dynamiques (1 à 4, largeur réglable par la séparation entre deux modules) en mode **Jingles**, **Playlist**, **Texte** ou **Cuelist** (GO), chacun avec
-  son volume, son vumètre, son égaliseur et sa paire de sorties stéréo.
+  son volume, son vumètre, son égaliseur et sa paire de sorties stéréo. Le type se change en mode édition (menu Type + Valider).
 - Préférences audio : pilote, périphérique et buffer, avec ASIO en option. Anti-veille, langue
   FR/EN, Échap qui arrête les jingles (et les playlists en option), anti double-GO.
 - Pilotage OSC + OSCQuery + mDNS, MIDI avec apprentissage, et console Yamaha (QL, CL, TF) en
@@ -18,7 +18,7 @@ Ce fichier permet de reprendre le travail après une pause. Les idées à venir 
   - poignées début et fin, boucle, et **poignées de fondu** ;
   - **zoom** à la molette, glisser pour se déplacer, double-clic ou « Tout afficher ».
 - Égaliseur par jingle. Glisser-déposer de fichiers ou de morceaux de playlist.
-- Bouton : **BOUCLE** à la place du temps restant, badges boucle (⟲ dessiné) et EQ en haut ; une boucle arrêtée pendant son intro coupe tout de suite, cadre vert épais en lecture.
+- Bouton : **BOUCLE** à la place du temps restant, badges boucle (⟲ dessiné) et EQ en haut ; une boucle arrêtée pendant son intro coupe tout de suite, sans bandeau de couleur : couleur vive et texte foncé en lecture, cadre vert épais ; repère de fondu (diagonale orange, barre orange, **FONDU**) pendant un fondu de sortie.
 - Fondus : en boucle, le fondu d'entrée joue une fois et l'arrêt applique tout le fondu de sortie ;
   sans boucle, l'arrêt est limité à 1 s. Échap / Tout arrêter / ■ du module : 1 s au plus.
 - Éditeur : ascenseur si la fenêtre dépasse l'écran, forme d'onde atténuée dans les fondus,

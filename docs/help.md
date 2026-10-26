@@ -12,6 +12,10 @@ equalizer and output pair.
 3. Click a filled button to play the sound, click it again to stop it.
 4. **Esc** or the red **STOP ALL** button stops every sound.
 5. Check the audio output in the bottom bar. To change it: **Preferences → Audio**.
+6. On the right of the bottom bar, **● All loaded** (green) means every jingle and cue sound is
+   decoded in memory and will start instantly. While loading, the light is amber and counts the
+   ready sounds; **⚠** (red) flags a missing or unreadable file (hover for its name). Next to it,
+   the memory used by decoded sounds (about 23 MB per minute of sound).
 
 Everything is saved automatically: when you restart JingleStar, the session is restored as you
 left it.
@@ -22,8 +26,9 @@ Supported formats: WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 
 ### Top bar
 
-- **＋ Add module**: adds a module at the end (4 maximum). The counter shows the number of modules.
+- **Add module** (orange +): adds a module at the end (4 maximum). The counter shows the number of modules.
 - Modules sit side by side in one row. **Drag the divider** between two modules to set their width; **double-click** a divider to make all widths equal again. Widths are saved with the project.
+- **New**: blank project with one **Jingles** module and one **Playlist** module. Click **Replace the project?** to confirm (**Cancel** otherwise); preferences (audio, remote control, language) are kept. Save the current project first if you want it back.
 - **Open…** / **Save as…**: opens or saves a project (`.jinglestar` file).
 - **Remote**: OSC, MIDI, Yamaha console and Midas M32 control, mappings and learn mode. See [MIDI control](#midi-control), [Control from a Yamaha console](#control-from-a-yamaha-console) and [Control from a Midas M32 / Behringer X32](#control-from-a-midas-m32--behringer-x32).
 - **⚙ Preferences**: audio, language and sleep prevention.
@@ -44,13 +49,13 @@ Each module has, from top to bottom:
 - the **output** selector (stereo pair 1-2, 3-4…);
 - the **EQ** button (module equalizer);
 - the **✏** button (edit mode);
-- the mode selector: **Jingles**, **Playlist**, **Cuelist** or **Text**;
+- next to the name, the module type in small capitals: **JINGLES**, **PLAYLIST**, **CUELIST** or **TEXT**;
 - on the right, the volume **fader** (-∞ to +10 dB) with marks at +3, 0 and -6 dB and its dB value below, the stereo **meter** and the **■** button that stops the module.
 
 The module frame turns green while something is playing in it.
 
 - **Volume**: drag the fader. A **double-click** resets it to 0 dB. **Click the dB value** to type it on the keyboard (Enter confirms, Escape cancels). A number typed without a sign is negative: `6` gives -6 dB; type `+3` to go above 0 dB.
-- **Change mode**: click **Jingles**, **Playlist**, **Cuelist** or **Text**. The module stops; the jingles, the playlist, the cue list and the text are all kept.
+- **Change type**: switch to edit mode (✏), pick **Jingles**, **Playlist**, **Cuelist** or **Text** in the **Type** menu, then click **Apply** (**Cancel** otherwise). The type cannot change by mistake during the show. If the module is playing, a red warning says its sound will be cut. The jingles, the playlist, the cue list and the text are all kept: switch back to find them again.
 - **Rename**: **double-click the module name**, type the new name and press Enter (Escape cancels). In edit mode (✏) the name is also directly editable.
 - **Text module**: a large free text field to write your running order, saved with the project. Escape still stops the jingles from there.
 - **Delete**: in edit mode, click **🗑** then confirm with **Delete?**. The following modules move up one place. The last remaining module cannot be deleted.
@@ -68,8 +73,10 @@ When you close a jingle editor (**✓ Done** or the close cross), the module goe
 
 A module in **Jingles** mode has 12 buttons (3 columns, 4 rows). Each button shows its number, the
 sound name, its color and its duration. While playing, a progress bar shows elapsed and remaining
-time; a looping jingle shows **LOOP** instead of the remaining time. A playing jingle has a thick
-green frame. The jingle volume is shown at the top right (orange when it is not 0 dB). Extra marks
+time; a looping jingle shows **LOOP** instead of the remaining time. At rest the button shows its
+color, darkened; a playing jingle takes its bright color, with dark text, and a thick green frame.
+During a fade-out (fading stop or end fade) an **orange diagonal** runs down the button, the bar turns
+orange and **FADE** replaces the remaining time. The jingle volume is shown at the top right (orange when it is not 0 dB). Extra marks
 complete the button: at the top left, after the number, an orange **⟲** badge for a looping jingle and **EQ** when
 its equalizer is on;
 **…** while the sound is loading and **⚠** if the file is missing or unreadable.
@@ -92,7 +99,7 @@ Open the editor through edit mode (✏ then click the button) or with **right-cl
   - **Loop**: the fade-in only plays on the first start, not on every pass. The fade-out only applies on stop, in full: that is how a background bed slowly disappears. Stopped during the intro (before the loop start), it cuts at once.
   - **Escape**, **STOP ALL** and the module's **■** always cut within 1 s.
 - **Color**: 8 colors to choose from.
-- **▶ Play / ■ Stop**: to try the sound from the editor.
+- **Play / Stop**: the big green button at the top of the editor, to try the sound.
 - **Clear slot**: removes the sound from the button.
 - **✓ Done**: closes the editor.
 
@@ -116,7 +123,7 @@ horizontal scrolling or dragging away from the handles moves the view; a double-
 **Show all** returns to the whole sound. When zoomed in, a **scroll bar** under the waveform shows
 the visible part: drag it to travel through the sound, or click beside it to jump there.
 
-While playing (jingle button or **▶ Play**), a **click on the waveform**, away from the handles,
+While playing (jingle button or **Play**), a **click on the waveform**, away from the handles,
 moves playback to that spot, with a click-free micro-fade.
 
 Excluded parts are darkened and fades are drawn as ramps. Start and end are grabbed in the lower
@@ -140,7 +147,7 @@ jingle only. It turns orange and reads “on” when it changes the sound. See
 A module in **Playlist** mode plays a list of audio files: a whole folder, sorted by name, or
 files picked one by one.
 
-- **＋ Add**:
+- **Add** (orange +):
   - **Files…** or **A folder…**: adds the sounds at the end of the current list;
   - **Open a folder (replaces the list)…**: the list becomes the folder's content.
   You can also drop files or a folder onto the playlist.
@@ -199,23 +206,23 @@ Outside edit mode, a **Normalize** row reminds you of the current setting.
 **Cuelist** mode follows a show running order, QLab style: an ordered list of sounds (the **cues**)
 fired one by one.
 
-- **Add sounds**: **＋ Add sounds…**, or drop files or folders onto the list. A playlist track can
+- **Add sounds**: the **Add sounds…** button (orange +), or drop files or folders onto the list. A playlist track can
   also be dragged in, at the place you want.
 - **RUNNING**: the green frame at the top follows the last fired cue still playing: its name,
-  elapsed time, a progress bar and remaining time.
-- **STANDBY**: the amber frame shows the cue the next GO will fire, and the one after. In the list
+  elapsed time, a progress bar and remaining time. **Click in the bar** to jump there.
+- **NEXT**: the amber frame shows the cue the next GO will fire (the "standby" cue), and the one after. Its title reads **CHAINED** when that cue will start by itself at the end of the previous one. In the list
   it is highlighted and marked ▶.
 - **GO** (or the **space bar**): fires the standby cue and puts the next one on standby. Fired cues
   keep playing together until they end. The double-GO protection from the preferences also guards
   this button. After the last cue the frame shows **End of the cue list** and GO goes dark.
 - **Previous** / **Next**: move the standby cue without firing anything. **Click** a cue to put it
-  on standby.
+  on standby; **double-click** fires GO on that cue (it starts and the next one goes on standby).
 - **Stop**: stops every cue of the list; the standby cue does not change. While a cue plays, its row
   fills in green, shows the remaining time and a **■** button that stops only that cue.
-- **Continue or stop**: the small arrow next to a cue's number. **↓** (orange): when the cue
-  ends, the next one starts by itself and the standby cue moves on. **·**: when it ends, wait for
+- **Continue or stop**: the small badge next to a cue's number. **Black arrow on orange**: when the cue
+  ends, the next one starts by itself and the standby cue moves on. **Grey bar in a box**: when it ends, wait for
   the next GO. A click toggles. A cue stopped by hand (■, Stop, Esc) does not continue.
-- **Cue settings**: **double-click** the cue, or **right-click → Settings…**. The window is the
+- **Cue settings**: **right-click → Settings…**, or double-click the cue in edit mode (✏). The window is the
   jingle one: volume, fade in and out, start and end points on the waveform (click the waveform
   while playing to move there), equalizer, and the **When it ends: Stop / Continue** choice. No
   loop for cues for now. An **EQ** badge on the row means its equalizer is on.

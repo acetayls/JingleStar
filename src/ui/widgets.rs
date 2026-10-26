@@ -160,6 +160,8 @@ pub fn db_value_shown(
 
 /// Repères de niveau des faders et curseurs de volume.
 pub const DB_MARKS: [f32; 3] = [3.0, 0.0, -6.0];
+/// Graduations sans valeur affichée, entre les repères chiffrés.
+pub const DB_MINOR_MARKS: [f32; 10] = [10.0, 6.0, -3.0, -10.0, -15.0, -20.0, -30.0, -40.0, -50.0, -60.0];
 
 /// Position d'une valeur le long d'un curseur egui de `rect` (même marge que egui : un rayon de poignée).
 pub fn slider_value_pos(rect: Rect, vertical: bool, range: &RangeInclusive<f32>, v: f32) -> f32 {
@@ -176,6 +178,15 @@ pub fn slider_value_pos(rect: Rect, vertical: bool, range: &RangeInclusive<f32>,
 /// Petits traits aux repères de niveau (0 dB plus marqué), le long d'un curseur.
 pub fn db_marks(ui: &Ui, rect: Rect, vertical: bool, range: &RangeInclusive<f32>, labels: bool) {
     let p = ui.painter();
+    // Graduations intermédiaires, sans valeur : traits courts et discrets.
+    if vertical {
+        let rail = ui.spacing().slider_rail_height / 2.0 + 2.0;
+        let c = rect.center().x;
+        for m in DB_MINOR_MARKS.into_iter().filter(|m| range.contains(m)) {
+            let at = slider_value_pos(rect, vertical, range, m);
+            p.line_segment([pos2(c + rail, at), pos2(c + rail + 4.0, at)], Stroke::new(1.0, Color32::from_white_alpha(75)));
+        }
+    }
     for m in DB_MARKS {
         if !range.contains(&m) {
             continue;
@@ -239,6 +250,8 @@ pub struct SlotView<'a> {
     pub name: Option<&'a str>,
     pub color: [u8; 3],
     pub playing: bool,
+    /// En train de s'éteindre en fondu de sortie.
+    pub fading: bool,
     /// Lecture en cours : progression (0..1), temps écoulé et temps restant.
     pub progress: Option<(f32, String, String)>,
     /// À l'arrêt : durée de la zone jouée.
@@ -265,15 +278,15 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
         let label = if v.edit_mode { "+" } else { "" };
         p.text(rect.center(), Align2::CENTER_CENTER, label, FontId::proportional(22.0), TEXT_DIM);
     } else {
+        // Sans bandeau : la couleur remplit tout le bouton, sombre au repos et vive en lecture,
+        // avec alors un texte foncé.
         p.rect_filled(rect, r, slot_fill(v.color, v.playing));
-        // Bandeau de couleur en haut.
-        let band = Rect::from_min_size(rect.min, vec2(rect.width(), 4.0));
-        p.rect_filled(band, CornerRadius { nw: 5, ne: 5, sw: 0, se: 0 }, rgb(v.color));
+        let ink = if v.playing { PLAYING_INK } else { TEXT };
 
         let name = v.name.unwrap_or_default();
-        let galley = p.layout(name.to_owned(), FontId::proportional(14.0), TEXT, rect.width() - 12.0);
+        let galley = p.layout(name.to_owned(), FontId::proportional(if v.playing { 15.0 } else { 14.0 }), ink, rect.width() - 12.0);
         let gpos = rect.center() - galley.size() / 2.0 - vec2(0.0, 8.0);
-        p.galley(gpos, galley, TEXT);
+        p.galley(gpos, galley, ink);
 
         // Barre de lecture, temps écoulé à gauche et restant à droite.
         let bar = Rect::from_min_max(
@@ -285,14 +298,36 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
         let font = FontId::monospace(11.0);
         if let Some((prog, elapsed, remaining)) = &v.progress {
             let fill = Rect::from_min_size(bar.min, vec2(bar.width() * prog.clamp(0.0, 1.0), bar.height()));
-            p.rect_filled(fill, CornerRadius::same(2), GO);
+            p.rect_filled(fill, CornerRadius::same(2), if v.fading { ACCENT } else { GO });
+            if v.fading {
+                // Fondu de sortie : rampe descendante orange, cernée de noir pour rester visible sur toute couleur.
+                let (a, b) = (pos2(rect.left() + 4.0, rect.top() + 26.0), pos2(rect.right() - 4.0, bar.top() - 4.0));
+                p.add(Shape::convex_polygon(vec![a, b, pos2(a.x, b.y)], ACCENT.gamma_multiply(0.18), Stroke::NONE));
+                p.line_segment([a, b], Stroke::new(4.0, Color32::from_black_alpha(140)));
+                p.line_segment([a, b], Stroke::new(2.0, ACCENT));
+            }
+            // « FONDU » remplace le temps restant, sur une pastille orange.
+            let fade_label = tr("FONDU", "FADE");
+            let right = if v.fading { fade_label } else { remaining.as_str() };
+            let rfont = FontId::monospace(12.0);
+            let rw = p.layout_no_wrap(right.to_owned(), rfont.clone(), ink).size().x;
+            let draw_right = |x: f32, align: Align2| {
+                if v.fading {
+                    let left = match align { Align2::RIGHT_BOTTOM => x - rw, _ => x - rw / 2.0 };
+                    let pill = Rect::from_min_max(pos2(left - 3.0, text_y - 14.0), pos2(left + rw + 3.0, text_y + 1.0));
+                    p.rect_filled(pill, CornerRadius::same(2), ACCENT);
+                    p.text(pos2(left, text_y), Align2::LEFT_BOTTOM, right, rfont.clone(), Color32::BLACK);
+                } else {
+                    p.text(pos2(x, text_y), align, right, rfont.clone(), ink);
+                }
+            };
             // Le temps restant prime : sur un bouton étroit, il s'affiche seul, centré.
-            let both = p.layout_no_wrap(format!("{elapsed} {remaining}"), font.clone(), Color32::WHITE).size().x + 8.0;
+            let both = p.layout_no_wrap(format!("{elapsed} {right}"), font.clone(), ink).size().x + 12.0;
             if both <= bar.width() {
-                p.text(pos2(bar.left(), text_y), Align2::LEFT_BOTTOM, elapsed, font.clone(), TEXT);
-                p.text(pos2(bar.right(), text_y), Align2::RIGHT_BOTTOM, remaining, FontId::monospace(12.0), Color32::WHITE);
+                p.text(pos2(bar.left(), text_y), Align2::LEFT_BOTTOM, elapsed, font.clone(), ink);
+                draw_right(bar.right(), Align2::RIGHT_BOTTOM);
             } else {
-                p.text(pos2(bar.center().x, text_y), Align2::CENTER_BOTTOM, remaining, FontId::monospace(12.0), Color32::WHITE);
+                draw_right(bar.center().x, Align2::CENTER_BOTTOM);
             }
         } else if let Some(d) = &v.duration_label {
             p.text(pos2(rect.center().x, text_y), Align2::CENTER_BOTTOM, d, font, TEXT_DIM);
@@ -329,7 +364,8 @@ pub fn jingle_button(ui: &mut Ui, rect: Rect, v: &SlotView) -> Response {
         };
         p.rect_stroke(rect, r, stroke, StrokeKind::Inside);
     }
-    p.text(rect.left_top() + vec2(6.0, 7.0), Align2::LEFT_TOP, format!("{}", v.index + 1), FontId::monospace(11.0), TEXT_DIM);
+    let num_col = if v.playing && v.name.is_some() { PLAYING_INK } else { TEXT_DIM };
+    p.text(rect.left_top() + vec2(6.0, 7.0), Align2::LEFT_TOP, format!("{}", v.index + 1), FontId::monospace(11.0), num_col);
     if v.selected {
         p.rect_stroke(rect.expand(1.0), r, Stroke::new(2.0, ACCENT), StrokeKind::Outside);
     }
@@ -490,14 +526,27 @@ pub fn loop_icon(p: &egui::Painter, r: Rect, color: Color32) {
     p.add(egui::Shape::convex_polygon(vec![tip + vec2(-head, 0.0), tip + vec2(head * 0.6, head), tip + vec2(head * 0.6, -head)], color, Stroke::NONE));
 }
 
+/// Bouton « Ajouter » : un « + » orange épais dessiné à gauche du libellé, cadre orange.
+pub fn add_button(ui: &mut Ui, label: &str, enabled: bool) -> Response {
+    let col = if enabled { ACCENT } else { TEXT_DIM };
+    let text = egui::RichText::new(format!("      {label}")).size(14.0);
+    let resp = ui.add_enabled(enabled, egui::Button::new(text).stroke(Stroke::new(1.0, col.gamma_multiply(0.6))));
+    let c = pos2(resp.rect.left() + 15.0, resp.rect.center().y);
+    let stroke = Stroke::new(3.0, col);
+    ui.painter().line_segment([c - vec2(6.0, 0.0), c + vec2(6.0, 0.0)], stroke);
+    ui.painter().line_segment([c - vec2(0.0, 6.0), c + vec2(0.0, 6.0)], stroke);
+    resp
+}
+
 pub fn pressed(ui: &Ui, resp: &Response) -> bool {
     resp.hovered() && ui.input(|i| i.pointer.primary_pressed())
 }
 
 /// Volume d'un jingle en haut à droite de son bouton, en couleur s'il n'est pas à 0 dB ;
 /// double-clic pour le saisir. À appeler après `jingle_button`, pour passer au-dessus du bouton.
-pub fn jingle_volume(ui: &mut Ui, id: Id, rect: Rect, volume_db: f32) -> Option<f32> {
-    let col = if volume_db.abs() < 0.05 { TEXT_DIM } else { ACCENT };
+/// En lecture, le fond est vif : le texte passe en foncé.
+pub fn jingle_volume(ui: &mut Ui, id: Id, rect: Rect, volume_db: f32, playing: bool) -> Option<f32> {
+    let col = if playing { PLAYING_INK } else if volume_db.abs() < 0.05 { TEXT_DIM } else { ACCENT };
     db_value(ui, id, rect.right_top() + vec2(-6.0, 7.0), Align2::RIGHT_TOP, volume_db, -40.0, -40.0..=10.0, FontId::monospace(10.0), col)
 }
 

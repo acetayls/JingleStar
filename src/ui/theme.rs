@@ -59,11 +59,14 @@ pub fn apply(ctx: &egui::Context) {
     });
 }
 
-/// Assombrit une couleur de jingle pour le fond du bouton.
+/// Fond d'un bouton de jingle : couleur assombrie au repos, presque pleine en lecture.
 pub fn slot_fill(rgb: [u8; 3], playing: bool) -> Color32 {
-    let k = if playing { 0.55 } else { 0.38 };
+    let k = if playing { 0.92 } else { 0.32 };
     Color32::from_rgb((rgb[0] as f32 * k) as u8, (rgb[1] as f32 * k) as u8, (rgb[2] as f32 * k) as u8)
 }
+
+/// Texte sur un bouton de jingle en lecture (fond vif).
+pub const PLAYING_INK: Color32 = Color32::from_rgb(0x10, 0x10, 0x10);
 
 pub fn rgb(c: [u8; 3]) -> Color32 {
     Color32::from_rgb(c[0], c[1], c[2])
