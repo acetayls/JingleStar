@@ -21,6 +21,8 @@ pub enum Pick {
     CueFile(usize, usize),
     CueFiles(usize),
     Relocate,
+    /// Fichier texte à importer dans le module Texte.
+    NotesImport(usize),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -32,6 +34,8 @@ pub enum Kind {
     Folder,
     OpenProject,
     SaveProject,
+    /// Un fichier texte.
+    Text,
 }
 
 pub struct Dialogs {
@@ -66,6 +70,7 @@ impl Dialogs {
                 Kind::AudioMany => many(block_on(audio().pick_files())),
                 Kind::Folder => one(block_on(rfd::AsyncFileDialog::new().pick_folder())),
                 Kind::OpenProject => one(block_on(rfd::AsyncFileDialog::new().add_filter(project, &["jinglestar", "json"]).pick_file())),
+                Kind::Text => one(block_on(rfd::AsyncFileDialog::new().add_filter(crate::i18n::tr("Texte", "Text"), &["txt", "md", "text"]).pick_file())),
                 Kind::SaveProject => one(block_on(
                     rfd::AsyncFileDialog::new().add_filter(project, &["jinglestar"]).set_file_name("projet.jinglestar").save_file(),
                 )),

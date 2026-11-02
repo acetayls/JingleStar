@@ -122,6 +122,26 @@ impl JingleStarApp {
         }
     }
 
+    /// Raccourcis clavier de la Cuelist (hors saisie de texte), pour le premier module Cuelist :
+    /// P = pause / reprise, flèches Haut / Bas = cue précédent / suivant en attente, sans GO.
+    /// Sans module Cuelist, les touches ne sont pas consommées.
+    pub(super) fn go_shortcuts(&mut self, ctx: &egui::Context) {
+        let Some(m) = self.ctrl.first_go_module() else { return };
+        let none = egui::Modifiers::NONE;
+        let (pause, up, down) = ctx.input_mut(|i| {
+            (i.consume_key(none, egui::Key::P), i.consume_key(none, egui::Key::ArrowUp), i.consume_key(none, egui::Key::ArrowDown))
+        });
+        if pause {
+            self.ctrl.cue_toggle_pause(m);
+        }
+        if up {
+            self.ctrl.cue_step(m, -1);
+        }
+        if down {
+            self.ctrl.cue_step(m, 1);
+        }
+    }
+
     pub(super) fn go_view(&mut self, ui: &mut egui::Ui, m: usize, area: Rect) {
         self.drop_targets.push((area, DropTarget::Go(m)));
         let editing = self.edit_mode[m];
@@ -141,27 +161,44 @@ impl JingleStarApp {
             ui.label(RichText::new(count).color(TEXT_DIM));
         });
 
-        // Cue en cours, façon QLab : temps écoulé, barre et temps restant.
-        if let Some((i, pos, total)) = self.ctrl.cue_running(m) {
+        // Cue en cours, façon QLab : temps écoulé, barre et temps restant (ambre en pause).
+        let paused = self.ctrl.gos[m].paused;
+        let (run_col, run_fill) = if paused { (ACCENT, Color32::from_rgb(0x24, 0x1e, 0x12)) } else { (GO, Color32::from_rgb(0x14, 0x22, 0x16)) };
+        let run_title = if paused { tr("EN PAUSE", "PAUSED") } else { tr("EN COURS", "RUNNING") };
+        let running = self.ctrl.cue_running(m);
+        if running.is_none() && paused {
+            // En pause sans cue affichable (encore en chargement) : on le dit quand même.
+            egui::Frame::new().fill(run_fill).stroke(Stroke::new(1.0, run_col.gamma_multiply(0.7))).corner_radius(4).inner_margin(6).show(ui, |ui| {
+                ui.set_width(area.width() - 12.0);
+                ui.label(RichText::new(run_title).small().strong().color(run_col));
+                ui.label(RichText::new(tr("P ou GO pour reprendre", "P or GO to resume")).small().color(TEXT_DIM));
+            });
+        }
+        if let Some((i, pos, total)) = running {
             if let Some(c) = cues.get(i) {
                 let dur = total as f64 / rate;
                 let (start, _, _, end) = c.sound.markers(dur);
                 let t = pos as f64 / rate;
                 let frac = ((t - start) / (end - start).max(1e-6)).clamp(0.0, 1.0) as f32;
                 egui::Frame::new()
-                    .fill(Color32::from_rgb(0x14, 0x22, 0x16))
-                    .stroke(Stroke::new(1.0, GO.gamma_multiply(0.7)))
+                    .fill(run_fill)
+                    .stroke(Stroke::new(1.0, run_col.gamma_multiply(0.7)))
                     .corner_radius(4)
                     .inner_margin(6)
                     .show(ui, |ui| {
                         ui.set_width(area.width() - 12.0);
-                        ui.label(RichText::new(tr("EN COURS", "RUNNING")).small().strong().color(GO));
-                        ui.add(egui::Label::new(RichText::new(format!("{}  {}", i + 1, c.name)).strong().size(15.0).color(GO)).truncate());
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(run_title).small().strong().color(run_col));
+                            if paused {
+                                ui.label(RichText::new(tr("P ou GO pour reprendre", "P or GO to resume")).small().color(TEXT_DIM));
+                            }
+                        });
+                        ui.add(egui::Label::new(RichText::new(format!("{}  {}", i + 1, c.name)).strong().size(15.0).color(run_col)).truncate());
                         // Clic dans la barre : la lecture saute à cet endroit.
                         let (bar, bresp) = ui.allocate_exact_size(vec2(ui.available_width(), 10.0), Sense::click());
                         let bresp = bresp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr("Cliquer pour aller à cet endroit", "Click to jump there"));
                         ui.painter().rect_filled(bar, CornerRadius::same(3), Color32::from_black_alpha(120));
-                        ui.painter().rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * frac, bar.height())), CornerRadius::same(3), GO);
+                        ui.painter().rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * frac, bar.height())), CornerRadius::same(3), run_col);
                         if let Some(pt) = bresp.interact_pointer_pos().filter(|_| bresp.clicked()) {
                             let f = ((pt.x - bar.left()) / bar.width().max(1.0)).clamp(0.0, 1.0) as f64;
                             let frame = ((start + f * (end - start)) * rate) as usize;
@@ -217,32 +254,55 @@ impl JingleStarApp {
 
         let go_h = (ui.available_height() * 0.22).clamp(44.0, 84.0);
         let (go_r, _) = ui.allocate_exact_size(vec2(ui.available_width(), go_h), Sense::hover());
-        if go_button(ui, go_r, ui.make_persistent_id(("go", m)), standby < len)
-            .on_hover_text(tr("Lance le cue en attente et passe au suivant (barre d'espace)", "Plays the standby cue and moves to the next one (space bar)"))
+        // Les raccourcis clavier ne pilotent que le premier module Cuelist.
+        let first = self.ctrl.first_go_module() == Some(m);
+        let key = |k: &str| if first { format!(" ({k})") } else { String::new() };
+        let go_tip = if paused {
+            tr("Reprend les cues en pause, puis lance le cue en attente", "Resumes the paused cues, then plays the standby cue")
+        } else {
+            tr("Lance le cue en attente et passe au suivant", "Plays the standby cue and moves to the next one")
+        };
+        if go_button(ui, go_r, ui.make_persistent_id(("go", m)), self.ctrl.cue_go_ready(m))
+            .on_hover_text(format!("{go_tip}{}", key(tr("barre d'espace", "space bar"))))
             .clicked()
         {
             self.ctrl.cue_go(m);
         }
 
-        // Précédent, tout arrêter, suivant.
+        // Précédent, pause, tout arrêter, suivant. Trop étroit : les icônes seules.
         let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
         let gap = 4.0;
-        let w = (row.width() - 2.0 * gap) / 3.0;
+        let w = (row.width() - 3.0 * gap) / 4.0;
+        let labels = w >= 100.0;
+        let label = |t: &'static str| labels.then_some(t);
         let cell = |k: f32| Rect::from_min_size(pos2(row.left() + k * (w + gap), row.top()), vec2(w, row.height()));
-        if transport_button(ui, cell(0.0), ("go-prev", m), TransportIcon::Prev, Some(tr("Précédent", "Previous")), PANEL_HI, TEXT)
-            .on_hover_text(tr("Met le cue précédent en attente", "Puts the previous cue on standby"))
+        if transport_button(ui, cell(0.0), ("go-prev", m), TransportIcon::Prev, label(tr("Précédent", "Previous")), PANEL_HI, TEXT)
+            .on_hover_text(format!("{}{}", tr("Précédent : met le cue précédent en attente, sans le lancer", "Previous: puts the previous cue on standby, without playing it"), key(tr("flèche Haut", "Up arrow"))))
             .clicked()
         {
             self.ctrl.cue_step(m, -1);
         }
-        if transport_button(ui, cell(1.0), ("go-stop", m), TransportIcon::Stop, Some(tr("Arrêter", "Stop")), STOP.gamma_multiply(0.75), Color32::WHITE)
-            .on_hover_text(tr("Arrête tous les cues de la conduite", "Stops every cue of the list"))
+        let (picon, plabel, pfill, pfg) = if paused {
+            (TransportIcon::Play, tr("Reprendre", "Resume"), ACCENT.gamma_multiply(0.85), Color32::BLACK)
+        } else {
+            (TransportIcon::Pause, "Pause", PANEL_HI, if self.ctrl.cues_sounding(m) { TEXT } else { TEXT_DIM })
+        };
+        let ptip = if paused {
+            tr("Reprendre : les cues en pause repartent là où ils étaient", "Resume: the paused cues go on where they were")
+        } else {
+            tr("Pause : les cues qui sonnent s'arrêtent sans perdre leur place", "Pause: the cues that are playing stop without losing their place")
+        };
+        if transport_button(ui, cell(1.0), ("go-pause", m), picon, label(plabel), pfill, pfg).on_hover_text(format!("{ptip}{}", key("P"))).clicked() {
+            self.ctrl.cue_toggle_pause(m);
+        }
+        if transport_button(ui, cell(2.0), ("go-stop", m), TransportIcon::Stop, label(tr("Arrêter", "Stop")), STOP.gamma_multiply(0.75), Color32::WHITE)
+            .on_hover_text(tr("Arrêter : tous les cues de la conduite", "Stop: every cue of the list"))
             .clicked()
         {
             self.ctrl.stop_cues(m);
         }
-        if transport_button(ui, cell(2.0), ("go-next", m), TransportIcon::Next, Some(tr("Suivant", "Next")), PANEL_HI, TEXT)
-            .on_hover_text(tr("Met le cue suivant en attente", "Puts the next cue on standby"))
+        if transport_button(ui, cell(3.0), ("go-next", m), TransportIcon::Next, label(tr("Suivant", "Next")), PANEL_HI, TEXT)
+            .on_hover_text(format!("{}{}", tr("Suivant : met le cue suivant en attente, sans le lancer", "Next: puts the next cue on standby, without playing it"), key(tr("flèche Bas", "Down arrow"))))
             .clicked()
         {
             self.ctrl.cue_step(m, 1);
@@ -250,15 +310,28 @@ impl JingleStarApp {
         ui.add_space(2.0);
 
         // La conduite : clic = mettre en attente, glisser = changer l'ordre.
+        // Le glisser part de la ligne, ou de sa poignée (le numéro) : en mode édition,
+        // le champ du nom garde la souris pour sélectionner le texte.
         let mut moved: Option<(usize, usize)> = None;
         let mut track_drop: Option<(std::path::PathBuf, usize)> = None;
         let mut action: Option<(usize, CueAction)> = None;
         egui::ScrollArea::vertical().id_salt(("go-list", m)).auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 1.0;
-            let pointer = ui.ctx().pointer_hover_pos();
             let mut insert_line: Option<f32> = None;
+            let mut rows: Vec<Rect> = Vec::with_capacity(len);
             for (i, c) in cues.iter().enumerate() {
-                let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click_and_drag());
+                // Identifiants fixes (module, index) : le glisser ne se perd pas si une ligne
+                // au-dessus ajoute ou retire un élément pendant qu'on tient la souris.
+                let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
+                rows.push(rect);
+                let row = ui.interact(rect, ui.make_persistent_id(("cue-row", m, i)), Sense::click_and_drag());
+                let grip_r = Rect::from_min_max(rect.min, pos2(rect.left() + 38.0, rect.bottom()));
+                let grip = ui
+                    .interact(grip_r, ui.make_persistent_id(("cue-grip", m, i)), Sense::click_and_drag())
+                    .on_hover_cursor(egui::CursorIcon::Grab)
+                    .on_hover_text(tr("Glisser pour déplacer ce cue", "Drag to move this cue"));
+                let grip_hovered = grip.hovered();
+                let resp = row.union(grip);
                 let p = ui.painter_at(rect);
                 let is_standby = i == standby;
                 let pos = self.ctrl.cue_position(m, i);
@@ -274,8 +347,17 @@ impl JingleStarApp {
                     p.rect_filled(Rect::from_min_size(rect.min, vec2(rect.width() * frac, rect.height())), CornerRadius::same(3), GO.gamma_multiply(0.22));
                 }
                 let col = if pos.is_some() { GO } else if is_standby { ACCENT } else { TEXT };
-                let marker = if is_standby { "▶" } else { " " };
-                p.text(pos2(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, marker, FontId::proportional(11.0), ACCENT);
+                // Poignée de glisser (points) en mode édition ou au survol, sinon le repère d'attente.
+                if editing || (grip_hovered && !is_standby) {
+                    let dot = if grip_hovered { TEXT } else { TEXT_DIM };
+                    for dx in [10.0, 14.0] {
+                        for dy in [-4.0, 0.0, 4.0] {
+                            p.circle_filled(pos2(rect.left() + dx, rect.center().y + dy), 1.3, dot);
+                        }
+                    }
+                } else if is_standby {
+                    p.text(pos2(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, "▶", FontId::proportional(11.0), ACCENT);
+                }
                 p.text(pos2(rect.left() + 34.0, rect.center().y), Align2::RIGHT_CENTER, format!("{}", i + 1), FontId::monospace(12.0), TEXT_DIM);
                 // Enchaîner / arrêter à la fin du cue : pastille cliquable.
                 let follow_r = Rect::from_center_size(pos2(rect.left() + 47.0, rect.center().y), vec2(18.0, 18.0));
@@ -355,21 +437,6 @@ impl JingleStarApp {
                     action = Some((i, CueAction::Standby));
                 }
                 resp.dnd_set_drag_payload(CuePayload { module: m, index: i, name: c.name.clone() });
-                let after = pointer.is_some_and(|pt| pt.y > rect.center().y);
-                let at = if after { i + 1 } else { i };
-                let dragging_here = resp.dnd_hover_payload::<CuePayload>().is_some_and(|pl| pl.module == m)
-                    || resp.dnd_hover_payload::<TrackPayload>().is_some();
-                if dragging_here {
-                    insert_line = Some(if after { rect.bottom() } else { rect.top() });
-                }
-                if let Some(pl) = resp.dnd_release_payload::<CuePayload>() {
-                    if pl.module == m {
-                        moved = Some((pl.index, at));
-                    }
-                }
-                if let Some(track) = resp.dnd_release_payload::<TrackPayload>() {
-                    track_drop = Some((track.0.clone(), at));
-                }
                 resp.context_menu(|ui| {
                     if ui.button(tr("Lancer maintenant", "Play now")).clicked() {
                         action = Some((i, CueAction::Play));
@@ -392,17 +459,59 @@ impl JingleStarApp {
             // Sous la liste : dépôt à la fin.
             let rest = ui.available_rect_before_wrap();
             let rest = Rect::from_min_size(rest.min, vec2(rest.width(), rest.height().max(ROW_H)));
-            let resp = ui.allocate_rect(rest, Sense::hover());
-            if resp.dnd_hover_payload::<CuePayload>().is_some_and(|pl| pl.module == m) || resp.dnd_hover_payload::<TrackPayload>().is_some() {
-                insert_line = Some(rest.top());
-            }
-            if let Some(pl) = resp.dnd_release_payload::<CuePayload>() {
-                if pl.module == m {
-                    moved = Some((pl.index, len));
+            ui.allocate_rect(rest, Sense::hover());
+
+            // Point de dépôt calculé d'après la position du pointeur parmi les lignes, et non
+            // d'après le widget survolé : volume, pastille d'enchaînement ou champ du nom ne
+            // masquent plus la ligne visée. `at` : nombre de lignes dont le milieu est au-dessus.
+            let view = ui.clip_rect();
+            let cue_drag = egui::DragAndDrop::payload::<CuePayload>(ui.ctx()).filter(|pl| pl.module == m);
+            let track_drag = egui::DragAndDrop::has_payload_of_type::<TrackPayload>(ui.ctx());
+            let pointer = ui.ctx().pointer_latest_pos();
+            if cue_drag.is_some() || track_drag {
+                if let Some(pt) = pointer.filter(|p| view.contains(*p)) {
+                    let at = rows.iter().filter(|r| r.center().y < pt.y).count();
+                    insert_line = Some(match (rows.get(at), rows.last()) {
+                        (Some(r), _) => r.top() - 0.5,
+                        (None, Some(r)) => r.bottom() + 0.5,
+                        (None, None) => rest.top(),
+                    });
+                    if ui.input(|i| i.pointer.any_released()) {
+                        if cue_drag.is_some() {
+                            if let Some(pl) = egui::DragAndDrop::take_payload::<CuePayload>(ui.ctx()) {
+                                moved = Some((pl.index, at));
+                            }
+                        } else if let Some(track) = egui::DragAndDrop::take_payload::<TrackPayload>(ui.ctx()) {
+                            track_drop = Some((track.0.clone(), at));
+                        }
+                    }
+                }
+                // Près du haut ou du bas de la liste (ou juste au-delà), elle défile toute seule.
+                if let Some(pt) = pointer.filter(|p| view.x_range().contains(p.x)) {
+                    let edge = 28.0;
+                    let up = view.top() + edge - pt.y;
+                    let down = pt.y - (view.bottom() - edge);
+                    let speed = if up > 0.0 && up < 3.0 * edge {
+                        up.min(edge) * 0.4
+                    } else if down > 0.0 && down < 3.0 * edge {
+                        -down.min(edge) * 0.4
+                    } else {
+                        0.0
+                    };
+                    if speed != 0.0 {
+                        ui.scroll_with_delta(vec2(0.0, speed));
+                        ui.ctx().request_repaint();
+                    }
                 }
             }
-            if let Some(track) = resp.dnd_release_payload::<TrackPayload>() {
-                track_drop = Some((track.0.clone(), len));
+
+            // Le cue en attente a changé (flèches, Précédent / Suivant, GO) : il reste visible.
+            let seen_id = ui.make_persistent_id(("go-standby-seen", m));
+            if ui.data(|d| d.get_temp::<usize>(seen_id)) != Some(standby) {
+                if let Some(r) = rows.get(standby) {
+                    ui.scroll_to_rect(r.expand2(vec2(0.0, ROW_H)), None);
+                }
+                ui.data_mut(|d| d.insert_temp(seen_id, standby));
             }
             if len == 0 {
                 ui.painter().text(
@@ -474,3 +583,4 @@ fn follow_icon(p: &egui::Painter, r: Rect, chained: bool, hovered: bool) {
         p.line_segment([pos2(r.left() + 4.5, c.y), pos2(r.right() - 4.5, c.y)], Stroke::new(2.5, col));
     }
 }
+

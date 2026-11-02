@@ -30,6 +30,8 @@ pub struct GoRuntime {
     /// Cues lancés avant la fin de leur chargement.
     pending: Vec<usize>,
     last_go: Option<Instant>,
+    /// En pause : les cues qui sonnaient gardent leur place et reprennent sans clic.
+    pub paused: bool,
     /// Enchaînements confiés au mixeur : à la fin de la voix `after_id`, le cue `index`
     /// part sur `slot` avec la voix `id`. `active` : encore prévu (sinon gardé seulement
     /// pour reconnaître une voix partie juste avant l'annulation).
@@ -93,23 +95,64 @@ impl Controller {
     }
 
     /// GO : lance le cue en attente et met le suivant en attente.
+    /// En pause, GO reprend d'abord les cues en pause (rien ne reste figé), puis lance le cue en attente.
     pub fn cue_go(&mut self, m: usize) {
         // Anti double-GO : un second GO trop rapproché est ignoré.
         let guard = Duration::from_millis(self.project.preferences.double_go_ms as u64);
         if self.gos[m].last_go.is_some_and(|t| t.elapsed() < guard) {
             return;
         }
+        let resumed = self.gos[m].paused;
+        self.cue_set_paused(m, false);
         let i = self.gos[m].standby;
         if i >= self.cues(m).len() {
+            if resumed {
+                self.gos[m].last_go = Some(Instant::now());
+            }
             return;
         }
         self.gos[m].last_go = Some(Instant::now());
         self.gos[m].standby = i + 1;
-        self.play_cue(m, i);
+        self.start_cue(m, i);
     }
 
-    /// Lance un cue tout de suite, sans changer le cue en attente.
+    /// GO possible : un cue est en attente, ou une pause à reprendre.
+    pub fn cue_go_ready(&self, m: usize) -> bool {
+        self.gos[m].paused || self.gos[m].standby < self.cues(m).len()
+    }
+
+    /// Lance un cue tout de suite, sans changer le cue en attente (reprend d'abord une pause).
     pub fn play_cue(&mut self, m: usize, i: usize) {
+        self.cue_set_paused(m, false);
+        self.start_cue(m, i);
+    }
+
+    /// Des cues sonnent (ou attendent leur chargement) dans le module.
+    pub fn cues_sounding(&self, m: usize) -> bool {
+        let rt = &self.gos[m];
+        !rt.pending.is_empty() || (0..JINGLE_SLOTS).any(|s| rt.slots[s].is_some() && !rt.stopping[s] && self.engine.telemetry.position(m, s).is_some())
+    }
+
+    /// Pause ou reprise de tous les cues du module, sans perdre leur place.
+    /// Les enchaînements attendent : une voix en pause ne finit pas.
+    pub fn cue_set_paused(&mut self, m: usize, paused: bool) {
+        if paused == self.gos[m].paused || (paused && !self.cues_sounding(m)) {
+            return;
+        }
+        self.gos[m].paused = paused;
+        for slot in 0..JINGLE_SLOTS {
+            self.engine.send(Command::SetPaused { module: m, slot, paused });
+        }
+    }
+
+    pub fn cue_toggle_pause(&mut self, m: usize) {
+        let paused = self.gos[m].paused;
+        self.cue_set_paused(m, !paused);
+    }
+
+    /// Lance le cue `i` ; si la conduite est en pause (cue chargé ou enchaîné entre-temps),
+    /// il part en pause avec les autres et reprendra avec eux.
+    fn start_cue(&mut self, m: usize, i: usize) {
         let Some(cue) = self.cues(m).get(i).cloned() else { return };
         let Some(buf) = self.cache.get(&cue.path).cloned() else {
             if !self.gos[m].pending.contains(&i) {
@@ -124,6 +167,9 @@ impl Controller {
         self.gos[m].stopping[slot] = false;
         let next = self.cue_voice(&cue, slot, id, buf);
         self.engine.send(Command::Play { module: m, slot, id, buffer: next.buffer, gain: next.gain, region: next.region, eq: next.eq });
+        if self.gos[m].paused {
+            self.engine.send(Command::SetPaused { module: m, slot, paused: true });
+        }
         self.plan_follow(m, i, slot, id);
     }
 
@@ -201,7 +247,7 @@ impl Controller {
             self.gos[m].pending.retain(|i| !waiting.contains(i));
             if loaded {
                 for i in waiting {
-                    self.play_cue(m, i);
+                    self.start_cue(m, i);
                 }
             }
         }
@@ -218,6 +264,10 @@ impl Controller {
             self.gos[m].stopping[slot] = false;
             self.gos[m].slots[p.slot] = Some((p.index, p.id));
             self.gos[m].stopping[p.slot] = false;
+            // Parti juste avant la pause : il la rejoint.
+            if self.gos[m].paused {
+                self.engine.send(Command::SetPaused { module: m, slot: p.slot, paused: true });
+            }
             if self.gos[m].standby == p.index {
                 self.gos[m].standby = p.index + 1;
             }
@@ -234,13 +284,19 @@ impl Controller {
             if self.gos[m].standby == i + 1 {
                 self.gos[m].standby = i + 2;
             }
-            self.play_cue(m, i + 1);
+            self.start_cue(m, i + 1);
+        }
+        // Plus rien ne sonne ni n'attend : la pause n'a plus d'objet.
+        let rt = &mut self.gos[m];
+        if rt.slots.iter().all(|s| s.is_none()) && rt.pending.is_empty() {
+            rt.paused = false;
         }
     }
 
     /// Les cues qui jouent dans le module s'arrêtent à la main : pas d'enchaînement à leur fin.
     pub(super) fn mark_cues_stopping(&mut self, m: usize) {
         let rt = &mut self.gos[m];
+        rt.paused = false;
         for s in 0..JINGLE_SLOTS {
             if rt.slots[s].is_some() {
                 rt.stopping[s] = true;
@@ -418,6 +474,8 @@ impl Controller {
         if c.path != before.path {
             self.request_jingle_load(&c.path);
         }
+        // Point d'entrée ou boucle déplacés : prêts en mémoire tout de suite.
+        self.update_stream_pins();
         self.replan_follows(m);
         self.mark_dirty();
     }
@@ -449,6 +507,7 @@ impl Controller {
         rt.stopping = Default::default();
         rt.pending.clear();
         rt.planned.clear();
+        rt.paused = false;
     }
 }
 
@@ -467,6 +526,102 @@ mod tests {
         // A (0) à la fin → [B C D A].
         let order: Vec<usize> = (0..4).map(|i| moved_index(i, 0, 4)).collect();
         assert_eq!(order, vec![3, 0, 1, 2]);
+    }
+
+    /// Ordre obtenu en déplaçant `from` avant `to` dans [0, 1, …, len-1].
+    fn reorder(len: usize, from: usize, to: usize) -> Vec<usize> {
+        let mut order = vec![0; len];
+        for i in 0..len {
+            order[moved_index(i, from, to)] = i;
+        }
+        order
+    }
+
+    #[test]
+    fn moved_index_in_every_direction() {
+        // Vers le haut : C (2) avant B (1).
+        assert_eq!(reorder(5, 2, 1), vec![0, 2, 1, 3, 4]);
+        // Vers le bas : B (1) après D (3), donc avant E (4).
+        assert_eq!(reorder(5, 1, 4), vec![0, 2, 3, 1, 4]);
+        // Au début et à la fin.
+        assert_eq!(reorder(5, 3, 0), vec![3, 0, 1, 2, 4]);
+        assert_eq!(reorder(5, 1, 5), vec![0, 2, 3, 4, 1]);
+        // Sur place (avant soi-même ou avant le suivant) : rien ne bouge.
+        assert_eq!(reorder(5, 2, 2), vec![0, 1, 2, 3, 4]);
+        assert_eq!(reorder(5, 2, 3), vec![0, 1, 2, 3, 4]);
+        // Chaque déplacement est une permutation.
+        for from in 0..5 {
+            for to in 0..=5 {
+                let mut o = reorder(5, from, to);
+                o.sort();
+                assert_eq!(o, vec![0, 1, 2, 3, 4], "from {from} to {to}");
+            }
+        }
+    }
+
+    fn show(n: usize) -> Controller {
+        let mut p = crate::project::Project::default();
+        p.modules[0].mode = ModuleMode::Go;
+        p.modules[0].cues = (0..n).map(|i| Cue::new(format!("/introuvable/{i}.wav").into())).collect();
+        Controller::with_project(p, None, || {})
+    }
+
+    fn names(c: &Controller) -> Vec<String> {
+        c.cues(0).iter().map(|c| c.path.file_stem().unwrap().to_string_lossy().into_owned()).collect()
+    }
+
+    #[test]
+    fn move_cue_keeps_the_standby_cue() {
+        let mut c = show(5);
+        c.set_standby(0, 2);
+        // Vers le bas, le cue en attente lui-même.
+        c.move_cue(0, 2, 5);
+        assert_eq!(names(&c), ["0", "1", "3", "4", "2"]);
+        assert_eq!(c.gos[0].standby, 4);
+        // Vers le haut, jusqu'au début.
+        c.move_cue(0, 4, 0);
+        assert_eq!(names(&c), ["2", "0", "1", "3", "4"]);
+        assert_eq!(c.gos[0].standby, 0);
+        // Un autre cue passe devant le cue en attente : il recule d'une place.
+        c.set_standby(0, 2);
+        c.move_cue(0, 4, 1);
+        assert_eq!(names(&c), ["2", "4", "0", "1", "3"]);
+        assert_eq!(c.gos[0].standby, 3, "le cue en attente reste « 1 »");
+        // Sur place : rien ne change.
+        c.move_cue(0, 1, 1);
+        c.move_cue(0, 1, 2);
+        assert_eq!(names(&c), ["2", "4", "0", "1", "3"]);
+        // Fin de conduite : elle le reste.
+        c.set_standby(0, 5);
+        c.move_cue(0, 0, 5);
+        assert_eq!(c.gos[0].standby, 5);
+    }
+
+    #[test]
+    fn pause_is_cleared_by_go_and_stop() {
+        let mut c = show(3);
+        // Rien ne sonne : pas de pause.
+        c.cue_toggle_pause(0);
+        assert!(!c.gos[0].paused);
+        // Un cue lancé (en chargement) : la pause prend.
+        c.cue_go(0);
+        assert_eq!(c.gos[0].standby, 1);
+        c.cue_toggle_pause(0);
+        assert!(c.gos[0].paused);
+        assert!(c.cue_go_ready(0));
+        c.cue_toggle_pause(0);
+        assert!(!c.gos[0].paused);
+        // GO pendant la pause : reprise, puis le cue en attente part.
+        c.cue_toggle_pause(0);
+        c.gos[0].last_go = None;
+        c.cue_go(0);
+        assert!(!c.gos[0].paused);
+        assert_eq!(c.gos[0].standby, 2);
+        // Arrêter lève la pause.
+        c.cue_toggle_pause(0);
+        assert!(c.gos[0].paused);
+        c.stop_cues(0);
+        assert!(!c.gos[0].paused);
     }
 
     #[test]

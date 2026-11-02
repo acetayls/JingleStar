@@ -45,6 +45,8 @@ pub enum OscCommand {
     CueStep(usize, isize),
     /// Met le cue n° en attente.
     CueStandby(usize, usize),
+    /// Pause des cues qui sonnent : état imposé, ou bascule (`None`).
+    CuePause(usize, Option<bool>),
 }
 
 // ------------------------------------------------------------------ état publié
@@ -72,6 +74,11 @@ pub struct CueListState {
     pub standby: usize,
     /// Nombre de cues qui sonnent.
     pub playing: usize,
+    /// Nom du dernier cue lancé qui sonne encore.
+    pub playing_name: String,
+    /// Temps restant de ce cue (s).
+    pub remaining: Option<f32>,
+    pub paused: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -79,12 +86,19 @@ pub struct JingleState {
     pub name: String,
     pub volume_db: f32,
     pub playing: bool,
+    pub color: [u8; 3],
+    /// Temps restant (s) ; `None` à l'arrêt ou en boucle.
+    pub remaining: Option<f32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlaylistState {
     pub tracks: usize,
     pub current: Option<usize>,
+    /// Titre du morceau sélectionné (nom du fichier).
+    pub title: String,
+    /// Temps restant du morceau en cours (s).
+    pub remaining: Option<f32>,
     pub playing: bool,
     pub paused: bool,
     pub shuffle: bool,
@@ -184,6 +198,8 @@ pub fn parse(prefix: &str, msg: &OscMessage) -> Result<Option<OscCommand>, Strin
                 ["cue", action] => match *action {
                     "next" => trigger(OscCommand::CueStep(m, 1)),
                     "previous" => trigger(OscCommand::CueStep(m, -1)),
+                    "pause" => trigger(OscCommand::CuePause(m, None)),
+                    "paused" => Ok(Some(OscCommand::CuePause(m, Some(flag()?)))),
                     "standby" => {
                         let n = value()?;
                         if n < 1.0 {
@@ -260,6 +276,12 @@ fn leaf(ty: &str, access: u8, description: &str, value: Option<Value>, range: Op
 
 fn trigger_leaf(description: &str) -> Value {
     leaf("N", ACCESS_WRITE, description, None, None)
+}
+
+/// Temps restant en secondes, au dixième ; -1 quand il n'y en a pas.
+fn remaining_leaf(description: &str, remaining: Option<f32>) -> Value {
+    let v = remaining.map(|r| (r.max(0.0) * 10.0).round() / 10.0).unwrap_or(-1.0);
+    leaf("f", ACCESS_READ, description, Some(json!(v)), None)
 }
 
 /// Place `node` à `path` en créant les dossiers intermédiaires.
@@ -339,6 +361,13 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
                 add(format!("{base}/cue/name"), leaf("s", ACCESS_READ, "Nom du cue en attente", Some(json!(standby_name)), None));
                 add(format!("{base}/cue/count"), leaf("i", ACCESS_READ, "Nombre de cues", Some(json!(c.names.len())), None));
                 add(format!("{base}/cue/playing"), leaf("i", ACCESS_READ, "Nombre de cues qui sonnent", Some(json!(c.playing)), None));
+                add(
+                    format!("{base}/cue/playing_name"),
+                    leaf("s", ACCESS_READ, "Nom du dernier cue lancé qui sonne", Some(json!(c.playing_name)), None),
+                );
+                add(format!("{base}/cue/remaining"), remaining_leaf("Temps restant du cue qui sonne (s, -1 : aucun)", c.remaining));
+                add(format!("{base}/cue/pause"), trigger_leaf("Pause / reprise des cues qui sonnent"));
+                add(format!("{base}/cue/paused"), leaf(bool_type(c.paused), ACCESS_RW, "La cuelist est en pause", Some(json!(c.paused)), None));
             }
             ModuleMode::Jingle => {
                 for (si, j) in m.jingles.iter().enumerate() {
@@ -360,6 +389,12 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
                     );
                     let playing = j.as_ref().map(|j| j.playing).unwrap_or(false);
                     add(format!("{jb}/playing"), leaf(bool_type(playing), ACCESS_READ, "Le jingle joue", Some(json!(playing)), None));
+                    let color = j.as_ref().map(|j| format!("#{:02x}{:02x}{:02x}", j.color[0], j.color[1], j.color[2])).unwrap_or_default();
+                    add(format!("{jb}/color"), leaf("s", ACCESS_READ, "Couleur du jingle (#rrggbb)", Some(json!(color)), None));
+                    add(
+                        format!("{jb}/remaining"),
+                        remaining_leaf("Temps restant (s, -1 : à l'arrêt ou en boucle)", j.as_ref().and_then(|j| j.remaining)),
+                    );
                 }
             }
             ModuleMode::Playlist => {
@@ -382,6 +417,8 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
                     ),
                 );
                 add(format!("{pb}/tracks"), leaf("i", ACCESS_READ, "Nombre de morceaux", Some(json!(pl.tracks)), None));
+                add(format!("{pb}/title"), leaf("s", ACCESS_READ, "Titre du morceau sélectionné", Some(json!(pl.title)), None));
+                add(format!("{pb}/remaining"), remaining_leaf("Temps restant du morceau (s, -1 : à l'arrêt)", pl.remaining));
                 add(format!("{pb}/playing"), leaf(bool_type(pl.playing), ACCESS_READ, "La playlist joue", Some(json!(pl.playing)), None));
                 add(format!("{pb}/shuffle"), leaf(bool_type(pl.shuffle), ACCESS_RW, "Lecture aléatoire", Some(json!(pl.shuffle)), None));
                 add(format!("{pb}/loop"), leaf(bool_type(pl.looping), ACCESS_RW, "Boucle sur la liste", Some(json!(pl.looping)), None));
@@ -667,6 +704,11 @@ mod tests {
         assert_eq!(parse(p, &msg("/jinglestar/module/4/go", vec![OscType::Int(0)])), Ok(None));
         assert_eq!(parse(p, &msg("/jinglestar/module/4/cue/previous", vec![])), Ok(Some(OscCommand::CueStep(3, -1))));
         assert_eq!(parse(p, &msg("/jinglestar/module/4/cue/standby", vec![OscType::Int(5)])), Ok(Some(OscCommand::CueStandby(3, 4))));
+        assert_eq!(parse(p, &msg("/jinglestar/module/4/cue/pause", vec![])), Ok(Some(OscCommand::CuePause(3, None))));
+        assert_eq!(
+            parse(p, &msg("/jinglestar/module/4/cue/paused", vec![OscType::Bool(true)])),
+            Ok(Some(OscCommand::CuePause(3, Some(true))))
+        );
         assert_eq!(
             parse(p, &msg("/jinglestar/module/1/mode", vec![OscType::String("go".into())])),
             Ok(Some(OscCommand::ModuleMode(0, ModuleMode::Go)))
@@ -705,7 +747,7 @@ mod tests {
 
     fn snapshot() -> Snapshot {
         let mut jingles = vec![None; JINGLE_SLOTS];
-        jingles[0] = Some(JingleState { name: "Intro".into(), volume_db: -3.0, playing: true });
+        jingles[0] = Some(JingleState { name: "Intro".into(), volume_db: -3.0, playing: true, color: [255, 128, 0], remaining: Some(4.26) });
         Snapshot {
             modules: vec![
                 ModuleState {
@@ -730,7 +772,13 @@ mod tests {
                     volume_db: 0.0,
                     jingles: vec![None; JINGLE_SLOTS],
                     playlist: PlaylistState::default(),
-                    cues: CueListState { names: vec!["Ouverture".into(), "Pluie".into()], standby: 1, playing: 1 },
+                    cues: CueListState {
+                        names: vec!["Ouverture".into(), "Pluie".into()],
+                        standby: 1,
+                        playing: 1,
+                        playing_name: "Ouverture".into(),
+                        ..Default::default()
+                    },
                 },
             ],
         }
@@ -755,6 +803,12 @@ mod tests {
         assert_eq!((code, v), (200, json!({ "VALUE": [2] })));
         let (_, v) = answer("/jinglestar/module/3/cue/name?VALUE", &settings, &snap);
         assert_eq!(v, json!({ "VALUE": ["Pluie"] }));
+        assert_eq!(jingle["CONTENTS"]["color"]["VALUE"][0], "#ff8000");
+        assert_eq!(jingle["CONTENTS"]["remaining"]["VALUE"][0].as_f64(), Some(4.3f32 as f64));
+        let (_, v) = answer("/jinglestar/module/2/playlist/remaining?VALUE", &settings, &snap);
+        assert_eq!(v, json!({ "VALUE": [-1.0] }));
+        let (_, v) = answer("/jinglestar/module/3/cue/playing_name?VALUE", &settings, &snap);
+        assert_eq!(v, json!({ "VALUE": ["Ouverture"] }));
         let (_, info) = answer("/?HOST_INFO", &settings, &snap);
         assert_eq!(info["OSC_PORT"], 8000);
         assert_eq!(info["OSC_TRANSPORT"], "UDP");

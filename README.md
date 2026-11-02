@@ -152,10 +152,13 @@ ci-dessous sont données avec le préfixe par défaut.
 | `/jinglestar/module/<m>/cue/next` | — | Cue suivant en attente |
 | `/jinglestar/module/<m>/cue/previous` | — | Cue précédent en attente |
 | `/jinglestar/module/<m>/cue/standby` | int | Met le cue n° en attente |
+| `/jinglestar/module/<m>/cue/pause` | — | Pause / reprise des cues qui sonnent |
+| `/jinglestar/module/<m>/cue/paused` | bool | Met en pause (vrai) ou reprend (faux) |
 
 - Les déclencheurs (`play`, `stop`, `toggle`, `next`…) partent sans argument ou avec une valeur
   non nulle : un bouton qui envoie 1 à l'appui puis 0 au relâché ne déclenche qu'une fois.
 - Les booléens acceptent `T`/`F`, un entier ou un float (≥ 0,5 = vrai), ou `true`/`false`/`on`/`off`.
+- **Bitfocus Companion / Stream Deck** : un module prêt à l'emploi se trouve dans le dossier `companion/` du dépôt (voir son README). OSCQuery publie aussi, pour les touches, la couleur et le temps restant de chaque jingle, le titre et le temps restant du morceau, le nom et le temps restant du cue qui sonne.
 - Les commandes de jingle n'agissent que sur un module en mode Jingles, celles de playlist
   sur un module en mode Playlist. Les paquets groupés (bundles) sont acceptés.
 

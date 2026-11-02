@@ -1,6 +1,12 @@
-/// Son décodé en mémoire, stéréo entrelacé (L, R, L, R…), au taux du périphérique.
+use std::sync::Arc;
+
+use super::stream::{Stream, STREAM_MIN_SECS};
+
+/// Son décodé, stéréo entrelacé (L, R, L, R…), au taux du périphérique : en entier en
+/// mémoire (`samples`), ou lu depuis le disque pour un son long (`stream`, `samples` vide).
 pub struct AudioBuffer {
     pub samples: Vec<f32>,
+    pub stream: Option<Arc<Stream>>,
     pub frames: usize,
     pub sample_rate: u32,
     /// Aperçu de la forme d'onde : crête (0..1) par tranche, pour l'éditeur.
@@ -45,7 +51,44 @@ impl AudioBuffer {
             let d = &mut detail[i / DETAIL_FRAMES];
             *d = d.max(v);
         }
-        Self { samples, frames, sample_rate, overview, detail }
+        Self { samples, stream: None, frames, sample_rate, overview, detail }
+    }
+
+    /// Son long : passe en lecture depuis le disque et libère sa copie en mémoire.
+    /// En cas d'échec (disque plein…), le son reste en mémoire.
+    pub fn stream_if_long(&mut self) {
+        if self.stream.is_some() || self.duration_secs() <= STREAM_MIN_SECS {
+            return;
+        }
+        match Stream::create(&self.samples, self.sample_rate) {
+            Ok(s) => {
+                self.stream = Some(s);
+                self.samples = Vec::new();
+            }
+            Err(e) => crate::log::write(&format!("Son long gardé en mémoire (fichier temporaire impossible : {e})")),
+        }
+    }
+
+    /// Échantillon stéréo à l'image `p` (fil audio).
+    #[inline]
+    pub fn frame_at(&self, p: usize) -> (f32, f32) {
+        match self.stream.as_deref() {
+            Some(s) => s.frame(p),
+            None => (self.samples[p * 2], self.samples[p * 2 + 1]),
+        }
+    }
+
+    /// Points de départ à garder prêts pour un son lu depuis le disque (sans effet sinon).
+    pub fn set_pins(&self, pins: Vec<usize>) {
+        if let Some(s) = self.stream.as_deref() {
+            s.set_pins(pins);
+        }
+    }
+
+    /// Mémoire occupée : son et formes d'onde, ou blocs chargés pour un son lu depuis le disque.
+    pub fn memory_bytes(&self) -> usize {
+        (self.samples.len() + self.overview.len() + self.detail.len()) * std::mem::size_of::<f32>()
+            + self.stream.as_deref().map_or(0, Stream::resident_bytes)
     }
 
     /// Crêtes de `cols` colonnes couvrant `t0..t1` secondes, au niveau de détail qui suffit :
@@ -69,7 +112,8 @@ impl AudioBuffer {
                     0.0
                 } else if per_col >= (n / bins) as f64 * 2.0 {
                     max(&self.overview[a * bins / n..(b * bins).div_ceil(n).clamp(a * bins / n + 1, bins)])
-                } else if per_col >= DETAIL_FRAMES as f64 {
+                } else if per_col >= DETAIL_FRAMES as f64 || self.samples.is_empty() {
+                    // Son lu depuis le disque : le niveau de détail suffit au zoom maximal.
                     let da = a / DETAIL_FRAMES;
                     max(&self.detail[da..b.div_ceil(DETAIL_FRAMES).clamp(da + 1, self.detail.len())])
                 } else {

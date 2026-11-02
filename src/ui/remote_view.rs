@@ -9,9 +9,22 @@ use crate::i18n::tr;
 use crate::project::{ConsoleSettings, M32Settings, OscSettings};
 use crate::remote::{ActionKind, Mapping, Trigger};
 
+/// Onglets de la fenêtre : un par protocole, puis les correspondances et les raccourcis clavier.
+#[derive(Default, Clone, Copy, PartialEq)]
+enum Tab {
+    #[default]
+    Osc,
+    Midi,
+    Yamaha,
+    M32,
+    Mappings,
+    Keyboard,
+}
+
 #[derive(Default)]
 pub struct RemoteWindow {
     pub open: bool,
+    tab: Tab,
     midi_ports: Vec<String>,
     /// Adresse de la console en cours de saisie, appliquée avec « Connecter ».
     console: Option<ConsoleSettings>,
@@ -41,17 +54,36 @@ impl RemoteWindow {
             .resizable(true)
             .collapsible(false)
             .show(ctx, |ui| {
-                let max_h = (ctx.content_rect().height() - 80.0).max(200.0);
-                egui::ScrollArea::vertical().id_salt("remote-scroll").max_height(max_h).auto_shrink([false, true]).show(ui, |ui| {
-                self.osc_section(ui, ctrl);
+                ui.horizontal_wrapped(|ui| {
+                    for (tab, label) in [
+                        (Tab::Osc, "OSC"),
+                        (Tab::Midi, "MIDI"),
+                        (Tab::Yamaha, "Yamaha"),
+                        (Tab::M32, "Midas M32 / X32"),
+                        (Tab::Mappings, tr("Correspondances", "Mappings")),
+                        (Tab::Keyboard, tr("Raccourcis", "Shortcuts")),
+                    ] {
+                        ui.selectable_value(&mut self.tab, tab, label);
+                    }
+                });
                 ui.separator();
-                self.midi_section(ui, ctrl);
-                ui.separator();
-                self.console_section(ui, ctrl);
-                ui.separator();
-                self.m32_section(ui, ctrl);
-                ui.separator();
-                mappings(ui, ctrl);
+                // « Apprendre » ne reste pas actif dans un onglet où on ne le voit pas.
+                if self.tab != Tab::Mappings {
+                    ctrl.learn = None;
+                }
+                let max_h = (ctx.content_rect().height() - 120.0).max(200.0);
+                egui::ScrollArea::vertical().id_salt("remote-scroll").max_height(max_h).auto_shrink([false, true]).show(ui, |ui| match self.tab {
+                    Tab::Osc => self.osc_section(ui, ctrl),
+                    Tab::Midi => self.midi_section(ui, ctrl),
+                    Tab::Yamaha => self.console_section(ui, ctrl),
+                    Tab::M32 => self.m32_section(ui, ctrl),
+                    Tab::Mappings => mappings(ui, ctrl),
+                    Tab::Keyboard => {
+                        ui.heading(tr("Raccourcis clavier", "Keyboard shortcuts"));
+                        super::shortcuts_page(ui);
+                        ui.add_space(8.0);
+                        super::hotkeys::jingle_hotkeys_list(ui, ctrl);
+                    }
                 });
             });
         if !open {

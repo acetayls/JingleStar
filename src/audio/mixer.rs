@@ -18,6 +18,7 @@ use crossbeam_channel::{Receiver, Sender};
 use super::buffer::AudioBuffer;
 use super::eq::{EqCoeffs, EqProcessor};
 use super::limiter::Limiter;
+use super::stream::ReaderSlot;
 
 pub const MAX_MODULES: usize = 4;
 pub const JINGLE_SLOTS: usize = 12;
@@ -235,6 +236,8 @@ struct Voice {
     pause_step: f32,
     /// Images de silence avant le départ, dans le premier bloc (son enchaîné à l'image près).
     delay: usize,
+    /// Son lu depuis le disque : place de cette lecture, pour que la suite soit chargée d'avance.
+    reader: ReaderSlot,
 }
 
 impl Voice {
@@ -260,6 +263,7 @@ impl Voice {
             pause_gain: 1.0,
             pause_step: 1.0 / ramps.stop as f32,
             delay: 0,
+            reader: None,
         };
         v.set_region(region, ramps);
         v.pos = v.region.start;
@@ -313,8 +317,7 @@ impl Voice {
 
     /// Échantillon stéréo à la position `p`, avec le fondu de boucle éventuel.
     fn frame(&self, p: usize) -> (f32, f32) {
-        let d = &self.buffer.samples;
-        let (l, r) = (d[p * 2], d[p * 2 + 1]);
+        let (l, r) = self.buffer.frame_at(p);
         let Some((ls, le)) = self.region.looping else { return (l, r) };
         let (other, t) = if self.loop_pre > 0 && p < le && p + self.loop_pre >= le {
             let k = p + self.loop_pre - le;
@@ -325,7 +328,24 @@ impl Voice {
         } else {
             return (l, r);
         };
-        (l + (d[other * 2] - l) * t, r + (d[other * 2 + 1] - r) * t)
+        let (ol, or) = self.buffer.frame_at(other);
+        (l + (ol - l) * t, r + (or - r) * t)
+    }
+
+    /// Son lu depuis le disque : publie la tête de lecture (et la cible d'un déplacement
+    /// ou le début de boucle) pour que la suite soit chargée d'avance.
+    fn publish(&mut self) {
+        if let Some(s) = self.buffer.stream.as_deref() {
+            let extra = self.seek.or(self.region.looping.map(|(ls, _)| ls));
+            self.reader = s.publish(self.reader, self.pos, extra, self.region.looping.map(|(_, le)| le));
+        }
+    }
+
+    /// Lecture terminée : rend sa place.
+    fn release(&mut self) {
+        if let Some(s) = self.buffer.stream.as_deref() {
+            s.release(self.reader.take());
+        }
     }
 }
 
@@ -855,6 +875,15 @@ fn start_voice(st: &mut ModuleState, tel: &Telemetry, m: usize, f: FollowOn, ram
 }
 
 fn render_voice(v: &mut Voice, bus: &mut [f32], from: usize, frames: usize, smooth: f32) -> Option<usize> {
+    v.publish();
+    let end = render_frames(v, bus, from, frames, smooth);
+    if end.is_some() {
+        v.release();
+    }
+    end
+}
+
+fn render_frames(v: &mut Voice, bus: &mut [f32], from: usize, frames: usize, smooth: f32) -> Option<usize> {
     for f in from..frames {
         // Micro-fondu de déplacement : descente, saut, remontée.
         let mut dip = 1.0;
@@ -955,6 +984,23 @@ mod tests {
         assert_eq!(out[f * 4 + 1], 0.0);
         assert!((out[f * 4 + 2] - 0.10).abs() < 1e-6);
         assert!((out[f * 4 + 3] - 0.10).abs() < 1e-6);
+    }
+
+    #[test]
+    fn streamed_sound_plays_like_in_memory() {
+        // 40 s à 1 kHz : lu depuis le disque, son début est déjà en mémoire.
+        let v: Vec<f32> = (0..40_000).map(|i| (i % 1000) as f32 / 1000.0).collect();
+        let mut b = AudioBuffer::from_planar(v.clone(), v.clone(), 1000);
+        b.stream_if_long();
+        assert!(b.stream.is_some() && b.samples.is_empty());
+        let buf = Arc::new(b);
+        let (mut mx, tx, _) = setup(2);
+        tx.send(Command::Play { module: 0, slot: 0, id: 1, region: Region::full(&buf), buffer: buf, gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
+        let mut out = vec![0.0; 2 * 500];
+        mx.process(&mut out);
+        for (i, f) in out.chunks(2).enumerate() {
+            assert_eq!(f[0], v[i], "image {i}");
+        }
     }
 
     #[test]

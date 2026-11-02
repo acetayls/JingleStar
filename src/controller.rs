@@ -532,7 +532,7 @@ impl Controller {
                 st.failed.push(name(p));
             }
         }
-        let size = |b: &AudioBuffer| (b.samples.len() + b.overview.len() + b.detail.len()) * std::mem::size_of::<f32>();
+        let size = |b: &AudioBuffer| b.memory_bytes();
         st.bytes = self.cache.values().map(|b| size(b)).sum::<usize>()
             + self.playlists.iter().filter_map(|rt| rt.armed.as_ref()).map(|(_, _, b)| size(b)).sum::<usize>();
         let limit = self.project.preferences.memory_warn_mb as usize * 1_000_000;
@@ -576,6 +576,17 @@ impl Controller {
             crate::log::write(&msg);
             self.status = Some(msg);
         }
+        let late = crate::audio::stream::take_underrun_frames();
+        if late > 0 {
+            let msg = format!(
+                "{} : {:.0} ms {}",
+                tr("Lecture disque en retard", "Disk playback late"),
+                late as f64 * 1000.0 / self.rate().max(1) as f64,
+                tr("de silence (disque lent ou débranché ?)", "of silence (slow or unplugged drive?)")
+            );
+            crate::log::write(&msg);
+            self.status = Some(msg);
+        }
         for m in 0..self.project.module_count {
             self.ensure_armed(m);
         }
@@ -600,7 +611,17 @@ impl Controller {
 
     /// Sons introuvables revenus (disque rebranché) ou fichiers illisibles remplacés : nouvel
     /// essai. Sons modifiés sur le disque : relus. Un son en train de jouer garde sa version.
+    /// Sons retirés ou remplacés dans les modules : leur mémoire est libérée (un son en train
+    /// de jouer garde sa copie dans le mixeur jusqu'à la fin).
     fn check_files(&mut self) {
+        let used: std::collections::HashSet<&Path> = self
+            .project
+            .modules
+            .iter()
+            .take(self.project.module_count)
+            .flat_map(|m| m.jingles.iter().flatten().map(|j| j.path.as_path()).chain(m.cues.iter().map(|c| c.path.as_path())))
+            .collect();
+        self.cache.retain(|p, _| used.contains(p.as_path()));
         let back: Vec<PathBuf> = self
             .load_errors
             .keys()
@@ -623,6 +644,34 @@ impl Controller {
             self.cache.remove(&p);
             self.stamps.remove(&p);
             self.request_jingle_load(&p);
+        }
+        self.update_stream_pins();
+    }
+
+    /// Sons lus depuis le disque : leurs points d'entrée et débuts de boucle restent prêts en
+    /// mémoire, pour un départ instantané (le début du fichier l'est toujours).
+    fn update_stream_pins(&self) {
+        let mut pins: HashMap<&Path, Vec<usize>> = HashMap::new();
+        for m in self.project.modules.iter().take(self.project.module_count) {
+            let sounds = m
+                .jingles
+                .iter()
+                .flatten()
+                .map(|j| (j.path.as_path(), &j.sound))
+                .chain(m.cues.iter().map(|c| (c.path.as_path(), &c.sound)));
+            for (path, sound) in sounds {
+                if let Some(buf) = self.cache.get(path).filter(|b| b.stream.is_some()) {
+                    let region = sound_region(sound, buf);
+                    let p = pins.entry(path).or_default();
+                    p.push(region.start);
+                    p.extend(region.looping.map(|(ls, _)| ls));
+                }
+            }
+        }
+        for (path, p) in pins {
+            if let Some(buf) = self.cache.get(path) {
+                buf.set_pins(p);
+            }
         }
     }
 
@@ -672,7 +721,9 @@ impl Controller {
                 self.urgent_sent.remove(&done.path);
                 match done.result {
                     Ok(buf) => {
-                        let long = buf.duration_secs() > LONG_SOUND_SECS;
+                        // Un son long est lu depuis le disque ; il ne reste entier en mémoire que si
+                        // le fichier temporaire n'a pas pu être créé.
+                        let long = buf.stream.is_none() && buf.duration_secs() > LONG_SOUND_SECS;
                         let warning = done.warning.clone().or_else(|| {
                             long.then(|| {
                                 format!(
@@ -689,6 +740,7 @@ impl Controller {
                         };
                         self.stamps.insert(done.path.clone(), modified(&done.path));
                         self.cache.insert(done.path.clone(), buf);
+                        self.update_stream_pins();
                         self.replan_all_follows();
                         self.start_pending_cues(&done.path, true);
                         let pending: Vec<_> = self.pending_play.drain().collect();
@@ -910,6 +962,12 @@ impl Controller {
         self.mark_dirty();
     }
 
+    /// Nom du projet, indépendant du nom du fichier.
+    pub fn rename_project(&mut self, name: String) {
+        self.project.name = name;
+        self.mark_dirty();
+    }
+
     pub fn stop_module(&mut self, m: usize) {
         self.engine.send(Command::StopModule { module: m });
         self.pending_play.retain(|&(pm, _)| pm != m);
@@ -1046,6 +1104,8 @@ impl Controller {
                 let region = sound_region(&j.sound, buf);
                 self.engine.send(Command::SetRegion { module: m, slot: s, region });
             }
+            // Point d'entrée ou boucle déplacés : prêts en mémoire tout de suite.
+            self.update_stream_pins();
             self.mark_dirty();
         }
     }
@@ -1629,6 +1689,10 @@ impl Controller {
             }
             OscCommand::CueStep(m, d) if m < n && mode(self, m) == ModuleMode::Go => self.cue_step(m, d),
             OscCommand::CueStandby(m, i) if m < n && mode(self, m) == ModuleMode::Go => self.set_standby(m, i),
+            OscCommand::CuePause(m, state) if m < n && mode(self, m) == ModuleMode::Go => match state {
+                Some(p) => self.cue_set_paused(m, p),
+                None => self.cue_toggle_pause(m),
+            },
             OscCommand::PlaylistShuffle(m, on) if m < n => self.update_playlist(m, |p| p.shuffle = on),
             OscCommand::PlaylistLoop(m, on) if m < n => self.update_playlist(m, |p| p.looping = on),
             other => self.status = Some(format!("{source} : {} ({other:?})", tr("commande ignorée", "command ignored"))),
@@ -1810,10 +1874,13 @@ impl Controller {
 
     /// État courant, publié par OSCQuery.
     pub fn osc_snapshot(&self) -> osc::Snapshot {
+        let rate = self.rate() as f64;
+        let left = |(pos, len): (u64, u64)| (len.saturating_sub(pos) as f64 / rate) as f32;
         let modules = (0..self.project.module_count)
             .map(|m| {
                 let cfg = &self.project.modules[m];
                 let rt = &self.playlists[m];
+                let running = self.cue_running(m);
                 osc::ModuleState {
                     name: cfg.name.clone(),
                     mode: cfg.mode,
@@ -1823,16 +1890,30 @@ impl Controller {
                         .iter()
                         .enumerate()
                         .map(|(s, j)| {
+                            let pos = self.engine.telemetry.position(m, s);
                             j.as_ref().map(|j| osc::JingleState {
                                 name: j.name.clone(),
                                 volume_db: j.sound.volume_db,
-                                playing: self.is_jingle_playing(m, s),
+                                playing: pos.is_some(),
+                                color: j.color,
+                                // Comme sur le bouton : jusqu'au point de fin ; aucun en boucle.
+                                remaining: pos.filter(|_| !j.sound.looping).map(|(p, len)| {
+                                    let (_, _, _, end) = j.sound.markers(len as f64 / rate);
+                                    (end - p as f64 / rate).max(0.0) as f32
+                                }),
                             })
                         })
                         .collect(),
                     playlist: osc::PlaylistState {
                         tracks: cfg.playlist.tracks.len(),
                         current: rt.current,
+                        title: rt
+                            .current
+                            .and_then(|c| cfg.playlist.tracks.get(c))
+                            .and_then(|p| p.file_stem())
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default(),
+                        remaining: self.playlist_position(m).map(left),
                         playing: rt.playing,
                         paused: rt.paused,
                         shuffle: cfg.playlist.shuffle,
@@ -1842,6 +1923,9 @@ impl Controller {
                         names: cfg.cues.iter().map(|c| c.name.clone()).collect(),
                         standby: self.gos[m].standby,
                         playing: (0..cfg.cues.len()).filter(|&i| self.cue_position(m, i).is_some()).count(),
+                        playing_name: running.and_then(|(i, ..)| cfg.cues.get(i)).map(|c| c.name.clone()).unwrap_or_default(),
+                        remaining: running.map(|(_, pos, len)| left((pos, len))),
+                        paused: self.gos[m].paused,
                     },
                 }
             })

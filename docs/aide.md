@@ -28,11 +28,13 @@ Formats lus : WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 
 ### Barre du haut
 
-- **Ajouter un module** (+ orange) : ajoute un module à la fin (4 au maximum). Le compteur indique le nombre de modules.
+- **Nom du projet** : en grand à gauche (● = modifications non enregistrées ; le chemin du fichier au survol). **Double-clic** pour le renommer : Entrée valide, Échap annule. Le nom est enregistré dans le projet, le fichier garde le sien ; un nom vide affiche le nom du fichier.
+- **▾** à côté du nom : **Nouveau**, **Ouvrir…**, **Enregistrer sous…** et **Renommer le projet**.
+- **+ Module** (à droite, + orange) : ajoute un module à la fin (4 au maximum). Le compteur indique le nombre de modules.
 - Les modules sont côte à côte sur une rangée. **Glissez la séparation** entre deux modules pour régler leur largeur ; un **double-clic** sur une séparation remet toutes les largeurs à égalité. Les largeurs sont enregistrées avec le projet.
-- **Nouveau** : projet vierge avec un module **Jingles** et un module **Playlist**. Un second clic sur **Remplacer le projet ?** confirme (**Annuler** sinon) ; les préférences (audio, télécommandes, langue) sont gardées. Enregistrez d'abord le projet en cours si vous voulez le retrouver.
-- **Ouvrir…** / **Enregistrer sous…** : ouvre ou enregistre un projet (fichier `.jinglestar`).
-- **Télécommandes** : pilotage OSC, MIDI, console Yamaha et Midas M32, correspondances et mode apprendre. Voir [Pilotage MIDI](#pilotage-midi), [Pilotage depuis une console Yamaha](#pilotage-depuis-une-console-yamaha) et [Pilotage depuis une Midas M32 / Behringer X32](#pilotage-depuis-une-midas-m32--behringer-x32).
+- **Nouveau** (menu ▾) : projet vierge avec un module **Jingles** et un module **Playlist**. Un second clic sur **Remplacer le projet ?** confirme (**Annuler** sinon) ; les préférences (audio, télécommandes, langue) sont gardées. Enregistrez d'abord le projet en cours si vous voulez le retrouver.
+- **Ouvrir…** / **Enregistrer sous…** (menu ▾) : ouvre ou enregistre un projet (fichier `.jinglestar`).
+- **Télécommandes** : une fenêtre à onglets, un par protocole (**OSC**, **MIDI**, **Yamaha**, **Midas M32 / X32**), plus **Correspondances** (mode apprendre) et **Raccourcis** (la liste des touches). Voir [Pilotage MIDI](#pilotage-midi), [Pilotage depuis une console Yamaha](#pilotage-depuis-une-console-yamaha) et [Pilotage depuis une Midas M32 / Behringer X32](#pilotage-depuis-une-midas-m32--behringer-x32).
 - **⚙ Préférences** : audio, langue et anti-veille.
 - **? Aide** (touche **F1**) : ce manuel. Le champ **🔍 Rechercher** en haut (ou **Ctrl+F**) n'affiche que les passages qui contiennent les mots tapés, sans tenir compte des accents ni des majuscules ; **✕** revient au sommaire.
 - **■ TOUT ARRÊTER** : arrête tous les sons de tous les modules (touche **Échap**).
@@ -70,7 +72,9 @@ Le cadre du module devient vert quand un son y joue.
 - **Volume** : glissez le fader. Un **double-clic** sur le fader le remet à 0 dB ; un **clic sur la valeur en dB** permet de la taper au clavier (Entrée valide, Échap annule). Un nombre tapé sans signe est négatif : `6` donne -6 dB ; tapez `+3` pour monter au-dessus de 0 dB.
 - **Changer de type** : passez en mode édition (✏), choisissez **Jingles**, **Playlist**, **Cuelist** ou **Texte** dans le menu **Type**, puis cliquez sur **Valider** (**Annuler** sinon). Le type ne peut pas changer par erreur pendant le spectacle. Si le module joue, un avertissement rouge prévient que le son sera coupé. Les jingles, la playlist, la conduite et le texte sont conservés : on les retrouve en revenant au type d'avant.
 - **Renommer** : **double-clic sur le nom** du module, tapez le nouveau nom puis Entrée (Échap annule). En mode édition (✏), le nom est aussi modifiable directement.
-- **Module Texte** : un grand champ libre pour écrire sa conduite, sauvegardé avec le projet. Échap y arrête quand même les jingles.
+- **Module Texte** : un grand champ libre pour écrire sa conduite, sauvegardé avec le projet. Échap y arrête quand même les jingles ; la barre d'espace y tape un espace (pas de GO).
+  - **Mise en forme** : sélectionnez du texte puis cliquez sur **G**, **I**, **S**, **B** (barré) ou une pastille de couleur (rouge, bleu, vert, rose), ou utilisez Ctrl+B / Ctrl+I / Ctrl+U. Les boutons des styles du texte sélectionné (ou sous le curseur) s'allument. Un second clic retire le style ; **Effacer le style** enlève toute la mise en forme de la sélection (ou de la ligne s'il n'y a pas de sélection). On ne voit que le texte mis en forme : les balises enregistrées dans le projet (`**gras**`, `*italique*`, `__souligné__`, `~~barré~~`, `{rouge}…{/rouge}`, `{bleu}`, `{vert}`, `{rose}`) restent invisibles. Le curseur les traverse : aux limites d'un style, une flèche peut demander un appui de plus.
+  - **Importer…** ajoute un fichier texte (.txt, .md) à la fin de la conduite.
 - **Supprimer** : en mode édition, cliquez sur **🗑** puis confirmez avec **Supprimer ?**. Les modules suivants remontent d'un rang. Le dernier module restant ne peut pas être supprimé.
 
 ### Mode édition (✏)
@@ -227,7 +231,9 @@ Le mode **Cuelist** suit une conduite de spectacle, à la façon de QLab : une l
   Les cues lancés continuent de jouer ensemble jusqu'à leur fin. Le délai anti double-GO des
   préférences protège aussi ce bouton. Après le dernier cue, le cadre affiche **Fin de la
   conduite** et GO s'éteint.
-- **Précédent** / **Suivant** : déplacent le cue en attente sans rien lancer. Un **clic** sur un
+- **Pause** (ou la touche **P**) : met en pause les cues qui sonnent, sans perdre leur place ; le cadre affiche
+  **EN PAUSE**. **P** ou **GO** reprend (GO reprend puis lance le cue en attente). Un enchaînement attend la reprise.
+- **Précédent** / **Suivant** (ou les **flèches Haut / Bas**) : déplacent le cue en attente sans rien lancer. Un **clic** sur un
   cue le met en attente ; un **double-clic** fait GO sur ce cue (il part, et le suivant passe en attente).
 - **Arrêter** : arrête tous les cues de la conduite ; le cue en attente ne change pas. Pendant
   qu'un cue joue, sa ligne se remplit en vert, affiche le temps restant et un bouton **■** qui
@@ -242,7 +248,8 @@ Le mode **Cuelist** suit une conduite de spectacle, à la façon de QLab : une l
   choix **À la fin : Arrêter / Enchaîner**. Pas de boucle pour les cues pour l'instant. Un badge
   **EQ** sur la ligne signale un égaliseur actif.
 - **Volume** : un **clic** sur la valeur en dB d’un cue permet de la taper (Entrée valide ; sans signe, la valeur est négative).
-- **Ordre** : glissez un cue vers le haut ou le bas ; un trait bleu montre où il sera posé. Le
+- **Ordre** : glissez un cue vers le haut ou le bas (en mode édition, attrapez-le par son numéro) ; un trait bleu
+  montre où il sera posé, et la liste défile toute seule près des bords. Le
   cue en attente reste le même son.
 - **Clic droit** sur un cue : **Lancer maintenant** (sans changer le cue en attente), **Réglages…**, **Mettre en
   attente**, **Retirer de la conduite**.
@@ -393,9 +400,12 @@ données avec le préfixe par défaut.
 | `/jinglestar/module/<m>/cue/next` | — | Cue suivant en attente |
 | `/jinglestar/module/<m>/cue/previous` | — | Cue précédent en attente |
 | `/jinglestar/module/<m>/cue/standby` | int | Met le cue n° en attente |
+| `/jinglestar/module/<m>/cue/pause` | — | Pause / reprise des cues qui sonnent |
+| `/jinglestar/module/<m>/cue/paused` | bool | Met en pause (vrai) ou reprend (faux) |
 
 - Les déclencheurs (`play`, `stop`, `toggle`, `next`…) partent sans argument ou avec une valeur non nulle : un bouton qui envoie 1 à l'appui puis 0 au relâché ne déclenche qu'une fois.
 - Les booléens acceptent `T`/`F`, un entier ou un float (≥ 0,5 = vrai), ou `true`/`false`/`on`/`off`.
+- **Bitfocus Companion / Stream Deck** : un module prêt à l'emploi se trouve dans le dossier `companion/` du dépôt (voir son README). OSCQuery publie aussi, pour les touches, la couleur et le temps restant de chaque jingle, le titre et le temps restant du morceau, le nom et le temps restant du cue qui sonne.
 - Les commandes de jingle n'agissent que sur un module en mode Jingles, celles de playlist sur un module en mode Playlist. Les paquets groupés (bundles) sont acceptés.
 
 ### OSCQuery
@@ -553,18 +563,27 @@ Le déclencheur appris s'affiche par exemple **M32 · ch/05/mix/on** (touche MUT
 
 ## Raccourcis clavier et souris
 
+La liste des touches est aussi dans **Télécommandes → Raccourcis**.
+
 | Action | Raccourci |
 |---|---|
 | Tout arrêter | **Échap** (sauf pendant la saisie d'un texte) |
 | Ouvrir ou fermer l'aide | **F1** |
+| Enregistrer / Enregistrer sous | **Ctrl+S** / **Ctrl+Maj+S** |
+| Ouvrir un projet | **Ctrl+O** |
+| Fermer le projet (projet vierge, après confirmation) | **Ctrl+W** ou **Ctrl+N** |
 | GO de la première Cuelist | **Espace** (sauf pendant la saisie d'un texte) |
-| Changer l'ordre de la conduite | Glisser un cue |
-| Lancer / arrêter un jingle | Clic sur le bouton (mode lecture) |
+| Pause / reprise de la première Cuelist | **P** (sauf pendant la saisie d'un texte) |
+| Cue précédent / suivant en attente, sans le lancer | **Flèche Haut / Bas** (sauf pendant la saisie d'un texte) |
+| Changer l'ordre de la conduite | Glisser un cue (par son numéro en mode édition) |
+| Lancer / arrêter un jingle | Clic sur le bouton (mode lecture), ou son raccourci clavier |
+| Donner un raccourci à un jingle | Éditeur du jingle → **Raccourci** → **Choisir…**, puis la touche (refusée si elle est déjà prise) |
 | Menu d'un jingle | Clic droit sur le bouton |
 | Remplir des boutons | Glisser-déposer un ou plusieurs fichiers |
 | Ajouter à une playlist | Glisser-déposer des fichiers ou un dossier sur la playlist |
 | Lancer un morceau de la playlist | Double-clic sur le morceau |
 | Volume du module à 0 dB | Double-clic sur le fader |
+| Monter / baisser le volume d'un module de 1 dB | Clic sur le fader, puis **+** / **−** (les flèches ne le bougent pas) |
 | Taper une valeur en dB (fader, jingle, morceau) | Clic sur la valeur, puis Entrée (Échap annule) ; sans signe = négatif |
 | Largeur des modules | Glisser la séparation ; double-clic pour égaliser |
 | Rechercher dans l'aide | Ctrl+F dans la fenêtre d'aide |

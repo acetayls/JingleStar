@@ -1008,9 +1008,14 @@ mod tests {
     }
 }
 
-/// Logo de la barre haute : la grille de pads avec l'étoile au centre, puis « JINGLESTAR ».
-/// Dessiné en vectoriel pour rester net à toutes les échelles d'affichage.
-pub fn logo(ui: &mut Ui, height: f32) -> Response {
+/// Le logo sans le mot JingleStar : la grille de pads seule.
+pub fn logo_mark(ui: &mut Ui, height: f32) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(height, height), Sense::hover());
+    logo_grid(ui.painter(), rect);
+    resp
+}
+
+fn logo_grid(p: &egui::Painter, rect: Rect) {
     const STRIPS: [Color32; 8] = [
         Color32::from_rgb(0x4a, 0x8f, 0xdb),
         Color32::from_rgb(0x4f, 0xae, 0x58),
@@ -1021,21 +1026,8 @@ pub fn logo(ui: &mut Ui, height: f32) -> Response {
         Color32::from_rgb(0xd9, 0x53, 0x4f),
         Color32::from_rgb(0x8a, 0x8a, 0x90),
     ];
-    let mut job = egui::text::LayoutJob::default();
-    let font = FontId::new(height * 0.82, egui::FontFamily::Name("logo".into()));
-    for (txt, color) in [("JINGLE", Color32::WHITE), ("STAR", ACCENT)] {
-        job.append(
-            txt,
-            0.0,
-            egui::TextFormat { font_id: font.clone(), color, extra_letter_spacing: height * 0.05, ..Default::default() },
-        );
-    }
-    let galley = ui.fonts_mut(|f| f.layout_job(job));
-    let gap = height * 0.4;
-    let (rect, resp) = ui.allocate_exact_size(vec2(height + gap + galley.size().x, height), Sense::hover());
-    let p = ui.painter();
     // Grille 3×3 dessinée dans un carré de 100 unités, comme le fichier SVG.
-    let u = height / 100.0;
+    let u = rect.height() / 100.0;
     let at = |x: f32, y: f32| rect.min + vec2(x * u, y * u);
     let mut k = 0;
     for row in 0..3 {
@@ -1052,9 +1044,6 @@ pub fn logo(ui: &mut Ui, height: f32) -> Response {
             }
         }
     }
-    let text_pos = pos2(rect.min.x + height + gap, rect.center().y - galley.size().y / 2.0);
-    p.galley(text_pos, galley, Color32::WHITE);
-    resp
 }
 
 /// Étoile à cinq branches pleine (égui ne remplit que les formes convexes :

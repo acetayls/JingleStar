@@ -89,11 +89,14 @@ pub struct JingleSlot {
     pub color: [u8; 3],
     #[serde(flatten)]
     pub sound: SoundSettings,
+    /// Raccourci clavier qui lance le jingle (ex. « Ctrl+F5 »), voir `ui::hotkeys`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hotkey: Option<String>,
 }
 
 impl JingleSlot {
     pub fn new(path: PathBuf, name: String, color: [u8; 3]) -> Self {
-        Self { path, name, color, sound: SoundSettings::default() }
+        Self { path, name, color, sound: SoundSettings::default(), hotkey: None }
     }
 }
 
@@ -329,6 +332,8 @@ impl Default for OscSettings {
 #[serde(default)]
 pub struct Project {
     pub version: u32,
+    /// Nom du projet affiché en haut de la fenêtre ; vide = nom du fichier.
+    pub name: String,
     pub module_count: usize,
     pub modules: Vec<ModuleConfig>,
     pub audio: AudioSettings,
@@ -339,6 +344,7 @@ impl Default for Project {
     fn default() -> Self {
         Self {
             version: 1,
+            name: String::new(),
             module_count: 1,
             modules: (0..MAX_MODULES).map(ModuleConfig::numbered).collect(),
             audio: AudioSettings::default(),

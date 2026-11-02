@@ -26,11 +26,13 @@ Supported formats: WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 
 ### Top bar
 
-- **Add module** (orange +): adds a module at the end (4 maximum). The counter shows the number of modules.
+- **Project name**: large, on the left (● = unsaved changes; the file path on hover). **Double-click** to rename it: Enter confirms, Escape cancels. The name is saved in the project and the file keeps its own; an empty name shows the file name.
+- **▾** next to the name: **New**, **Open…**, **Save as…** and **Rename the project**.
+- **+ Module** (on the right, orange +): adds a module at the end (4 maximum). The counter shows the number of modules.
 - Modules sit side by side in one row. **Drag the divider** between two modules to set their width; **double-click** a divider to make all widths equal again. Widths are saved with the project.
-- **New**: blank project with one **Jingles** module and one **Playlist** module. Click **Replace the project?** to confirm (**Cancel** otherwise); preferences (audio, remote control, language) are kept. Save the current project first if you want it back.
-- **Open…** / **Save as…**: opens or saves a project (`.jinglestar` file).
-- **Remote**: OSC, MIDI, Yamaha console and Midas M32 control, mappings and learn mode. See [MIDI control](#midi-control), [Control from a Yamaha console](#control-from-a-yamaha-console) and [Control from a Midas M32 / Behringer X32](#control-from-a-midas-m32--behringer-x32).
+- **New** (▾ menu): blank project with one **Jingles** module and one **Playlist** module. Click **Replace the project?** to confirm (**Cancel** otherwise); preferences (audio, remote control, language) are kept. Save the current project first if you want it back.
+- **Open…** / **Save as…** (▾ menu): opens or saves a project (`.jinglestar` file).
+- **Remote**: a tabbed window, one tab per protocol (**OSC**, **MIDI**, **Yamaha**, **Midas M32 / X32**), plus **Mappings** (learn mode) and **Shortcuts** (the list of keys). See [MIDI control](#midi-control), [Control from a Yamaha console](#control-from-a-yamaha-console) and [Control from a Midas M32 / Behringer X32](#control-from-a-midas-m32--behringer-x32).
 - **⚙ Preferences**: audio, language and sleep prevention.
 - **? Help** (**F1** key): this manual. The **🔍 Search** field at the top (or **Ctrl+F**) shows only the passages containing the typed words, ignoring accents and case; **✕** goes back to the contents.
 - **■ STOP ALL**: stops every sound in every module (**Esc** key).
@@ -68,7 +70,9 @@ The module frame turns green while something is playing in it.
 - **Volume**: drag the fader. A **double-click** resets it to 0 dB. **Click the dB value** to type it on the keyboard (Enter confirms, Escape cancels). A number typed without a sign is negative: `6` gives -6 dB; type `+3` to go above 0 dB.
 - **Change type**: switch to edit mode (✏), pick **Jingles**, **Playlist**, **Cuelist** or **Text** in the **Type** menu, then click **Apply** (**Cancel** otherwise). The type cannot change by mistake during the show. If the module is playing, a red warning says its sound will be cut. The jingles, the playlist, the cue list and the text are all kept: switch back to find them again.
 - **Rename**: **double-click the module name**, type the new name and press Enter (Escape cancels). In edit mode (✏) the name is also directly editable.
-- **Text module**: a large free text field to write your running order, saved with the project. Escape still stops the jingles from there.
+- **Text module**: a large free text field to write your running order, saved with the project. Escape still stops the jingles from there; the space bar types a space (no GO).
+  - **Formatting**: select text, then click **G** (bold), **I** (italic), **S** (underline), **B** (strikethrough) or a colour dot (red, blue, green, pink), or use Ctrl+B / Ctrl+I / Ctrl+U. The buttons of the styles of the selected text (or the text at the cursor) light up. A second click removes the style; **Clear style** removes all formatting from the selection (or the line if nothing is selected). Only the formatted text shows: the tags saved in the project (`**bold**`, `*italic*`, `__underline__`, `~~strike~~`, `{rouge}…{/rouge}`, `{bleu}`, `{vert}`, `{rose}`) stay invisible. The cursor goes through them: at the edge of a style, an arrow key may need one more press.
+  - **Import…** appends a text file (.txt, .md) to the end of the running order.
 - **Delete**: in edit mode, click **🗑** then confirm with **Delete?**. The following modules move up one place. The last remaining module cannot be deleted.
 
 ### Edit mode (✏)
@@ -226,7 +230,9 @@ fired one by one.
 - **GO** (or the **space bar**): fires the standby cue and puts the next one on standby. Fired cues
   keep playing together until they end. The double-GO protection from the preferences also guards
   this button. After the last cue the frame shows **End of the cue list** and GO goes dark.
-- **Previous** / **Next**: move the standby cue without firing anything. **Click** a cue to put it
+- **Pause** (or the **P** key): pauses the cues that are playing without losing their place; the frame shows
+  **PAUSED**. **P** or **GO** resumes (GO resumes, then plays the standby cue). A chained cue waits for the resume.
+- **Previous** / **Next** (or the **Up / Down arrows**): move the standby cue without firing anything. **Click** a cue to put it
   on standby; **double-click** fires GO on that cue (it starts and the next one goes on standby).
 - **Stop**: stops every cue of the list; the standby cue does not change. While a cue plays, its row
   fills in green, shows the remaining time and a **■** button that stops only that cue.
@@ -238,7 +244,7 @@ fired one by one.
   while playing to move there), equalizer, and the **When it ends: Stop / Continue** choice. No
   loop for cues for now. An **EQ** badge on the row means its equalizer is on.
 - **Volume**: **click** a cue's dB value to type it (Enter confirms; without a sign the value is negative).
-- **Order**: drag a cue up or down; a blue line shows where it will land. The standby cue stays the
+- **Order**: drag a cue up or down (in edit mode, grab it by its number); a blue line shows where it will land, and the list scrolls by itself near its edges. The standby cue stays the
   same sound.
 - **Right-click** a cue: **Play now** (without changing the standby cue), **Settings…**, **Put on standby**,
   **Remove from the list**.
@@ -386,9 +392,12 @@ default prefix.
 | `/jinglestar/module/<m>/cue/next` | — | Next cue on standby |
 | `/jinglestar/module/<m>/cue/previous` | — | Previous cue on standby |
 | `/jinglestar/module/<m>/cue/standby` | int | Puts cue no. on standby |
+| `/jinglestar/module/<m>/cue/pause` | — | Pause / resume the sounding cues |
+| `/jinglestar/module/<m>/cue/paused` | bool | Pauses (true) or resumes (false) |
 
 - Triggers (`play`, `stop`, `toggle`, `next`…) fire with no argument or a non-zero value: a button sending 1 on press and 0 on release triggers only once.
 - Booleans accept `T`/`F`, an int or a float (≥ 0.5 = true), or `true`/`false`/`on`/`off`.
+- **Bitfocus Companion / Stream Deck**: a ready-made module lives in the repository's `companion/` folder (see its README). For button feedback, OSCQuery also publishes each jingle's color and remaining time, the current track's title and remaining time, and the name and remaining time of the sounding cue.
 - Jingle commands only act on a module in Jingles mode, playlist commands on a module in Playlist mode. Bundles are accepted.
 
 ### OSCQuery
@@ -540,18 +549,27 @@ The learned trigger is shown, for example, as **M32 · ch/05/mix/on** (MUTE key 
 
 ## Keyboard and mouse shortcuts
 
+The list of keys is also in **Remote → Shortcuts**.
+
 | Action | Shortcut |
 |---|---|
 | Stop all | **Esc** (except while typing text) |
 | Open or close the help | **F1** |
+| Save / Save as | **Ctrl+S** / **Ctrl+Shift+S** |
+| Open a project | **Ctrl+O** |
+| Close the project (blank project, after confirmation) | **Ctrl+W** or **Ctrl+N** |
 | GO of the first Cuelist | **Space** (except while typing text) |
-| Reorder the cue list | Drag a cue |
-| Play / stop a jingle | Click the button (play mode) |
+| Pause / resume the first Cuelist | **P** (except while typing text) |
+| Previous / next standby cue, without playing it | **Up / Down arrow** (except while typing text) |
+| Reorder the cue list | Drag a cue (by its number in edit mode) |
+| Play / stop a jingle | Click the button (play mode), or its keyboard shortcut |
+| Give a jingle a shortcut | Jingle editor → **Shortcut** → **Choose…**, then the key (refused if already taken) |
 | Jingle menu | Right-click the button |
 | Fill buttons | Drag and drop one or more files |
 | Add to a playlist | Drag and drop files or a folder onto the playlist |
 | Play a playlist track | Double-click the track |
 | Module volume to 0 dB | Double-click the fader |
+| Raise / lower a module's volume by 1 dB | Click the fader, then **+** / **−** (the arrows don't move it) |
 | Type a dB value (fader, jingle, track) | Click the value, then Enter (Escape cancels); no sign = negative |
 | Module widths | Drag the divider; double-click to equalize |
 | Search the help | Ctrl+F in the help window |

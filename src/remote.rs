@@ -189,11 +189,12 @@ pub enum ActionKind {
     CueGo,
     CueNext,
     CuePrevious,
+    CuePause,
     StopAll,
 }
 
 impl ActionKind {
-    pub const ALL: [ActionKind; 18] = [
+    pub const ALL: [ActionKind; 19] = [
         ActionKind::JingleToggle,
         ActionKind::JinglePlay,
         ActionKind::JingleStop,
@@ -211,6 +212,7 @@ impl ActionKind {
         ActionKind::CueGo,
         ActionKind::CueNext,
         ActionKind::CuePrevious,
+        ActionKind::CuePause,
         ActionKind::StopAll,
     ];
 
@@ -233,6 +235,7 @@ impl ActionKind {
             ActionKind::CueGo => tr("Conduite : GO", "Cue list: GO"),
             ActionKind::CueNext => tr("Conduite : cue suivant", "Cue list: next cue"),
             ActionKind::CuePrevious => tr("Conduite : cue précédent", "Cue list: previous cue"),
+            ActionKind::CuePause => tr("Conduite : pause / reprise", "Cue list: pause / resume"),
             ActionKind::StopAll => tr("Tout arrêter", "Stop everything"),
         }
     }
@@ -290,6 +293,7 @@ impl Mapping {
             ActionKind::CueGo => press(OscCommand::CueGo(Some(m))),
             ActionKind::CueNext => press(OscCommand::CueStep(m, 1)),
             ActionKind::CuePrevious => press(OscCommand::CueStep(m, -1)),
+            ActionKind::CuePause => press(OscCommand::CuePause(m, None)),
             ActionKind::PlaylistTrack => ev.track().map(|n| OscCommand::PlaylistPlay(m, Some(n - 1))),
             ActionKind::PlaylistShuffle if ev.state().is_some() || ev.press() => set(Flag::Shuffle, OscCommand::PlaylistShuffle),
             ActionKind::PlaylistLoop if ev.state().is_some() || ev.press() => set(Flag::Loop, OscCommand::PlaylistLoop),

@@ -5,6 +5,8 @@ mod dialogs;
 mod eq_view;
 mod go_view;
 mod help;
+mod hotkeys;
+mod notes;
 mod remote_view;
 mod sound_editor;
 mod widgets;
@@ -118,8 +120,18 @@ pub struct JingleStarApp {
     drag_pos: Option<egui::Pos2>,
     /// Un module Texte avait le focus à l'image précédente : Échap y arrête quand même les jingles.
     notes_focused: bool,
+    /// Dernier titre envoyé à la fenêtre.
+    window_title: String,
+    /// Identifiant du fader de chaque module (image précédente), pour les touches + / −.
+    fader_ids: [Option<egui::Id>; MAX_MODULES],
     /// Module renommé par double-clic sur son titre, avec le nom en cours de saisie.
     renaming: Option<(usize, String)>,
+    /// Nom du projet en cours de saisie (double-clic sur le nom).
+    project_renaming: Option<String>,
+    /// Jingle dont on attend le raccourci clavier (touche suivante).
+    hotkey_capture: Option<(usize, usize)>,
+    /// Message de l'éditeur de jingle sur le raccourci (déjà utilisé…).
+    hotkey_msg: Option<String>,
     /// Cue de la Cuelist ouvert dans l'éditeur (module, index).
     cue_editor: Option<(usize, usize)>,
     /// « Nouveau » attend sa confirmation.
@@ -151,7 +163,12 @@ impl JingleStarApp {
             drop_targets: Vec::new(),
             drag_pos: None,
             notes_focused: false,
+            window_title: String::new(),
+            fader_ids: [None; MAX_MODULES],
             renaming: None,
+            project_renaming: None,
+            hotkey_capture: None,
+            hotkey_msg: None,
         }
     }
 
@@ -178,17 +195,35 @@ impl JingleStarApp {
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_centered(|ui| {
-            logo(ui, 26.0);
-            ui.add_space(16.0);
-            let n = self.ctrl.project.module_count;
-            // Un « + » épais et orange, dessiné : le bouton se repère d'un coup d'œil.
-            let can_add = n < MAX_MODULES;
-            let add = add_button(ui, tr("Ajouter un module", "Add module"), can_add)
-                .on_disabled_hover_text(tr("4 modules au maximum", "4 modules maximum"));
-            if add.clicked() {
-                self.ctrl.add_module();
+            // Le logo seul, discret : le nom du projet passe devant.
+            logo_mark(ui, 26.0).on_hover_text("JingleStar");
+            ui.add_space(12.0);
+            self.project_title(ui);
+            ui.add_space(10.0);
+            // « Enregistrer » : dans le projet ouvert ; un point signale des modifications.
+            let file = self.ctrl.project_path.as_ref().and_then(|p| p.file_stem()).map(|n| n.to_string_lossy().into_owned());
+            let label = if self.ctrl.modified { format!("● {}", tr("Enregistrer", "Save")) } else { tr("Enregistrer", "Save").to_string() };
+            let tip = match &file {
+                Some(n) if self.ctrl.modified => format!("{} « {n} » (Ctrl+S) : {}", tr("Enregistre le projet", "Saves the project"), tr("modifications non enregistrées", "unsaved changes")),
+                Some(n) => format!("{} « {n} » (Ctrl+S)", tr("Enregistre le projet", "Saves the project")),
+                None => tr("Aucun projet ouvert : choisit où l'enregistrer (Ctrl+S)", "No open project: choose where to save it (Ctrl+S)").to_string(),
+            };
+            if ui.button(label).on_hover_text(tip).clicked() {
+                self.save(ui.ctx());
             }
-            ui.label(RichText::new(format!("{n}/{MAX_MODULES}")).color(TEXT_DIM));
+            // Nouveau projet, après confirmation : le projet en cours est remplacé.
+            if self.confirm_new {
+                if ui.add(egui::Button::new(RichText::new(tr("Remplacer le projet ?", "Replace the project?")).color(Color32::WHITE)).fill(STOP)).clicked() {
+                    self.confirm_new = false;
+                    self.selected = None;
+                    self.cue_editor = None;
+                    self.edit_mode = [false; MAX_MODULES];
+                    self.ctrl.new_project();
+                }
+                if ui.button(tr("Annuler", "Cancel")).clicked() {
+                    self.confirm_new = false;
+                }
+            }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let panic = egui::Button::new(RichText::new(tr("■  TOUT ARRÊTER", "■  STOP ALL")).strong().color(Color32::WHITE))
@@ -212,41 +247,82 @@ impl JingleStarApp {
                 if ui.button(tr("⚙ Préférences", "⚙ Preferences")).clicked() {
                     self.open_settings();
                 }
-                if ui.button(tr("Enregistrer sous…", "Save as…")).clicked() {
-                    self.dialogs.show(ui.ctx(), Pick::SaveProject, Kind::SaveProject);
+                ui.add_space(8.0);
+                let n = self.ctrl.project.module_count;
+                ui.label(RichText::new(format!("{n}/{MAX_MODULES}")).color(TEXT_DIM));
+                // Un « + » épais et orange, dessiné : le bouton se repère d'un coup d'œil.
+                let can_add = n < MAX_MODULES;
+                let add = add_button(ui, tr("Module", "Module"), can_add)
+                    .on_hover_text(tr("Ajouter un module", "Add a module"))
+                    .on_disabled_hover_text(tr("4 modules au maximum", "4 modules maximum"));
+                if add.clicked() {
+                    self.ctrl.add_module();
                 }
-                // « Enregistrer » : dans le projet ouvert ; un point signale des modifications.
-                let name = self.ctrl.project_path.as_ref().and_then(|p| p.file_stem()).map(|n| n.to_string_lossy().into_owned());
-                let label = if self.ctrl.modified { format!("● {}", tr("Enregistrer", "Save")) } else { tr("Enregistrer", "Save").to_string() };
-                let tip = match &name {
-                    Some(n) if self.ctrl.modified => format!("{} « {n} » (Ctrl+S) : {}", tr("Enregistre le projet", "Saves the project"), tr("modifications non enregistrées", "unsaved changes")),
-                    Some(n) => format!("{} « {n} » (Ctrl+S)", tr("Enregistre le projet", "Saves the project")),
-                    None => tr("Aucun projet ouvert : choisit où l'enregistrer (Ctrl+S)", "No open project: choose where to save it (Ctrl+S)").to_string(),
-                };
-                if ui.button(label).on_hover_text(tip).clicked() {
-                    self.save(ui.ctx());
-                }
-                if ui.button(tr("Ouvrir…", "Open…")).clicked() {
-                    self.dialogs.show(ui.ctx(), Pick::OpenProject, Kind::OpenProject);
-                }
-                // Nouveau projet, après confirmation : le projet en cours est remplacé.
-                if self.confirm_new {
-                    if ui.button(tr("Annuler", "Cancel")).clicked() {
-                        self.confirm_new = false;
+            });
+        });
+    }
+
+    /// Nom du projet, en grand : double-clic pour le renommer
+    /// (sans toucher au fichier), ▾ pour Nouveau / Ouvrir / Enregistrer sous.
+    fn project_title(&mut self, ui: &mut egui::Ui) {
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.horizontal(|ui| {
+                if let Some(buf) = self.project_renaming.as_mut() {
+                    // Entrée valide, Échap ou un clic ailleurs annule.
+                    let id = ui.make_persistent_id("rename-project");
+                    let resp = ui.add(egui::TextEdit::singleline(buf).id(id).font(FontId::proportional(17.0)).desired_width(240.0));
+                    if !resp.has_focus() && !resp.lost_focus() {
+                        resp.request_focus();
                     }
-                    if ui.add(egui::Button::new(RichText::new(tr("Remplacer le projet ?", "Replace the project?")).color(Color32::WHITE)).fill(STOP)).clicked() {
-                        self.confirm_new = false;
-                        self.selected = None;
-                        self.cue_editor = None;
-                        self.edit_mode = [false; MAX_MODULES];
-                        self.ctrl.new_project();
+                    if resp.lost_focus() {
+                        let enter = ui.input(|i| i.key_pressed(Key::Enter));
+                        let name = buf.trim().to_string();
+                        self.project_renaming = None;
+                        if enter {
+                            self.ctrl.rename_project(name);
+                        }
                     }
-                } else if ui.button(tr("Nouveau", "New")).on_hover_text(tr(
-                    "Projet vierge : un module Jingles et un module Playlist (les préférences sont gardées). Pensez à enregistrer le projet en cours.",
-                    "Blank project: one Jingles module and one Playlist module (preferences are kept). Save the current project first.",
-                )).clicked() {
-                    self.confirm_new = true;
+                } else {
+                    let name = self.project_name().unwrap_or_else(|| tr("Sans titre", "Untitled").to_string());
+                    let mut tip = tr("Double-clic pour renommer le projet (le fichier garde son nom)", "Double-click to rename the project (the file keeps its name)").to_string();
+                    if let Some(p) = &self.ctrl.project_path {
+                        tip = format!("{tip}\n{}", p.display());
+                    }
+                    let resp = ui
+                        .add(egui::Label::new(RichText::new(&name).strong().size(20.0).color(Color32::WHITE)).truncate().sense(egui::Sense::click()))
+                        .on_hover_text(tip);
+                    if resp.double_clicked() {
+                        self.project_renaming = Some(name);
+                    }
+                    if self.ctrl.modified {
+                        ui.label(RichText::new("●").size(13.0).color(ACCENT)).on_hover_text(tr("Modifications non enregistrées", "Unsaved changes"));
+                    }
                 }
+                ui.menu_button(RichText::new("▾").color(TEXT_DIM), |ui| {
+                    if ui.button(tr("Nouveau (Ctrl+N)", "New (Ctrl+N)")).on_hover_text(tr(
+                        "Projet vierge : un module Jingles et un module Playlist (les préférences sont gardées). Pensez à enregistrer le projet en cours.",
+                        "Blank project: one Jingles module and one Playlist module (preferences are kept). Save the current project first.",
+                    )).clicked() {
+                        self.confirm_new = true;
+                        ui.close();
+                    }
+                    if ui.button(tr("Ouvrir… (Ctrl+O)", "Open… (Ctrl+O)")).clicked() {
+                        self.dialogs.show(ui.ctx(), Pick::OpenProject, Kind::OpenProject);
+                        ui.close();
+                    }
+                    if ui.button(tr("Enregistrer sous… (Ctrl+Maj+S)", "Save as… (Ctrl+Shift+S)")).clicked() {
+                        self.dialogs.show(ui.ctx(), Pick::SaveProject, Kind::SaveProject);
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button(tr("Renommer le projet", "Rename the project")).clicked() {
+                        self.project_renaming = Some(self.project_name().unwrap_or_default());
+                        ui.close();
+                    }
+                })
+                .response
+                .on_hover_text(tr("Nouveau, Ouvrir, Enregistrer sous", "New, Open, Save as"));
             });
         });
     }
@@ -412,25 +488,46 @@ impl JingleStarApp {
         });
     }
 
-    /// Module Texte : un grand champ libre pour la conduite, sauvegardé avec le projet.
-    fn notes_view(&mut self, ui: &mut egui::Ui, m: usize, area: Rect) {
-        let mut text = self.ctrl.project.modules[m].notes.clone();
-        let mut focused = false;
-        egui::ScrollArea::vertical().id_salt(("notes", m)).auto_shrink([false, false]).max_height(area.height()).show(ui, |ui| {
-            let resp = ui.add_sized(
-                vec2(area.width(), area.height()),
-                egui::TextEdit::multiline(&mut text)
-                    .font(FontId::proportional(15.0))
-                    .hint_text(tr("Écrire la conduite ici…", "Write your running order here…"))
-                    .desired_width(f32::INFINITY)
-                    .lock_focus(true),
-            );
-            focused = resp.has_focus();
-            if resp.changed() {
-                self.ctrl.set_module_notes(m, text);
+    /// Nom du projet : celui donné par l'utilisateur, sinon le nom du fichier (sans extension).
+    fn project_name(&self) -> Option<String> {
+        let name = self.ctrl.project.name.trim();
+        if !name.is_empty() {
+            return Some(name.to_string());
+        }
+        self.ctrl.project_path.as_ref().and_then(|p| p.file_stem()).map(|n| n.to_string_lossy().into_owned())
+    }
+
+    /// Titre de la fenêtre : « JingleStar — nom du projet », mis à jour s'il change.
+    fn update_title(&mut self, ctx: &egui::Context) {
+        let title = match self.project_name() {
+            Some(n) => format!("JingleStar — {n}{}", if self.ctrl.modified { " ●" } else { "" }),
+            None => "JingleStar".to_string(),
+        };
+        if title != self.window_title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.window_title = title;
+        }
+    }
+
+    /// Fader sélectionné (après un clic dessus) : + / − montent ou baissent son volume
+    /// de 1 dB. Les flèches ne le bougent pas : elles servent à la Cuelist.
+    fn fader_keys(&mut self, ctx: &egui::Context) {
+        let Some(focus) = ctx.memory(|mem| mem.focused()) else { return };
+        let n = self.ctrl.project.module_count;
+        let Some(m) = self.fader_ids.iter().take(n).position(|id| *id == Some(focus)) else { return };
+        let none = egui::Modifiers::NONE;
+        let (plus, minus) = ctx.input_mut(|i| {
+            for k in [Key::ArrowUp, Key::ArrowDown, Key::ArrowLeft, Key::ArrowRight] {
+                while i.consume_key(none, k) {}
             }
+            let plus = i.consume_key(none, Key::Plus) | i.consume_key(none, Key::Equals);
+            (plus, i.consume_key(none, Key::Minus))
         });
-        self.notes_focused |= focused;
+        let step = plus as i32 - minus as i32;
+        if step != 0 {
+            let db = (self.ctrl.project.modules[m].volume_db + step as f32).clamp(-60.0, 10.0);
+            self.ctrl.set_module_volume(m, db);
+        }
     }
 
     fn remove_module(&mut self, m: usize) {
@@ -486,6 +583,16 @@ impl JingleStarApp {
                 ui.label(RichText::new(mode_label(mode).to_uppercase()).small().strong().color(TEXT_DIM))
                     .on_hover_text(tr("Type du module : se change en mode édition (✏)", "Module type: change it in edit mode (✏)"));
             }
+            // Crayon juste à droite du type : on voit tout de suite ce qu'il modifie.
+            let edit = ui.selectable_label(editing, "✏").on_hover_text(tr("Mode édition", "Edit mode"));
+            if edit.clicked() {
+                self.edit_mode[m] = !editing;
+                self.confirm_delete = None;
+                self.mode_draft = None;
+                if editing && self.selected.map(|(sm, _)| sm == m).unwrap_or(false) {
+                    self.selected = None;
+                }
+            }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if editing && self.ctrl.project.module_count > 1 {
                     if self.confirm_delete == Some(m) {
@@ -495,15 +602,6 @@ impl JingleStarApp {
                         }
                     } else if ui.button("🗑").on_hover_text(tr("Supprimer le module", "Delete module")).clicked() {
                         self.confirm_delete = Some(m);
-                    }
-                }
-                let edit = ui.selectable_label(editing, "✏").on_hover_text(tr("Mode édition", "Edit mode"));
-                if edit.clicked() {
-                    self.edit_mode[m] = !editing;
-                    self.confirm_delete = None;
-                    self.mode_draft = None;
-                    if editing && self.selected.map(|(sm, _)| sm == m).unwrap_or(false) {
-                        self.selected = None;
                     }
                 }
                 if self.ctrl.project.modules[m].mode == ModuleMode::Text {
@@ -597,6 +695,7 @@ impl JingleStarApp {
             slider_rect,
             egui::Slider::new(&mut db, -60.0..=10.0).vertical().show_value(false).trailing_fill(true),
         );
+        self.fader_ids[m] = Some(resp.id);
         // Repères dessinés d'après la place réelle du curseur (centré dans la zone).
         db_marks(ui, resp.rect, true, &(-60.0..=10.0), true);
         if resp.double_clicked() {
@@ -752,6 +851,7 @@ impl JingleStarApp {
             Pick::CueFile(m, i) => self.ctrl.update_cue(m, i, |c| c.path = first),
             Pick::CueFiles(m) => self.ctrl.add_cues(m, files, None),
             Pick::Relocate => self.ctrl.relocate_files(&first),
+            Pick::NotesImport(m) => self.import_notes(m, &first),
         }
     }
 
@@ -858,6 +958,10 @@ impl JingleStarApp {
 
                         sound_editor::sound_rows(ui, &mut j2.sound, true);
 
+                        ui.label(tr("Raccourci", "Shortcut"));
+                        self.hotkey_row(ui, m, s, &mut j2.hotkey);
+                        ui.end_row();
+
                         ui.label(tr("Couleur", "Color"));
                         ui.horizontal(|ui| {
                             for c in DEFAULT_COLORS {
@@ -903,6 +1007,8 @@ impl JingleStarApp {
             });
         if !open || done {
             // Fin de l'édition : le module repasse en mode lecture, un clic relance le son.
+            self.hotkey_capture = None;
+            self.hotkey_msg = None;
             self.selected = None;
             self.edit_mode[m] = false;
         }
@@ -1398,7 +1504,6 @@ impl JingleStarApp {
                     }
                 });
 
-
                 ui.separator();
                 ui.horizontal(|ui| {
                     if ui.button(tr("Appliquer", "Apply")).on_hover_text(tr("Applique les réglages et ferme la fenêtre", "Applies the settings and closes the window")).clicked() {
@@ -1596,10 +1701,15 @@ impl JingleStarApp {
         }
         self.update_meters();
         self.drop_targets.clear();
+        self.update_title(&ctx);
 
+        // Un champ de saisie a le clavier : espace, P et flèches vont au texte, pas au GO.
         // Dans un module Texte, Échap sort du champ et arrête quand même les jingles.
-        let typing = ctx.egui_wants_keyboard_input() && !std::mem::take(&mut self.notes_focused);
-        if !typing && ctx.input(|i| i.key_pressed(Key::Escape)) {
+        // Choix du raccourci d'un jingle : la touche suivante lui revient, rien d'autre ne réagit.
+        let capturing = self.capture_hotkey(&ctx);
+        let typing = ctx.egui_wants_keyboard_input() || capturing;
+        let in_notes = std::mem::take(&mut self.notes_focused) && !capturing;
+        if (!typing || in_notes) && ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.ctrl.escape();
         }
         // Barre d'espace : GO du premier module GO. La touche est retirée de la file
@@ -1610,9 +1720,30 @@ impl JingleStarApp {
                     self.ctrl.cue_go(m);
                 }
             }
+            self.go_shortcuts(&ctx);
+            self.fader_keys(&ctx);
+            self.jingle_hotkeys(&ctx);
         }
-        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, Key::S)) {
+        // Raccourcis de fichier habituels. Ctrl+Maj+S d'abord : Ctrl+S l'attraperait aussi.
+        let cmd = egui::Modifiers::COMMAND;
+        let (save_as, save, open, new) = ctx.input_mut(|i| {
+            let save_as = i.consume_key(cmd | egui::Modifiers::SHIFT, Key::S);
+            let save = i.consume_key(cmd, Key::S);
+            let open = i.consume_key(cmd, Key::O);
+            let new = i.consume_key(cmd, Key::N) | i.consume_key(cmd, Key::W);
+            (save_as, save, open, new)
+        });
+        if save_as {
+            self.dialogs.show(&ctx, Pick::SaveProject, Kind::SaveProject);
+        } else if save {
             self.save(&ctx);
+        }
+        if open {
+            self.dialogs.show(&ctx, Pick::OpenProject, Kind::OpenProject);
+        }
+        // Fermer / Nouveau : la confirmation « Remplacer le projet ? » s'affiche en haut.
+        if new {
+            self.confirm_new = true;
         }
         if ctx.input(|i| i.key_pressed(Key::F1)) {
             self.help.toggle();
@@ -1653,6 +1784,38 @@ impl JingleStarApp {
         let busy = self.ctrl.anything_playing() || self.meters.iter().flatten().any(|d| *d > -100.0);
         ctx.request_repaint_after(Duration::from_millis(if busy { 33 } else { 250 }));
     }
+}
+
+/// Onglet « Raccourcis » des Télécommandes : la liste de toutes les touches.
+fn shortcuts_page(ui: &mut egui::Ui) {
+    let rows: [(&str, &str, &str, &str); 14] = [
+        ("Espace", "Space", "GO de la première Cuelist", "GO of the first Cuelist"),
+        ("P", "P", "Pause / reprise de la première Cuelist", "Pause / resume the first Cuelist"),
+        ("↑ / ↓", "↑ / ↓", "Cue précédent / suivant en attente, sans le lancer", "Previous / next standby cue, without playing it"),
+        ("Échap", "Esc", "Tout arrêter (jingles, et playlists selon le réglage)", "Stop all (jingles, and playlists if set)"),
+        ("+ / −", "+ / −", "Volume du fader sélectionné (clic dessus), par pas de 1 dB", "Volume of the selected fader (click it), 1 dB steps"),
+        ("Double-clic", "Double-click", "Fader à 0 dB", "Fader to 0 dB"),
+        ("Ctrl+S", "Ctrl+S", "Enregistrer le projet", "Save the project"),
+        ("Ctrl+Maj+S", "Ctrl+Shift+S", "Enregistrer sous…", "Save as…"),
+        ("Ctrl+O", "Ctrl+O", "Ouvrir un projet", "Open a project"),
+        ("Ctrl+W / Ctrl+N", "Ctrl+W / Ctrl+N", "Fermer le projet : projet vierge, après confirmation", "Close the project: blank project, after confirmation"),
+        ("F1", "F1", "Ouvrir ou fermer l'aide", "Open or close help"),
+        ("Ctrl+B", "Ctrl+B", "Texte : gras", "Text: bold"),
+        ("Ctrl+I", "Ctrl+I", "Texte : italique", "Text: italic"),
+        ("Ctrl+U", "Ctrl+U", "Texte : souligné", "Text: underline"),
+    ];
+    egui::Grid::new("shortcuts").num_columns(2).spacing([16.0, 6.0]).striped(true).show(ui, |ui| {
+        for (kf, ke, af, ae) in rows {
+            ui.label(RichText::new(tr(kf, ke)).monospace().strong().color(ACCENT));
+            ui.label(tr(af, ae));
+            ui.end_row();
+        }
+    });
+    ui.add_space(6.0);
+    ui.label(RichText::new(tr(
+        "Espace, P, les flèches et + / − ne font rien pendant la saisie d'un texte : ils vont au texte.          Échap arrête quand même tout depuis le module Texte.",
+        "Space, P, the arrows and + / − do nothing while typing text: they go to the text.          Esc still stops everything from the Text module.",
+    )).small().color(TEXT_DIM));
 }
 
 fn mode_label(mode: ModuleMode) -> &'static str {

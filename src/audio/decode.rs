@@ -2,9 +2,9 @@ use std::path::Path;
 
 use anyhow::{anyhow, Result};
 use symphonia::core::audio::{Channels, SampleBuffer};
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_AAC, CODEC_TYPE_NULL};
 use symphonia::core::errors::Error as SymError;
-use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::{FormatOptions, FormatReader};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
@@ -41,7 +41,7 @@ pub fn decode_file(path: &Path, target_rate: u32) -> Result<AudioBuffer> {
 /// Décode un fichier ; `analyze` mesure aussi son niveau, au taux d'origine comme `analyze_file`
 /// (les deux chemins donnent la même mesure).
 pub fn decode(path: &Path, target_rate: u32, analyze: bool) -> Result<Decoded> {
-    let Planar { mut left, mut right, rate: src_rate, warning } = decode_planar(path)?;
+    let Planar { mut left, mut right, rate: src_rate, warning, .. } = decode_planar(path)?;
     let loudness = analyze.then(|| measure(&left, &right, src_rate));
     if src_rate != target_rate {
         let (l, r) = resample(&left, &right, src_rate, target_rate)?;
@@ -49,7 +49,9 @@ pub fn decode(path: &Path, target_rate: u32, analyze: bool) -> Result<Decoded> {
         left = l;
         right = r;
     }
-    Ok(Decoded { buffer: AudioBuffer::from_planar(left, right, target_rate), loudness, warning })
+    let mut buffer = AudioBuffer::from_planar(left, right, target_rate);
+    buffer.stream_if_long();
+    Ok(Decoded { buffer, loudness, warning })
 }
 
 /// Mesure le niveau d'un fichier à son taux d'origine (sonie, crêtes, RMS).
@@ -71,6 +73,23 @@ struct Planar {
     right: Vec<f32>,
     rate: u32,
     warning: Option<String>,
+    /// Images retirées par le découpage « gapless » (délai et remplissage de l'encodeur).
+    trimmed: u64,
+}
+
+/// Au-delà, le découpage gapless n'est pas un simple délai d'encodeur (quelques milliers
+/// d'images) mais un en-tête faux, qui couperait une partie du son.
+const GAPLESS_MAX_TRIM: u64 = 8192;
+
+/// Silence d'encodage d'un AAC (M4A) d'après son étiquette iTunes `iTunSMPB`
+/// (« 00000000 délai remplissage total … », en hexadécimal) : délai et nombre d'images utiles.
+fn itunes_smpb(format: &mut dyn FormatReader) -> Option<(usize, usize)> {
+    let meta = format.metadata();
+    let rev = meta.current()?;
+    let tag = rev.tags().iter().find(|t| t.key.ends_with("iTunSMPB"))?;
+    let fields: Vec<u64> = tag.value.to_string().split_whitespace().filter_map(|h| u64::from_str_radix(h, 16).ok()).collect();
+    let (delay, total) = (*fields.get(1)?, *fields.get(3)?);
+    (delay < GAPLESS_MAX_TRIM && total > 0).then_some((delay as usize, total as usize))
 }
 
 /// Coefficients (gauche, droite) de chaque canal pour le passage en stéréo.
@@ -112,8 +131,19 @@ fn downmix_matrix(channels: Option<Channels>, count: usize) -> Vec<(f32, f32)> {
     m
 }
 
-/// Décode un fichier en stéréo planaire, à son taux d'origine.
+/// Décode un fichier en stéréo planaire, à son taux d'origine, sans le silence ajouté par
+/// l'encodeur au début et à la fin (MP3 avec étiquette LAME/Xing, Ogg Vorbis, AAC avec
+/// étiquette iTunes). Un en-tête faux qui couperait du son est ignoré : relecture sans découpage.
 fn decode_planar(path: &Path) -> Result<Planar> {
+    let p = decode_planar_with(path, true)?;
+    if p.trimmed > GAPLESS_MAX_TRIM {
+        crate::log::write(&format!("En-tête gapless ignoré ({} images à couper) : {}", p.trimmed, path.display()));
+        return decode_planar_with(path, false);
+    }
+    Ok(p)
+}
+
+fn decode_planar_with(path: &Path, gapless: bool) -> Result<Planar> {
     let file = std::fs::File::open(path)?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
@@ -123,10 +153,13 @@ fn decode_planar(path: &Path) -> Result<Planar> {
     let probed = symphonia::default::get_probe().format(
         &hint,
         mss,
-        &FormatOptions::default(),
+        &FormatOptions { enable_gapless: gapless, ..Default::default() },
         &MetadataOptions::default(),
     )?;
     let mut format = probed.format;
+    // AAC : symphonia ne lit pas le délai d'encodeur des M4A ; l'étiquette iTunes le donne.
+    let aac = format.tracks().iter().any(|t| t.codec_params.codec == CODEC_TYPE_AAC);
+    let smpb = if gapless && aac { itunes_smpb(&mut *format) } else { None };
     let track = format
         .tracks()
         .iter()
@@ -146,6 +179,7 @@ fn decode_planar(path: &Path) -> Result<Planar> {
     let mut buf_frames = 0usize;
     let mut matrix: Vec<(f32, f32)> = Vec::new();
     let mut skipped = 0usize;
+    let mut trimmed = 0u64;
 
     loop {
         let packet = match format.next_packet() {
@@ -157,6 +191,8 @@ fn decode_planar(path: &Path) -> Result<Planar> {
         if packet.track_id() != track_id {
             continue;
         }
+        // Le décodeur retire lui-même ces images (découpage gapless du format).
+        trimmed += u64::from(packet.trim_start()) + u64::from(packet.trim_end());
         let decoded = match decoder.decode(&packet) {
             Ok(d) => d,
             // Paquet corrompu : on l'ignore, et on le signale à la fin.
@@ -194,6 +230,15 @@ fn decode_planar(path: &Path) -> Result<Planar> {
         }
     }
 
+    if let Some((delay, total)) = smpb {
+        // Retire le délai, puis le remplissage final, si l'étiquette est cohérente avec le son lu.
+        if delay < left.len() && total <= left.len() - delay && total >= (left.len() - delay) * 9 / 10 {
+            left.drain(..delay);
+            right.drain(..delay);
+            left.truncate(total);
+            right.truncate(total);
+        }
+    }
     if left.is_empty() {
         return Err(anyhow!("fichier vide ou illisible : {}", path.display()));
     }
@@ -217,7 +262,7 @@ fn decode_planar(path: &Path) -> Result<Planar> {
             ));
         }
     }
-    Ok(Planar { left, right, rate: src_rate, warning })
+    Ok(Planar { left, right, rate: src_rate, warning, trimmed })
 }
 
 fn resample(left: &[f32], right: &[f32], from: u32, to: u32) -> Result<(Vec<f32>, Vec<f32>)> {
