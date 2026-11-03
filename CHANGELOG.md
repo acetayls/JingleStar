@@ -1,6 +1,11 @@
 # Journal des modifications
 
-## 0.1.3pre — préversion du 3 novembre 2026
+## 0.1.3 — 3 novembre 2026
+
+### Téléchargements
+
+- Version publiée sur GitHub (Releases) pour **Mac Intel**, **Mac Apple Silicon** (fichiers .dmg)
+  et **Windows 64 bits** (fichier .exe).
 
 ### Interface
 
