@@ -1048,3 +1048,24 @@ fn jingle_seek_moves_a_playing_loop_without_click() {
     assert_no_click(&out, 2, "déplacement dans un jingle en boucle");
     assert!(level(&out, 3_000, 4_000) > 0.1, "toujours audible après le saut");
 }
+
+#[test]
+fn surround_files_keep_centre_and_rear_channels() {
+    // 5.1 (L R C LFE Ls Rs) : seul le centre porte du son. Il doit ressortir sur les deux côtés.
+    let dir = temp_dir();
+    let path = dir.join("centre-5-1.wav");
+    let frames = 4_800;
+    let samples: Vec<i16> = (0..frames).flat_map(|_| [0i16, 0, 16_000, 0, 0, 0]).collect();
+    write_wav(&path, SR, 6, &samples);
+    let buf = decode_file(&path, SR).unwrap();
+    assert_eq!(buf.frames, frames);
+    let (l, r) = (buf.samples[200], buf.samples[201]);
+    assert!(l > 0.1 && (l - r).abs() < 1e-6, "centre sur les deux côtés : {l} {r}");
+    // Arrière gauche : seulement à gauche.
+    let path = dir.join("arriere-5-1.wav");
+    let samples: Vec<i16> = (0..frames).flat_map(|_| [0i16, 0, 0, 0, 16_000, 0]).collect();
+    write_wav(&path, SR, 6, &samples);
+    let buf = decode_file(&path, SR).unwrap();
+    assert!(buf.samples[200] > 0.05 && buf.samples[201] == 0.0);
+    // Une stéréo reste au bit près (voir wav_16_bit_decodes_bit_exact) : pas d'atténuation.
+}

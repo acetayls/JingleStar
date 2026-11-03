@@ -1,14 +1,22 @@
 name: Build
 
+# Les builds se font en local sur le PC de Pierrick : ce workflow ne part qu'à la demande
+# (onglet Actions → Build → Run workflow).
 on:
-  push:
-    branches: [main]
-    tags: ["v*"]
-  pull_request:
   workflow_dispatch:
+    inputs:
+      cible:
+        description: "Plateformes à construire"
+        type: choice
+        default: macos-intel
+        options:
+          - macos-intel
+          - macos
+          - tout
 
 jobs:
   build:
+    if: inputs.cible == 'tout'
     strategy:
       fail-fast: false
       matrix:
@@ -20,6 +28,8 @@ jobs:
             artifact: jinglestar-windows
             bin: target/release/jinglestar.exe
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -35,17 +45,25 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.bin }}
+      - name: Préparer l'exécutable Windows
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          cp target/release/jinglestar.exe "dist/JingleStar-$VERSION-windows-x64.exe"
+      - name: Publier dans la release (Windows)
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.exe
 
   macos:
     # Le runner est Apple Silicon ; la version Intel est compilée en croisé (x86_64-apple-darwin).
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: x86_64-apple-darwin
-            arch: intel
-          - target: aarch64-apple-darwin
-            arch: apple-silicon
+        include: ${{ fromJSON(inputs.cible == 'macos-intel' && '[{"target":"x86_64-apple-darwin","arch":"intel"}]' || '[{"target":"x86_64-apple-darwin","arch":"intel"},{"target":"aarch64-apple-darwin","arch":"apple-silicon"}]') }}
     runs-on: macos-latest
     permissions:
       contents: write

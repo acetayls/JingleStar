@@ -338,6 +338,7 @@ fn integrated(segments: &[f64], seg_len: usize) -> Option<f32> {
 }
 
 /// Mesure un son stéréo entrelacé (L, R, L, R…).
+#[cfg(test)]
 pub fn analyze_interleaved(samples: &[f32], rate: u32) -> Loudness {
     let mut m = Meter::new(rate);
     for f in samples.chunks_exact(2) {

@@ -5,6 +5,7 @@ mod audio;
 mod console;
 mod controller;
 mod i18n;
+mod log;
 mod m32;
 mod midi;
 mod osc;
@@ -13,6 +14,7 @@ mod remote;
 mod ui;
 
 fn main() -> eframe::Result {
+    log::install_panic_hook();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("JingleStar")
@@ -25,9 +27,13 @@ fn main() -> eframe::Result {
             ),
         ..Default::default()
     };
-    eframe::run_native(
+    let res = eframe::run_native(
         "JingleStar",
         options,
         Box::new(|cc| Ok(Box::new(ui::JingleStarApp::new(cc)))),
-    )
+    );
+    if let Err(e) = &res {
+        log::write(&format!("Arrêt sur erreur : {e}"));
+    }
+    res
 }

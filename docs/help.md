@@ -12,6 +12,10 @@ equalizer and output pair.
 3. Click a filled button to play the sound, click it again to stop it.
 4. **Esc** or the red **STOP ALL** button stops every sound.
 5. Check the audio output in the bottom bar. To change it: **Preferences → Audio**.
+6. On the right of the bottom bar, **● All loaded** (green) means every jingle and cue sound is
+   decoded in memory and will start instantly. While loading, the light is amber and counts the
+   ready sounds; **⚠** (red) flags a missing or unreadable file (hover for its name). Next to it,
+   the memory used by decoded sounds (about 23 MB per minute of sound).
 
 Everything is saved automatically: when you restart JingleStar, the session is restored as you
 left it.
@@ -22,10 +26,13 @@ Supported formats: WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 
 ### Top bar
 
-- **＋ Add module**: adds a module at the end (4 maximum). The counter shows the number of modules.
+- **Project name**: large, on the left (● = unsaved changes; the file path on hover). **Double-click** to rename it: Enter confirms, Escape cancels. The name is saved in the project and the file keeps its own; an empty name shows the file name.
+- **▾** next to the name: **New**, **Open…**, **Save as…** and **Rename the project**.
+- **+ Module** (on the right, orange +): adds a module at the end (4 maximum). The counter shows the number of modules.
 - Modules sit side by side in one row. **Drag the divider** between two modules to set their width; **double-click** a divider to make all widths equal again. Widths are saved with the project.
-- **Open…** / **Save as…**: opens or saves a project (`.jinglestar` file).
-- **Remote**: OSC, MIDI, Yamaha console and Midas M32 control, mappings and learn mode. See [MIDI control](#midi-control), [Control from a Yamaha console](#control-from-a-yamaha-console) and [Control from a Midas M32 / Behringer X32](#control-from-a-midas-m32--behringer-x32).
+- **New** (▾ menu): blank project with one **Jingles** module and one **Playlist** module. Click **Replace the project?** to confirm (**Cancel** otherwise); preferences (audio, remote control, language) are kept. Save the current project first if you want it back.
+- **Open…** / **Save as…** (▾ menu): opens or saves a project (`.jinglestar` file).
+- **Remote**: a tabbed window, one tab per protocol (**OSC**, **MIDI**, **Yamaha**, **Midas M32 / X32**), plus **Mappings** (learn mode) and **Shortcuts** (the list of keys). See [MIDI control](#midi-control), [Control from a Yamaha console](#control-from-a-yamaha-console) and [Control from a Midas M32 / Behringer X32](#control-from-a-midas-m32--behringer-x32).
 - **⚙ Preferences**: audio, language and sleep prevention.
 - **? Help** (**F1** key): this manual. The **🔍 Search** field at the top (or **Ctrl+F**) shows only the passages containing the typed words, ignoring accents and case; **✕** goes back to the contents.
 - **■ STOP ALL**: stops every sound in every module (**Esc** key).
@@ -36,6 +43,17 @@ It shows the active audio output (driver, device, channel count, sample rate) wi
 or a red light when there is no output. Errors and messages (project saved, unreadable file…) are
 shown there too.
 
+On the right: the state of the sounds ("All loaded", unreadable sounds), an orange ⚠ for sounds to
+check (damaged or truncated file, very long sound: hover it for the list) and the memory used, in
+red above the warning threshold set in Preferences. When sounds are missing, **Locate…** looks for
+them by file name in a folder and its subfolders.
+
+**Audio output lost** (interface unplugged, driver stopped): a red banner says so at the top of the
+window and JingleStar reconnects to the same device by itself as soon as it is back (a try every
+2 s, or right away with **Reconnect**). Sounds playing when the output dropped are stopped. If the
+chosen interface is missing at launch, an orange banner shows the fallback output in use;
+JingleStar switches back as soon as the interface is plugged in and nothing is playing.
+
 ## Modules
 
 Each module has, from top to bottom:
@@ -44,15 +62,18 @@ Each module has, from top to bottom:
 - the **output** selector (stereo pair 1-2, 3-4…);
 - the **EQ** button (module equalizer);
 - the **✏** button (edit mode);
-- the mode selector: **Jingles**, **Playlist**, **Cuelist** or **Text**;
+- next to the name, the module type in small capitals: **JINGLES**, **PLAYLIST**, **CUELIST** or **TEXT**;
 - on the right, the volume **fader** (-∞ to +10 dB) with marks at +3, 0 and -6 dB and its dB value below, the stereo **meter** and the **■** button that stops the module.
 
 The module frame turns green while something is playing in it.
 
 - **Volume**: drag the fader. A **double-click** resets it to 0 dB. **Click the dB value** to type it on the keyboard (Enter confirms, Escape cancels). A number typed without a sign is negative: `6` gives -6 dB; type `+3` to go above 0 dB.
-- **Change mode**: click **Jingles**, **Playlist**, **Cuelist** or **Text**. The module stops; the jingles, the playlist, the cue list and the text are all kept.
+- **Change type**: switch to edit mode (✏), pick **Jingles**, **Playlist**, **Cuelist** or **Text** in the **Type** menu, then click **Apply** (**Cancel** otherwise). The type cannot change by mistake during the show. If the module is playing, a red warning says its sound will be cut. The jingles, the playlist, the cue list and the text are all kept: switch back to find them again.
 - **Rename**: **double-click the module name**, type the new name and press Enter (Escape cancels). In edit mode (✏) the name is also directly editable.
-- **Text module**: a large free text field to write your running order, saved with the project. Escape still stops the jingles from there.
+- **Text module**: a large free text field to write your running order, saved with the project. Escape still stops the jingles from there; the space bar types a space (no GO).
+  - **Formatting**: select text, then click **G** (bold), **I** (italic), **S** (underline), **B** (strikethrough) or a colour dot (red, blue, green, pink), or use Ctrl+B / Ctrl+I / Ctrl+U. The buttons of the styles of the selected text (or the text at the cursor) light up. A second click removes the style. With nothing selected, the style applies to the word at the cursor. Only the formatted text shows: the tags saved in the project (`{b}`, `{i}`, `{u}`, `{s}`, `{rouge}`, `{bleu}`, `{vert}`, `{rose}`, closed by `{/b}`, `{/rouge}`…) stay invisible. The cursor goes through them: at the edge of a style, an arrow key may need one more press.
+  - **Zoom**: the **−** and **+** toolbar buttons make the text smaller or larger (60 % to 300 %).
+  - **Import…** appends a text file (.txt, .md) to the end of the running order.
 - **Delete**: in edit mode, click **🗑** then confirm with **Delete?**. The following modules move up one place. The last remaining module cannot be deleted.
 
 ### Edit mode (✏)
@@ -68,8 +89,10 @@ When you close a jingle editor (**✓ Done** or the close cross), the module goe
 
 A module in **Jingles** mode has 12 buttons (3 columns, 4 rows). Each button shows its number, the
 sound name, its color and its duration. While playing, a progress bar shows elapsed and remaining
-time; a looping jingle shows **LOOP** instead of the remaining time. A playing jingle has a thick
-green frame. The jingle volume is shown at the top right (orange when it is not 0 dB). Extra marks
+time; a looping jingle shows **LOOP** instead of the remaining time. At rest the button shows its
+color, darkened; a playing jingle takes its bright color, with dark text, and a thick green frame.
+During a fade-out (fading stop or end fade) an **orange diagonal** runs down the button, the bar turns
+orange and **FADE** replaces the remaining time. The jingle volume is shown at the top right (orange when it is not 0 dB). Extra marks
 complete the button: at the top left, after the number, an orange **⟲** badge for a looping jingle and **EQ** when
 its equalizer is on;
 **…** while the sound is loading and **⚠** if the file is missing or unreadable.
@@ -92,7 +115,7 @@ Open the editor through edit mode (✏ then click the button) or with **right-cl
   - **Loop**: the fade-in only plays on the first start, not on every pass. The fade-out only applies on stop, in full: that is how a background bed slowly disappears. Stopped during the intro (before the loop start), it cuts at once.
   - **Escape**, **STOP ALL** and the module's **■** always cut within 1 s.
 - **Color**: 8 colors to choose from.
-- **▶ Play / ■ Stop**: to try the sound from the editor.
+- **Play / Stop**: the big green button at the top of the editor, to try the sound.
 - **Clear slot**: removes the sound from the button.
 - **✓ Done**: closes the editor.
 
@@ -116,7 +139,7 @@ horizontal scrolling or dragging away from the handles moves the view; a double-
 **Show all** returns to the whole sound. When zoomed in, a **scroll bar** under the waveform shows
 the visible part: drag it to travel through the sound, or click beside it to jump there.
 
-While playing (jingle button or **▶ Play**), a **click on the waveform**, away from the handles,
+While playing (jingle button or **Play**), a **click on the waveform**, away from the handles,
 moves playback to that spot, with a click-free micro-fade.
 
 Excluded parts are darkened and fades are drawn as ramps. Start and end are grabbed in the lower
@@ -140,7 +163,7 @@ jingle only. It turns orange and reads “on” when it changes the sound. See
 A module in **Playlist** mode plays a list of audio files: a whole folder, sorted by name, or
 files picked one by one.
 
-- **＋ Add**:
+- **Add** (orange +):
   - **Files…** or **A folder…**: adds the sounds at the end of the current list;
   - **Open a folder (replaces the list)…**: the list becomes the folder's content.
   You can also drop files or a folder onto the playlist.
@@ -199,28 +222,30 @@ Outside edit mode, a **Normalize** row reminds you of the current setting.
 **Cuelist** mode follows a show running order, QLab style: an ordered list of sounds (the **cues**)
 fired one by one.
 
-- **Add sounds**: **＋ Add sounds…**, or drop files or folders onto the list. A playlist track can
+- **Add sounds**: the **Add sounds…** button (orange +), or drop files or folders onto the list. A playlist track can
   also be dragged in, at the place you want.
 - **RUNNING**: the green frame at the top follows the last fired cue still playing: its name,
-  elapsed time, a progress bar and remaining time.
-- **STANDBY**: the amber frame shows the cue the next GO will fire, and the one after. In the list
+  elapsed time, a progress bar and remaining time. **Click in the bar** to jump there.
+- **NEXT**: the amber frame shows the cue the next GO will fire (the "standby" cue), and the one after. Its title reads **CHAINED** when that cue will start by itself at the end of the previous one. In the list
   it is highlighted and marked ▶.
 - **GO** (or the **space bar**): fires the standby cue and puts the next one on standby. Fired cues
   keep playing together until they end. The double-GO protection from the preferences also guards
   this button. After the last cue the frame shows **End of the cue list** and GO goes dark.
-- **Previous** / **Next**: move the standby cue without firing anything. **Click** a cue to put it
-  on standby.
+- **Pause** (or the **P** key): pauses the cues that are playing without losing their place; the frame shows
+  **PAUSED**. **P** or **GO** resumes (GO resumes, then plays the standby cue). A chained cue waits for the resume.
+- **Previous** / **Next** (or the **Up / Down arrows**): move the standby cue without firing anything. **Click** a cue to put it
+  on standby; **double-click** fires GO on that cue (it starts and the next one goes on standby).
 - **Stop**: stops every cue of the list; the standby cue does not change. While a cue plays, its row
   fills in green, shows the remaining time and a **■** button that stops only that cue.
-- **Continue or stop**: the small arrow next to a cue's number. **↓** (orange): when the cue
-  ends, the next one starts by itself and the standby cue moves on. **·**: when it ends, wait for
+- **Continue or stop**: the small badge next to a cue's number. **Black arrow on orange**: when the cue
+  ends, the next one starts by itself and the standby cue moves on. **Grey bar in a box**: when it ends, wait for
   the next GO. A click toggles. A cue stopped by hand (■, Stop, Esc) does not continue.
-- **Cue settings**: **double-click** the cue, or **right-click → Settings…**. The window is the
+- **Cue settings**: **right-click → Settings…**, or double-click the cue in edit mode (✏). The window is the
   jingle one: volume, fade in and out, start and end points on the waveform (click the waveform
   while playing to move there), equalizer, and the **When it ends: Stop / Continue** choice. No
   loop for cues for now. An **EQ** badge on the row means its equalizer is on.
 - **Volume**: **click** a cue's dB value to type it (Enter confirms; without a sign the value is negative).
-- **Order**: drag a cue up or down; a blue line shows where it will land. The standby cue stays the
+- **Order**: drag a cue up or down (in edit mode, grab it by its number); a blue line shows where it will land, and the list scrolls by itself near its edges. The standby cue stays the
   same sound.
 - **Right-click** a cue: **Play now** (without changing the standby cue), **Settings…**, **Put on standby**,
   **Remove from the list**.
@@ -291,6 +316,7 @@ nothing changed in the audio settings, playback is not interrupted.
 ### System
 
 - **Language**: Français or English. The interface and this help switch immediately.
+- **Memory warning above**: threshold (in MB) above which the sound memory turns red in the bottom bar (0 = never). Jingles and cues are kept whole in memory; long tracks belong in a playlist.
 - **Prevent sleep during playback**: while a sound is playing (or paused), the computer and screen do not go to sleep. On Windows, JingleStar asks the system (see `powercfg /requests`); on macOS, through a power assertion (see `pmset -g assertions`). Closing a laptop's lid still puts it to sleep.
 
 At the bottom of the window, the **build version** (version, commit and build date) tells you which
@@ -299,12 +325,24 @@ update is installed; click it to copy it.
 ## Projects and saving
 
 - The session is **saved automatically** and restored on next launch (modules, jingles, playlists, preferences).
+- **Save** (Ctrl+S) saves into the open project; a dot (●) flags unsaved changes. With no open project, it asks where to save.
 - **Save as…** creates a `.jinglestar` file (a project), to keep several setups.
-- **Open…** loads a project: every sound stops, then the project replaces the current session.
+- **Open…** loads a project: every sound stops, then the project replaces the current session. The audio device, preferences and remote mappings stay those of this computer (kept separately, in `machine.json`).
 
-A project stores the **path** of the sound files, not the sounds themselves: if you move or rename
-a file, the matching button shows an error. Pick the file again (**Change…** or right-click →
-**Choose a file…**).
+A project stores the **path** of the sound files, not the sounds themselves. If a sound is missing:
+
+- when opening a project copied from another computer, JingleStar looks for each sound at the same
+  place relative to the project file (keep the project in the show folder);
+- **Locate…** in the bottom bar looks for missing sounds in a folder, by name;
+- a drive plugged back in is picked up by itself (a new try every 5 s), and a file replaced on
+  disk is reloaded;
+- otherwise, pick the file again (**Change…** or right-click → **Choose a file…**).
+
+**Session safety**: every save is written and flushed to disk before it replaces the previous one,
+kept as `session.json.bak`. At launch, a dated copy goes to the `sauvegardes` folder (the last 5).
+An unreadable session is never overwritten: it is set aside (`session-illisible-<date>.json`), the
+backup is loaded and a banner says so. These files and the `jinglestar.log` log (errors, crashes)
+are in the configuration folder: `%APPDATA%\acetayls\JingleStar\config` on Windows.
 
 ## OSC control
 
@@ -355,9 +393,12 @@ default prefix.
 | `/jinglestar/module/<m>/cue/next` | — | Next cue on standby |
 | `/jinglestar/module/<m>/cue/previous` | — | Previous cue on standby |
 | `/jinglestar/module/<m>/cue/standby` | int | Puts cue no. on standby |
+| `/jinglestar/module/<m>/cue/pause` | — | Pause / resume the sounding cues |
+| `/jinglestar/module/<m>/cue/paused` | bool | Pauses (true) or resumes (false) |
 
 - Triggers (`play`, `stop`, `toggle`, `next`…) fire with no argument or a non-zero value: a button sending 1 on press and 0 on release triggers only once.
 - Booleans accept `T`/`F`, an int or a float (≥ 0.5 = true), or `true`/`false`/`on`/`off`.
+- **Bitfocus Companion / Stream Deck**: a ready-made module lives in the repository's `companion/` folder (see its README). For button feedback, OSCQuery also publishes each jingle's color and remaining time, the current track's title and remaining time, and the name and remaining time of the sounding cue, and each one's progress (`progress`, 0 to 1). `/jinglestar/subscribe` subscribes the sender for 5 s to module levels (`/jinglestar/module/<m>/meter`, left and right dB, about 20 times per second): renew it every 2 to 3 s.
 - Jingle commands only act on a module in Jingles mode, playlist commands on a module in Playlist mode. Bundles are accepted.
 
 ### OSCQuery
@@ -509,18 +550,27 @@ The learned trigger is shown, for example, as **M32 · ch/05/mix/on** (MUTE key 
 
 ## Keyboard and mouse shortcuts
 
+The list of keys is also in **Remote → Shortcuts**.
+
 | Action | Shortcut |
 |---|---|
 | Stop all | **Esc** (except while typing text) |
 | Open or close the help | **F1** |
+| Save / Save as | **Ctrl+S** / **Ctrl+Shift+S** |
+| Open a project | **Ctrl+O** |
+| Close the project (blank project, after confirmation) | **Ctrl+W** or **Ctrl+N** |
 | GO of the first Cuelist | **Space** (except while typing text) |
-| Reorder the cue list | Drag a cue |
-| Play / stop a jingle | Click the button (play mode) |
+| Pause / resume the first Cuelist | **P** (except while typing text) |
+| Previous / next standby cue, without playing it | **Up / Down arrow** (except while typing text) |
+| Reorder the cue list | Drag a cue (by its number in edit mode) |
+| Play / stop a jingle | Click the button (play mode), or its keyboard shortcut |
+| Give a jingle a shortcut | Jingle editor → **Shortcut** → **Choose…**, then the key (refused if already taken) |
 | Jingle menu | Right-click the button |
 | Fill buttons | Drag and drop one or more files |
 | Add to a playlist | Drag and drop files or a folder onto the playlist |
 | Play a playlist track | Double-click the track |
 | Module volume to 0 dB | Double-click the fader |
+| Raise / lower a module's volume by 1 dB | Click the fader, then **+** / **−** (the arrows don't move it) |
 | Type a dB value (fader, jingle, track) | Click the value, then Enter (Escape cancels); no sign = negative |
 | Module widths | Drag the divider; double-click to equalize |
 | Search the help | Ctrl+F in the help window |
@@ -533,7 +583,9 @@ The learned trigger is shown, for example, as **M32 · ch/05/mix/on** (MUTE key 
 
 ## Troubleshooting
 
-- **No audio output** (red light): open **Preferences → Audio**, pick a device, click **Refresh list** if needed, then **Apply**.
+- **No audio output** (red light): open **Preferences → Audio**, pick a device, click **Refresh list** if needed, then **Apply** (which always reopens a failed output).
+- **Audio output lost** (red banner): plug the interface back in, JingleStar reconnects by itself; **Reconnect** forces a try.
+- **Odd behaviour or a crash**: the `jinglestar.log` log, in the configuration folder, keeps errors and crash traces.
 - **Crackles**: increase the **buffer size** (512 or 1024 samples).
 - **A button shows an error**: the file was moved, renamed, or its format is not supported. Pick the file again.
 - **A module plays on the wrong output**: check its **Output** menu; an orange ⚠ means the pair does not exist on the active device.

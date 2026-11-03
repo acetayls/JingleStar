@@ -9,9 +9,22 @@ use crate::i18n::tr;
 use crate::project::{ConsoleSettings, M32Settings, OscSettings};
 use crate::remote::{ActionKind, Mapping, Trigger};
 
+/// Onglets de la fenêtre : un par protocole, puis les correspondances et les raccourcis clavier.
+#[derive(Default, Clone, Copy, PartialEq)]
+enum Tab {
+    #[default]
+    Osc,
+    Midi,
+    Yamaha,
+    M32,
+    Mappings,
+    Keyboard,
+}
+
 #[derive(Default)]
 pub struct RemoteWindow {
     pub open: bool,
+    tab: Tab,
     midi_ports: Vec<String>,
     /// Adresse de la console en cours de saisie, appliquée avec « Connecter ».
     console: Option<ConsoleSettings>,
@@ -41,17 +54,36 @@ impl RemoteWindow {
             .resizable(true)
             .collapsible(false)
             .show(ctx, |ui| {
-                let max_h = (ctx.content_rect().height() - 80.0).max(200.0);
-                egui::ScrollArea::vertical().id_salt("remote-scroll").max_height(max_h).auto_shrink([false, true]).show(ui, |ui| {
-                self.osc_section(ui, ctrl);
+                ui.horizontal_wrapped(|ui| {
+                    for (tab, label) in [
+                        (Tab::Osc, "OSC"),
+                        (Tab::Midi, "MIDI"),
+                        (Tab::Yamaha, "Yamaha"),
+                        (Tab::M32, "Midas M32 / X32"),
+                        (Tab::Mappings, tr("Correspondances", "Mappings")),
+                        (Tab::Keyboard, tr("Raccourcis", "Shortcuts")),
+                    ] {
+                        ui.selectable_value(&mut self.tab, tab, label);
+                    }
+                });
                 ui.separator();
-                self.midi_section(ui, ctrl);
-                ui.separator();
-                self.console_section(ui, ctrl);
-                ui.separator();
-                self.m32_section(ui, ctrl);
-                ui.separator();
-                mappings(ui, ctrl);
+                // « Apprendre » ne reste pas actif dans un onglet où on ne le voit pas.
+                if self.tab != Tab::Mappings {
+                    ctrl.learn = None;
+                }
+                let max_h = (ctx.content_rect().height() - 120.0).max(200.0);
+                egui::ScrollArea::vertical().id_salt("remote-scroll").max_height(max_h).auto_shrink([false, true]).show(ui, |ui| match self.tab {
+                    Tab::Osc => self.osc_section(ui, ctrl),
+                    Tab::Midi => self.midi_section(ui, ctrl),
+                    Tab::Yamaha => self.console_section(ui, ctrl),
+                    Tab::M32 => self.m32_section(ui, ctrl),
+                    Tab::Mappings => mappings(ui, ctrl),
+                    Tab::Keyboard => {
+                        ui.heading(tr("Raccourcis clavier", "Keyboard shortcuts"));
+                        super::shortcuts_page(ui);
+                        ui.add_space(8.0);
+                        super::hotkeys::jingle_hotkeys_list(ui, ctrl);
+                    }
                 });
             });
         if !open {
@@ -347,6 +379,29 @@ fn mappings(ui: &mut Ui, ctrl: &mut Controller) {
                         let mut n = m.module + 1;
                         ui.add(egui::DragValue::new(&mut n).range(1..=MAX_MODULES));
                         m.module = n - 1;
+                        // Dit tout de suite si la correspondance ne fera rien : module absent
+                        // ou dans un autre mode que celui de l'action.
+                        let p = &ctrl.project;
+                        let (txt, warn) = if m.module >= p.module_count {
+                            (format!("{} ({} {})", tr("absent", "missing"), tr("le projet en a", "the project has"), p.module_count), true)
+                        } else {
+                            let md = &p.modules[m.module];
+                            match m.action.required_mode() {
+                                Some(need) if md.mode != need => (
+                                    format!("{} : {} {}", md.name, tr("sans effet, module en mode", "no effect, module in"), super::mode_label(md.mode)),
+                                    true,
+                                ),
+                                _ => (md.name.clone(), false),
+                            }
+                        };
+                        let txt = if warn { format!("⚠ {txt}") } else { txt };
+                        let resp = ui.label(RichText::new(txt).small().color(if warn { ACCENT } else { TEXT_DIM }));
+                        if warn {
+                            resp.on_hover_text(tr(
+                                "Cette correspondance n'agit que sur un module présent et dans le mode de l'action (Jingles, Playlist ou Cuelist).",
+                                "This mapping only acts on a module that exists and is in the action's mode (Jingles, Playlist or Cuelist).",
+                            ));
+                        }
                     });
                 } else {
                     ui.label("");
@@ -358,9 +413,10 @@ fn mappings(ui: &mut Ui, ctrl: &mut Controller) {
                         ui.add(egui::DragValue::new(&mut n).range(1..=JINGLE_SLOTS));
                         m.jingle = n - 1;
                         let name = ctrl.project.modules.get(m.module).and_then(|md| md.jingles[m.jingle].as_ref()).map(|j| j.name.clone());
-                        if let Some(name) = name {
-                            ui.label(RichText::new(name).small().color(TEXT_DIM));
-                        }
+                        match name {
+                            Some(name) => ui.label(RichText::new(name).small().color(TEXT_DIM)),
+                            None => ui.label(RichText::new(tr("⚠ emplacement vide", "⚠ empty slot")).small().color(ACCENT)),
+                        };
                     });
                 } else {
                     ui.label("");

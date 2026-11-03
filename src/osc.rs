@@ -3,11 +3,11 @@
 //!
 //! Les numéros de module, de jingle et de morceau sont comptés à partir de 1 dans les adresses.
 
-use std::net::UdpSocket;
+use std::net::{SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use rosc::{OscMessage, OscPacket, OscType};
@@ -45,6 +45,8 @@ pub enum OscCommand {
     CueStep(usize, isize),
     /// Met le cue n° en attente.
     CueStandby(usize, usize),
+    /// Pause des cues qui sonnent : état imposé, ou bascule (`None`).
+    CuePause(usize, Option<bool>),
 }
 
 // ------------------------------------------------------------------ état publié
@@ -72,6 +74,13 @@ pub struct CueListState {
     pub standby: usize,
     /// Nombre de cues qui sonnent.
     pub playing: usize,
+    /// Nom du dernier cue lancé qui sonne encore.
+    pub playing_name: String,
+    /// Temps restant de ce cue (s).
+    pub remaining: Option<f32>,
+    /// Avancement de ce cue (0 à 1).
+    pub progress: Option<f32>,
+    pub paused: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -79,12 +88,23 @@ pub struct JingleState {
     pub name: String,
     pub volume_db: f32,
     pub playing: bool,
+    pub color: [u8; 3],
+    /// Temps restant (s) ; `None` à l'arrêt ou en boucle.
+    pub remaining: Option<f32>,
+    /// Avancement entre les points de début et de fin (0 à 1) ; `None` à l'arrêt.
+    pub progress: Option<f32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlaylistState {
     pub tracks: usize,
     pub current: Option<usize>,
+    /// Titre du morceau sélectionné (nom du fichier).
+    pub title: String,
+    /// Temps restant du morceau en cours (s).
+    pub remaining: Option<f32>,
+    /// Avancement du morceau en cours (0 à 1).
+    pub progress: Option<f32>,
     pub playing: bool,
     pub paused: bool,
     pub shuffle: bool,
@@ -103,15 +123,17 @@ pub fn normalize_prefix(prefix: &str) -> String {
     }
 }
 
+/// Nombre reçu ; une valeur non numérique (« nan », infini) est refusée.
 fn arg_f32(args: &[OscType]) -> Option<f32> {
-    match args.first()? {
-        OscType::Float(v) => Some(*v),
-        OscType::Double(v) => Some(*v as f32),
-        OscType::Int(v) => Some(*v as f32),
-        OscType::Long(v) => Some(*v as f32),
-        OscType::String(s) => s.trim().parse().ok(),
-        _ => None,
-    }
+    let v = match args.first()? {
+        OscType::Float(v) => *v,
+        OscType::Double(v) => *v as f32,
+        OscType::Int(v) => *v as f32,
+        OscType::Long(v) => *v as f32,
+        OscType::String(s) => s.trim().parse().ok()?,
+        _ => return None,
+    };
+    v.is_finite().then_some(v)
 }
 
 fn arg_bool(args: &[OscType]) -> Option<bool> {
@@ -182,6 +204,8 @@ pub fn parse(prefix: &str, msg: &OscMessage) -> Result<Option<OscCommand>, Strin
                 ["cue", action] => match *action {
                     "next" => trigger(OscCommand::CueStep(m, 1)),
                     "previous" => trigger(OscCommand::CueStep(m, -1)),
+                    "pause" => trigger(OscCommand::CuePause(m, None)),
+                    "paused" => Ok(Some(OscCommand::CuePause(m, Some(flag()?)))),
                     "standby" => {
                         let n = value()?;
                         if n < 1.0 {
@@ -260,6 +284,18 @@ fn trigger_leaf(description: &str) -> Value {
     leaf("N", ACCESS_WRITE, description, None, None)
 }
 
+/// Avancement de 0 à 1, au millième ; -1 quand rien ne joue.
+fn progress_leaf(description: &str, progress: Option<f32>) -> Value {
+    let v = progress.map(|p| (p.clamp(0.0, 1.0) * 1000.0).round() / 1000.0).unwrap_or(-1.0);
+    leaf("f", ACCESS_READ, description, Some(json!(v)), None)
+}
+
+/// Temps restant en secondes, au dixième ; -1 quand il n'y en a pas.
+fn remaining_leaf(description: &str, remaining: Option<f32>) -> Value {
+    let v = remaining.map(|r| (r.max(0.0) * 10.0).round() / 10.0).unwrap_or(-1.0);
+    leaf("f", ACCESS_READ, description, Some(json!(v)), None)
+}
+
 /// Place `node` à `path` en créant les dossiers intermédiaires.
 fn insert(root: &mut Value, path: &str, mut node: Value) {
     let mut cur = root;
@@ -292,6 +328,10 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
     let mut add = |path: String, node: Value| insert(&mut root, &format!("{p}{path}"), node);
     add("/stop_all".into(), trigger_leaf("Arrête tous les sons"));
     add("/go".into(), trigger_leaf("GO du premier module GO"));
+    add(
+        "/subscribe".into(),
+        leaf("i", ACCESS_WRITE, "Reçoit les niveaux (…/module/<m>/meter, dB G et D) pendant 5 s ; argument : port de réception", None, None),
+    );
     for (mi, m) in snap.modules.iter().enumerate() {
         let base = format!("/module/{}", mi + 1);
         add(format!("{base}/name"), leaf("s", ACCESS_READ, "Nom du module", Some(json!(m.name)), None));
@@ -337,6 +377,14 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
                 add(format!("{base}/cue/name"), leaf("s", ACCESS_READ, "Nom du cue en attente", Some(json!(standby_name)), None));
                 add(format!("{base}/cue/count"), leaf("i", ACCESS_READ, "Nombre de cues", Some(json!(c.names.len())), None));
                 add(format!("{base}/cue/playing"), leaf("i", ACCESS_READ, "Nombre de cues qui sonnent", Some(json!(c.playing)), None));
+                add(
+                    format!("{base}/cue/playing_name"),
+                    leaf("s", ACCESS_READ, "Nom du dernier cue lancé qui sonne", Some(json!(c.playing_name)), None),
+                );
+                add(format!("{base}/cue/remaining"), remaining_leaf("Temps restant du cue qui sonne (s, -1 : aucun)", c.remaining));
+                add(format!("{base}/cue/progress"), progress_leaf("Avancement du cue qui sonne (0 à 1, -1 : aucun)", c.progress));
+                add(format!("{base}/cue/pause"), trigger_leaf("Pause / reprise des cues qui sonnent"));
+                add(format!("{base}/cue/paused"), leaf(bool_type(c.paused), ACCESS_RW, "La cuelist est en pause", Some(json!(c.paused)), None));
             }
             ModuleMode::Jingle => {
                 for (si, j) in m.jingles.iter().enumerate() {
@@ -358,6 +406,13 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
                     );
                     let playing = j.as_ref().map(|j| j.playing).unwrap_or(false);
                     add(format!("{jb}/playing"), leaf(bool_type(playing), ACCESS_READ, "Le jingle joue", Some(json!(playing)), None));
+                    let color = j.as_ref().map(|j| format!("#{:02x}{:02x}{:02x}", j.color[0], j.color[1], j.color[2])).unwrap_or_default();
+                    add(format!("{jb}/color"), leaf("s", ACCESS_READ, "Couleur du jingle (#rrggbb)", Some(json!(color)), None));
+                    add(
+                        format!("{jb}/remaining"),
+                        remaining_leaf("Temps restant (s, -1 : à l'arrêt ou en boucle)", j.as_ref().and_then(|j| j.remaining)),
+                    );
+                    add(format!("{jb}/progress"), progress_leaf("Avancement (0 à 1, -1 : à l'arrêt)", j.as_ref().and_then(|j| j.progress)));
                 }
             }
             ModuleMode::Playlist => {
@@ -380,6 +435,9 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
                     ),
                 );
                 add(format!("{pb}/tracks"), leaf("i", ACCESS_READ, "Nombre de morceaux", Some(json!(pl.tracks)), None));
+                add(format!("{pb}/title"), leaf("s", ACCESS_READ, "Titre du morceau sélectionné", Some(json!(pl.title)), None));
+                add(format!("{pb}/remaining"), remaining_leaf("Temps restant du morceau (s, -1 : à l'arrêt)", pl.remaining));
+                add(format!("{pb}/progress"), progress_leaf("Avancement du morceau (0 à 1, -1 : à l'arrêt)", pl.progress));
                 add(format!("{pb}/playing"), leaf(bool_type(pl.playing), ACCESS_READ, "La playlist joue", Some(json!(pl.playing)), None));
                 add(format!("{pb}/shuffle"), leaf(bool_type(pl.shuffle), ACCESS_RW, "Lecture aléatoire", Some(json!(pl.shuffle)), None));
                 add(format!("{pb}/loop"), leaf(bool_type(pl.looping), ACCESS_RW, "Boucle sur la liste", Some(json!(pl.looping)), None));
@@ -460,6 +518,10 @@ pub struct OscServer {
     pub http_port: Option<u16>,
     /// Problèmes au démarrage (port occupé…).
     pub startup_errors: Vec<String>,
+    /// Destinataires des niveaux (adresse, dernier abonnement) et socket d'envoi.
+    subscribers: Arc<Mutex<Vec<(SocketAddr, Instant)>>>,
+    sender: Option<UdpSocket>,
+    prefix: String,
     stop: Arc<AtomicBool>,
     threads: Vec<JoinHandle<()>>,
     mdns: Option<mdns_sd::ServiceDaemon>,
@@ -476,6 +538,9 @@ impl OscServer {
             udp_port: None,
             http_port: None,
             startup_errors: Vec::new(),
+            subscribers: Arc::new(Mutex::new(Vec::new())),
+            sender: None,
+            prefix: normalize_prefix(&settings.prefix),
             stop: Arc::new(AtomicBool::new(false)),
             threads: Vec::new(),
             mdns: None,
@@ -484,12 +549,13 @@ impl OscServer {
             Ok(sock) => {
                 let _ = sock.set_read_timeout(Some(Duration::from_millis(200)));
                 s.udp_port = Some(settings.port);
-                let (stop, prefix) = (s.stop.clone(), settings.prefix.clone());
+                s.sender = sock.try_clone().ok();
+                let (stop, prefix, subs) = (s.stop.clone(), settings.prefix.clone(), s.subscribers.clone());
                 let repaint = repaint.clone();
                 s.threads.push(
                     std::thread::Builder::new()
                         .name("osc-udp".into())
-                        .spawn(move || udp_loop(sock, prefix, stop, cmd_tx, err_tx, repaint))
+                        .spawn(move || udp_loop(sock, prefix, stop, cmd_tx, err_tx, subs, repaint))
                         .expect("thread OSC"),
                 );
             }
@@ -526,6 +592,61 @@ impl OscServer {
             }
         }
     }
+
+    /// Quelqu'un attend-il les niveaux ?
+    pub fn has_subscribers(&self) -> bool {
+        self.subscribers.lock().map(|s| !s.is_empty()).unwrap_or(false)
+    }
+
+    /// Envoie le niveau de chaque module (dB, gauche et droite) aux abonnés encore actifs.
+    pub fn send_levels(&self, levels: &[[f32; 2]]) {
+        let Some(sock) = self.sender.as_ref() else { return };
+        let targets: Vec<SocketAddr> = match self.subscribers.lock() {
+            Ok(mut subs) => {
+                subs.retain(|(_, t)| t.elapsed() < SUBSCRIPTION);
+                subs.iter().map(|(a, _)| *a).collect()
+            }
+            Err(_) => return,
+        };
+        if targets.is_empty() {
+            return;
+        }
+        let content = levels
+            .iter()
+            .enumerate()
+            .map(|(m, l)| {
+                OscPacket::Message(OscMessage {
+                    addr: format!("{}/module/{}/meter", self.prefix, m + 1),
+                    args: vec![OscType::Float(l[0].max(-120.0)), OscType::Float(l[1].max(-120.0))],
+                })
+            })
+            .collect();
+        let bundle = OscPacket::Bundle(rosc::OscBundle { timetag: rosc::OscTime { seconds: 0, fractional: 1 }, content });
+        if let Ok(bytes) = rosc::encoder::encode(&bundle) {
+            for t in targets {
+                let _ = sock.send_to(&bytes, t);
+            }
+        }
+    }
+}
+
+/// Un abonnement aux niveaux dure ce temps sans être renouvelé.
+const SUBSCRIPTION: Duration = Duration::from_secs(5);
+
+/// « …/subscribe » : l'expéditeur recevra les niveaux sur son adresse et son port d'envoi,
+/// ou sur le port donné en argument.
+fn subscribe(subs: &Mutex<Vec<(SocketAddr, Instant)>>, mut from: SocketAddr, msg: &OscMessage) {
+    if let Some(OscType::Int(p)) = msg.args.first() {
+        if (1..=65535).contains(p) {
+            from.set_port(*p as u16);
+        }
+    }
+    if let Ok(mut s) = subs.lock() {
+        s.retain(|(a, _)| *a != from);
+        if s.len() < 16 {
+            s.push((from, Instant::now()));
+        }
+    }
 }
 
 impl Drop for OscServer {
@@ -546,12 +667,14 @@ fn udp_loop(
     stop: Arc<AtomicBool>,
     commands: Sender<OscCommand>,
     errors: Sender<String>,
+    subs: Arc<Mutex<Vec<(SocketAddr, Instant)>>>,
     repaint: Arc<dyn Fn() + Send + Sync>,
 ) {
     let mut buf = vec![0u8; 65_536];
+    let subscribe_addr = format!("{}/subscribe", normalize_prefix(&prefix));
     while !stop.load(Ordering::Relaxed) {
-        let n = match sock.recv_from(&mut buf) {
-            Ok((n, _)) => n,
+        let (n, from) = match sock.recv_from(&mut buf) {
+            Ok(r) => r,
             Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => continue,
             // Sous Windows, un ICMP « port injoignable » remonte en erreur de réception : on l'ignore.
             Err(_) => continue,
@@ -561,6 +684,10 @@ fn udp_loop(
                 let mut messages = Vec::new();
                 flatten(packet, &mut messages);
                 for msg in messages {
+                    if msg.addr == subscribe_addr {
+                        subscribe(&subs, from, &msg);
+                        continue;
+                    }
                     match parse(&prefix, &msg) {
                         Ok(Some(cmd)) => {
                             let _ = commands.send(cmd);
@@ -653,6 +780,11 @@ mod tests {
             parse(p, &msg("/jinglestar/module/3/playlist/play", vec![OscType::Int(4)])),
             Ok(Some(OscCommand::PlaylistPlay(2, Some(3))))
         );
+        // Valeur non numérique : refusée, le volume ne bouge pas.
+        for bad in [OscType::String("nan".into()), OscType::Float(f32::NAN), OscType::Double(f64::INFINITY), OscType::String("inf".into())] {
+            assert!(parse(p, &msg("/jinglestar/module/1/volume", vec![bad.clone()])).is_err(), "{bad:?}");
+            assert!(parse(p, &msg("/jinglestar/module/1/jingle/1/volume", vec![bad])).is_err());
+        }
         assert_eq!(parse(p, &msg("/jinglestar/module/3/playlist/previous", vec![])), Ok(Some(OscCommand::PlaylistStep(2, -1))));
         assert_eq!(parse(p, &msg("/jinglestar/module/2/playlist/pause", vec![])), Ok(Some(OscCommand::PlaylistPause(1, None))));
         assert_eq!(parse(p, &msg("/jinglestar/go", vec![])), Ok(Some(OscCommand::CueGo(None))));
@@ -660,6 +792,11 @@ mod tests {
         assert_eq!(parse(p, &msg("/jinglestar/module/4/go", vec![OscType::Int(0)])), Ok(None));
         assert_eq!(parse(p, &msg("/jinglestar/module/4/cue/previous", vec![])), Ok(Some(OscCommand::CueStep(3, -1))));
         assert_eq!(parse(p, &msg("/jinglestar/module/4/cue/standby", vec![OscType::Int(5)])), Ok(Some(OscCommand::CueStandby(3, 4))));
+        assert_eq!(parse(p, &msg("/jinglestar/module/4/cue/pause", vec![])), Ok(Some(OscCommand::CuePause(3, None))));
+        assert_eq!(
+            parse(p, &msg("/jinglestar/module/4/cue/paused", vec![OscType::Bool(true)])),
+            Ok(Some(OscCommand::CuePause(3, Some(true))))
+        );
         assert_eq!(
             parse(p, &msg("/jinglestar/module/1/mode", vec![OscType::String("go".into())])),
             Ok(Some(OscCommand::ModuleMode(0, ModuleMode::Go)))
@@ -698,7 +835,7 @@ mod tests {
 
     fn snapshot() -> Snapshot {
         let mut jingles = vec![None; JINGLE_SLOTS];
-        jingles[0] = Some(JingleState { name: "Intro".into(), volume_db: -3.0, playing: true });
+        jingles[0] = Some(JingleState { name: "Intro".into(), volume_db: -3.0, playing: true, color: [255, 128, 0], remaining: Some(4.26), progress: Some(0.25) });
         Snapshot {
             modules: vec![
                 ModuleState {
@@ -723,7 +860,13 @@ mod tests {
                     volume_db: 0.0,
                     jingles: vec![None; JINGLE_SLOTS],
                     playlist: PlaylistState::default(),
-                    cues: CueListState { names: vec!["Ouverture".into(), "Pluie".into()], standby: 1, playing: 1 },
+                    cues: CueListState {
+                        names: vec!["Ouverture".into(), "Pluie".into()],
+                        standby: 1,
+                        playing: 1,
+                        playing_name: "Ouverture".into(),
+                        ..Default::default()
+                    },
                 },
             ],
         }
@@ -748,6 +891,13 @@ mod tests {
         assert_eq!((code, v), (200, json!({ "VALUE": [2] })));
         let (_, v) = answer("/jinglestar/module/3/cue/name?VALUE", &settings, &snap);
         assert_eq!(v, json!({ "VALUE": ["Pluie"] }));
+        assert_eq!(jingle["CONTENTS"]["color"]["VALUE"][0], "#ff8000");
+        assert_eq!(jingle["CONTENTS"]["progress"]["VALUE"][0].as_f64(), Some(0.25));
+        assert_eq!(jingle["CONTENTS"]["remaining"]["VALUE"][0].as_f64(), Some(4.3f32 as f64));
+        let (_, v) = answer("/jinglestar/module/2/playlist/remaining?VALUE", &settings, &snap);
+        assert_eq!(v, json!({ "VALUE": [-1.0] }));
+        let (_, v) = answer("/jinglestar/module/3/cue/playing_name?VALUE", &settings, &snap);
+        assert_eq!(v, json!({ "VALUE": ["Ouverture"] }));
         let (_, info) = answer("/?HOST_INFO", &settings, &snap);
         assert_eq!(info["OSC_PORT"], 8000);
         assert_eq!(info["OSC_TRANSPORT"], "UDP");
@@ -759,6 +909,23 @@ mod tests {
         let server = OscServer::start(settings, Arc::new(|| {}));
         assert!(server.startup_errors.is_empty(), "{:?}", server.startup_errors);
         server.publish(snapshot());
+
+        // Abonnement aux niveaux : réponse sur le port d'envoi.
+        let listener = UdpSocket::bind(("127.0.0.1", 0)).unwrap();
+        listener.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let sub = OscPacket::Message(msg("/jinglestar/subscribe", vec![]));
+        listener.send_to(&rosc::encoder::encode(&sub).unwrap(), ("127.0.0.1", 39_871)).unwrap();
+        let t0 = Instant::now();
+        while !server.has_subscribers() && t0.elapsed() < Duration::from_secs(2) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        server.send_levels(&[[-6.0, -12.0]]);
+        let mut buf = [0u8; 1024];
+        let (n, _) = listener.recv_from(&mut buf).unwrap();
+        let OscPacket::Bundle(b) = rosc::decoder::decode_udp(&buf[..n]).unwrap().1 else { panic!("paquet groupé attendu") };
+        let OscPacket::Message(m) = &b.content[0] else { panic!("message attendu") };
+        assert_eq!(m.addr, "/jinglestar/module/1/meter");
+        assert_eq!(m.args, vec![OscType::Float(-6.0), OscType::Float(-12.0)]);
 
         let packet = OscPacket::Message(msg("/jinglestar/module/1/jingle/3/play", vec![]));
         let sock = UdpSocket::bind(("127.0.0.1", 0)).unwrap();

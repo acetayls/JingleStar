@@ -1,16 +1,17 @@
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::audio::{Channels, SampleBuffer};
+use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_AAC, CODEC_TYPE_NULL};
 use symphonia::core::errors::Error as SymError;
-use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::{FormatOptions, FormatReader};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
 use super::buffer::AudioBuffer;
 use super::loudness::{Loudness, Meter};
+use crate::i18n::tr;
 
 pub const AUDIO_EXTENSIONS: &[&str] = &[
     "wav", "wave", "aif", "aiff", "mp3", "flac", "ogg", "oga", "m4a", "aac", "mp4", "caf",
@@ -23,29 +24,126 @@ pub fn is_audio_file(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Son décodé, avec sa mesure de niveau éventuelle et un avertissement si le fichier est abîmé.
+pub struct Decoded {
+    pub buffer: AudioBuffer,
+    pub loudness: Option<Loudness>,
+    /// Paquets illisibles ignorés, ou fichier plus court que ce qu'annonce son en-tête.
+    pub warning: Option<String>,
+}
+
 /// Décode un fichier complet en mémoire, converti en stéréo et rééchantillonné à `target_rate`.
+#[cfg(test)]
 pub fn decode_file(path: &Path, target_rate: u32) -> Result<AudioBuffer> {
-    let (mut left, mut right, src_rate) = decode_planar(path)?;
+    decode(path, target_rate, false).map(|d| d.buffer)
+}
+
+/// Décode un fichier ; `analyze` mesure aussi son niveau, au taux d'origine comme `analyze_file`
+/// (les deux chemins donnent la même mesure).
+pub fn decode(path: &Path, target_rate: u32, analyze: bool) -> Result<Decoded> {
+    let Planar { mut left, mut right, rate: src_rate, warning, .. } = decode_planar(path)?;
+    let loudness = analyze.then(|| measure(&left, &right, src_rate));
     if src_rate != target_rate {
         let (l, r) = resample(&left, &right, src_rate, target_rate)?;
+        // Les tampons au taux d'origine sont libérés avant l'entrelacement.
         left = l;
         right = r;
     }
-    Ok(AudioBuffer::from_planar(left, right, target_rate))
+    let mut buffer = AudioBuffer::from_planar(left, right, target_rate);
+    buffer.stream_if_long();
+    Ok(Decoded { buffer, loudness, warning })
 }
 
 /// Mesure le niveau d'un fichier à son taux d'origine (sonie, crêtes, RMS).
 pub fn analyze_file(path: &Path) -> Result<Loudness> {
-    let (left, right, rate) = decode_planar(path)?;
+    let p = decode_planar(path)?;
+    Ok(measure(&p.left, &p.right, p.rate))
+}
+
+fn measure(left: &[f32], right: &[f32], rate: u32) -> Loudness {
     let mut meter = Meter::new(rate);
     for (l, r) in left.iter().zip(right.iter()) {
         meter.push(*l, *r);
     }
-    Ok(meter.finish())
+    meter.finish()
 }
 
-/// Décode un fichier en stéréo planaire, à son taux d'origine.
-fn decode_planar(path: &Path) -> Result<(Vec<f32>, Vec<f32>, u32)> {
+struct Planar {
+    left: Vec<f32>,
+    right: Vec<f32>,
+    rate: u32,
+    warning: Option<String>,
+    /// Images retirées par le découpage « gapless » (délai et remplissage de l'encodeur).
+    trimmed: u64,
+}
+
+/// Au-delà, le découpage gapless n'est pas un simple délai d'encodeur (quelques milliers
+/// d'images) mais un en-tête faux, qui couperait une partie du son.
+const GAPLESS_MAX_TRIM: u64 = 8192;
+
+/// Silence d'encodage d'un AAC (M4A) d'après son étiquette iTunes `iTunSMPB`
+/// (« 00000000 délai remplissage total … », en hexadécimal) : délai et nombre d'images utiles.
+fn itunes_smpb(format: &mut dyn FormatReader) -> Option<(usize, usize)> {
+    let meta = format.metadata();
+    let rev = meta.current()?;
+    let tag = rev.tags().iter().find(|t| t.key.ends_with("iTunSMPB"))?;
+    let fields: Vec<u64> = tag.value.to_string().split_whitespace().filter_map(|h| u64::from_str_radix(h, 16).ok()).collect();
+    let (delay, total) = (*fields.get(1)?, *fields.get(3)?);
+    (delay < GAPLESS_MAX_TRIM && total > 0).then_some((delay as usize, total as usize))
+}
+
+/// Coefficients (gauche, droite) de chaque canal pour le passage en stéréo.
+/// Mono et stéréo restent tels quels ; au-delà, mixage ITU (centre et arrières à -3 dB,
+/// LFE ignoré), ramené pour que la somme d'un côté ne dépasse pas 1.
+fn downmix_matrix(channels: Option<Channels>, count: usize) -> Vec<(f32, f32)> {
+    if count <= 2 {
+        return if count == 1 { vec![(1.0, 1.0)] } else { vec![(1.0, 0.0), (0.0, 1.0)] };
+    }
+    const H: f32 = std::f32::consts::FRAC_1_SQRT_2;
+    let mut m: Vec<(f32, f32)> = match channels {
+        Some(ch) if ch.count() == count => ch
+            .iter()
+            .map(|c| match c {
+                Channels::FRONT_LEFT | Channels::FRONT_LEFT_WIDE | Channels::FRONT_LEFT_HIGH => (1.0, 0.0),
+                Channels::FRONT_RIGHT | Channels::FRONT_RIGHT_WIDE | Channels::FRONT_RIGHT_HIGH => (0.0, 1.0),
+                Channels::FRONT_CENTRE | Channels::FRONT_CENTRE_HIGH | Channels::TOP_CENTRE => (H, H),
+                Channels::FRONT_LEFT_CENTRE => (1.0, 0.0),
+                Channels::FRONT_RIGHT_CENTRE => (0.0, 1.0),
+                Channels::REAR_LEFT | Channels::SIDE_LEFT | Channels::REAR_LEFT_CENTRE | Channels::TOP_REAR_LEFT | Channels::TOP_FRONT_LEFT => (H, 0.0),
+                Channels::REAR_RIGHT | Channels::SIDE_RIGHT | Channels::REAR_RIGHT_CENTRE | Channels::TOP_REAR_RIGHT | Channels::TOP_FRONT_RIGHT => (0.0, H),
+                Channels::REAR_CENTRE | Channels::TOP_REAR_CENTRE | Channels::TOP_FRONT_CENTRE => (0.5, 0.5),
+                Channels::LFE1 | Channels::LFE2 => (0.0, 0.0),
+                _ => (0.5, 0.5),
+            })
+            .collect(),
+        // Disposition inconnue : les deux premiers canaux, comme avant.
+        _ => (0..count).map(|i| match i {
+            0 => (1.0, 0.0),
+            1 => (0.0, 1.0),
+            _ => (0.0, 0.0),
+        }).collect(),
+    };
+    let (sl, sr) = m.iter().fold((0f32, 0f32), |(a, b), &(l, r)| (a + l, b + r));
+    let norm = sl.max(sr).max(1.0);
+    for c in m.iter_mut() {
+        *c = (c.0 / norm, c.1 / norm);
+    }
+    m
+}
+
+/// Décode un fichier en stéréo planaire, à son taux d'origine, sans le silence ajouté par
+/// l'encodeur au début et à la fin (MP3 avec étiquette LAME/Xing, Ogg Vorbis, AAC avec
+/// étiquette iTunes). Un en-tête faux qui couperait du son est ignoré : relecture sans découpage.
+fn decode_planar(path: &Path) -> Result<Planar> {
+    let p = decode_planar_with(path, true)?;
+    if p.trimmed > GAPLESS_MAX_TRIM {
+        crate::log::write(&format!("En-tête gapless ignoré ({} images à couper) : {}", p.trimmed, path.display()));
+        return decode_planar_with(path, false);
+    }
+    Ok(p)
+}
+
+fn decode_planar_with(path: &Path, gapless: bool) -> Result<Planar> {
     let file = std::fs::File::open(path)?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
@@ -55,10 +153,13 @@ fn decode_planar(path: &Path) -> Result<(Vec<f32>, Vec<f32>, u32)> {
     let probed = symphonia::default::get_probe().format(
         &hint,
         mss,
-        &FormatOptions::default(),
+        &FormatOptions { enable_gapless: gapless, ..Default::default() },
         &MetadataOptions::default(),
     )?;
     let mut format = probed.format;
+    // AAC : symphonia ne lit pas le délai d'encodeur des M4A ; l'étiquette iTunes le donne.
+    let aac = format.tracks().iter().any(|t| t.codec_params.codec == CODEC_TYPE_AAC);
+    let smpb = if gapless && aac { itunes_smpb(&mut *format) } else { None };
     let track = format
         .tracks()
         .iter()
@@ -66,13 +167,19 @@ fn decode_planar(path: &Path) -> Result<(Vec<f32>, Vec<f32>, u32)> {
         .ok_or_else(|| anyhow!("aucune piste audio dans {}", path.display()))?;
     let track_id = track.id;
     let mut src_rate = track.codec_params.sample_rate.unwrap_or(48_000);
+    let expected = track.codec_params.n_frames;
     let mut decoder =
         symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())?;
 
-    let mut left = Vec::new();
-    let mut right = Vec::new();
+    // Taille connue d'avance : pas de réallocations (qui doublent la mémoire au pic).
+    let cap = expected.unwrap_or(0).min(1 << 31) as usize;
+    let mut left = Vec::with_capacity(cap);
+    let mut right = Vec::with_capacity(cap);
     let mut sample_buf: Option<SampleBuffer<f32>> = None;
     let mut buf_frames = 0usize;
+    let mut matrix: Vec<(f32, f32)> = Vec::new();
+    let mut skipped = 0usize;
+    let mut trimmed = 0u64;
 
     loop {
         let packet = match format.next_packet() {
@@ -84,33 +191,78 @@ fn decode_planar(path: &Path) -> Result<(Vec<f32>, Vec<f32>, u32)> {
         if packet.track_id() != track_id {
             continue;
         }
+        // Le décodeur retire lui-même ces images (découpage gapless du format).
+        trimmed += u64::from(packet.trim_start()) + u64::from(packet.trim_end());
         let decoded = match decoder.decode(&packet) {
             Ok(d) => d,
-            // Paquet corrompu : on l'ignore et on continue.
-            Err(SymError::DecodeError(_)) => continue,
+            // Paquet corrompu : on l'ignore, et on le signale à la fin.
+            Err(SymError::DecodeError(_)) => {
+                skipped += 1;
+                continue;
+            }
             Err(e) => return Err(e.into()),
         };
         let spec = *decoded.spec();
         src_rate = spec.rate;
         let channels = spec.channels.count().max(1);
+        if matrix.len() != channels {
+            matrix = downmix_matrix(Some(spec.channels), channels);
+        }
         if sample_buf.is_none() || decoded.capacity() > buf_frames {
             buf_frames = decoded.capacity();
             sample_buf = Some(SampleBuffer::new(buf_frames as u64, spec));
         }
         let buf = sample_buf.as_mut().unwrap();
         buf.copy_interleaved_ref(decoded);
-        for frame in buf.samples().chunks_exact(channels) {
-            let l = frame[0];
-            let r = if channels > 1 { frame[1] } else { l };
-            left.push(l);
-            right.push(r);
+        if channels <= 2 {
+            for frame in buf.samples().chunks_exact(channels) {
+                let l = frame[0];
+                let r = if channels > 1 { frame[1] } else { l };
+                left.push(l);
+                right.push(r);
+            }
+        } else {
+            for frame in buf.samples().chunks_exact(channels) {
+                let (l, r) = frame.iter().zip(&matrix).fold((0f32, 0f32), |(a, b), (&x, &(cl, cr))| (a + x * cl, b + x * cr));
+                left.push(l);
+                right.push(r);
+            }
         }
     }
 
+    if let Some((delay, total)) = smpb {
+        // Retire le délai, puis le remplissage final, si l'étiquette est cohérente avec le son lu.
+        if delay < left.len() && total <= left.len() - delay && total >= (left.len() - delay) * 9 / 10 {
+            left.drain(..delay);
+            right.drain(..delay);
+            left.truncate(total);
+            right.truncate(total);
+        }
+    }
     if left.is_empty() {
         return Err(anyhow!("fichier vide ou illisible : {}", path.display()));
     }
-    Ok((left, right, src_rate))
+    left.shrink_to_fit();
+    right.shrink_to_fit();
+    let mut warning = None;
+    if skipped > 0 {
+        warning = Some(format!("{} : {skipped} {}", tr("fichier abîmé", "damaged file"), tr("paquet(s) illisible(s) ignoré(s), le son a des trous", "unreadable packet(s) skipped, the sound has gaps")));
+    }
+    // Fichier tronqué : nettement moins d'images que ce qu'annonce l'en-tête (au-delà d'une demi-seconde).
+    if let Some(n) = expected {
+        let got = left.len() as u64;
+        if n > got && n - got > src_rate as u64 / 2 {
+            let secs = |f: u64| f as f64 / src_rate.max(1) as f64;
+            warning = Some(format!(
+                "{} : {:.1} s {} {:.1} s",
+                tr("fichier tronqué", "truncated file"),
+                secs(got),
+                tr("lues sur", "read out of"),
+                secs(n)
+            ));
+        }
+    }
+    Ok(Planar { left, right, rate: src_rate, warning, trimmed })
 }
 
 fn resample(left: &[f32], right: &[f32], from: u32, to: u32) -> Result<(Vec<f32>, Vec<f32>)> {

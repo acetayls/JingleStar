@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 use crate::i18n::tr;
 use crate::osc::{OscCommand, JINGLE_DB, MODULE_DB};
+use crate::project::ModuleMode;
 
 /// Valeur « -∞ » des niveaux de la console (centièmes de dB).
 pub const CONSOLE_MIN: i32 = -32768;
@@ -189,11 +190,12 @@ pub enum ActionKind {
     CueGo,
     CueNext,
     CuePrevious,
+    CuePause,
     StopAll,
 }
 
 impl ActionKind {
-    pub const ALL: [ActionKind; 18] = [
+    pub const ALL: [ActionKind; 19] = [
         ActionKind::JingleToggle,
         ActionKind::JinglePlay,
         ActionKind::JingleStop,
@@ -211,6 +213,7 @@ impl ActionKind {
         ActionKind::CueGo,
         ActionKind::CueNext,
         ActionKind::CuePrevious,
+        ActionKind::CuePause,
         ActionKind::StopAll,
     ];
 
@@ -233,12 +236,25 @@ impl ActionKind {
             ActionKind::CueGo => tr("Conduite : GO", "Cue list: GO"),
             ActionKind::CueNext => tr("Conduite : cue suivant", "Cue list: next cue"),
             ActionKind::CuePrevious => tr("Conduite : cue précédent", "Cue list: previous cue"),
+            ActionKind::CuePause => tr("Conduite : pause / reprise", "Cue list: pause / resume"),
             ActionKind::StopAll => tr("Tout arrêter", "Stop everything"),
         }
     }
 
     pub fn needs_module(self) -> bool {
         self != ActionKind::StopAll
+    }
+
+    /// Mode que le module doit avoir pour que l'action agisse (aucun : tous les modes).
+    pub fn required_mode(self) -> Option<ModuleMode> {
+        use ActionKind::*;
+        match self {
+            JingleToggle | JinglePlay | JingleStop | JingleVolume => Some(ModuleMode::Jingle),
+            PlaylistPlay | PlaylistStop | PlaylistPause | PlaylistNext | PlaylistPrevious | PlaylistTrack | PlaylistShuffle
+            | PlaylistLoop => Some(ModuleMode::Playlist),
+            CueGo | CueNext | CuePrevious | CuePause => Some(ModuleMode::Go),
+            ModuleStop | ModuleVolume | StopAll => None,
+        }
     }
 
     pub fn needs_jingle(self) -> bool {
@@ -290,6 +306,7 @@ impl Mapping {
             ActionKind::CueGo => press(OscCommand::CueGo(Some(m))),
             ActionKind::CueNext => press(OscCommand::CueStep(m, 1)),
             ActionKind::CuePrevious => press(OscCommand::CueStep(m, -1)),
+            ActionKind::CuePause => press(OscCommand::CuePause(m, None)),
             ActionKind::PlaylistTrack => ev.track().map(|n| OscCommand::PlaylistPlay(m, Some(n - 1))),
             ActionKind::PlaylistShuffle if ev.state().is_some() || ev.press() => set(Flag::Shuffle, OscCommand::PlaylistShuffle),
             ActionKind::PlaylistLoop if ev.state().is_some() || ev.press() => set(Flag::Loop, OscCommand::PlaylistLoop),

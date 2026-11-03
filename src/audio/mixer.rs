@@ -10,7 +10,7 @@
 //! changement de sortie en fondu, et un son interrompu par un nouveau départ
 //! s'éteint en fondu court sur une voix « de traîne ».
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crossbeam_channel::{Receiver, Sender};
@@ -18,6 +18,7 @@ use crossbeam_channel::{Receiver, Sender};
 use super::buffer::AudioBuffer;
 use super::eq::{EqCoeffs, EqProcessor};
 use super::limiter::Limiter;
+use super::stream::ReaderSlot;
 
 pub const MAX_MODULES: usize = 4;
 pub const JINGLE_SLOTS: usize = 12;
@@ -53,6 +54,17 @@ pub struct Queued {
     pub id: u64,
     /// Durée du fondu enchaîné en images ; 0 = enchaînement en fin de fichier.
     pub crossfade: usize,
+}
+
+/// Son à lancer sur un autre emplacement, à l'image près, à la fin naturelle d'une voix
+/// (cue « Enchaîner » de la Cuelist).
+pub struct FollowOn {
+    pub slot: usize,
+    pub id: u64,
+    pub buffer: Arc<AudioBuffer>,
+    pub gain: f32,
+    pub region: Region,
+    pub eq: EqCoeffs,
 }
 
 /// Zone de lecture d'un son, en images : début, fin, et boucle éventuelle.
@@ -112,19 +124,28 @@ pub enum Command {
     QueueNext { module: usize, next: Option<Queued> },
     /// Met en pause (ou reprend) la voix d'un emplacement : fondu court, puis tête figée.
     SetPaused { module: usize, slot: usize, paused: bool },
+    /// À la fin naturelle de la voix `after_id` (emplacement `after_slot`), lance `next`
+    /// sur la même image. Ignoré si cette voix ne joue plus ou s'arrête déjà.
+    PlayAfter { module: usize, after_slot: usize, after_id: u64, next: FollowOn },
+    /// Retire le son prévu à la fin de la voix de l'emplacement.
+    CancelFollow { module: usize, slot: usize },
 }
 
 impl Command {
     /// Commande qui lance du son : périmée si elle attend depuis l'ouverture précédente.
     fn starts_sound(&self) -> bool {
-        matches!(self, Command::Play { .. } | Command::QueueNext { .. } | Command::SetRegion { .. } | Command::Seek { .. })
+        matches!(
+            self,
+            Command::Play { .. } | Command::QueueNext { .. } | Command::SetRegion { .. } | Command::Seek { .. } | Command::PlayAfter { .. }
+        )
     }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum Event {
-    /// Une voix s'est terminée (fin du fichier ou arrêt).
-    Ended { module: usize, slot: usize, id: u64 },
+    /// Une voix s'est terminée (fin du fichier ou arrêt). `follow` : le son prévu par
+    /// `PlayAfter` est parti sur cet emplacement, avec cet identifiant.
+    Ended { module: usize, slot: usize, id: u64, follow: Option<(usize, u64)> },
     /// La playlist est passée au morceau mis en file avec `QueueNext`.
     Advanced { module: usize, id: u64, slot: usize },
 }
@@ -135,6 +156,10 @@ pub struct Telemetry {
     pub len: [[AtomicU64; SLOTS]; MAX_MODULES],
     /// Crête depuis la dernière lecture, en bits de f32 (positifs, donc ordonnés comme des u32).
     pub peak: [[AtomicU32; 2]; MAX_MODULES],
+    /// Vrai pendant un fondu de sortie audible : arrêt en fondu ou fondu de fin réglé.
+    pub fading: [[AtomicBool; SLOTS]; MAX_MODULES],
+    /// Nombre d'appels du callback audio : s'il ne bouge plus, le flux est arrêté.
+    pub callbacks: AtomicU64,
 }
 
 impl Telemetry {
@@ -143,6 +168,8 @@ impl Telemetry {
             pos: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(NOT_PLAYING))),
             len: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
             peak: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU32::new(0))),
+            fading: std::array::from_fn(|_| std::array::from_fn(|_| AtomicBool::new(false))),
+            callbacks: AtomicU64::new(0),
         }
     }
 
@@ -150,6 +177,11 @@ impl Telemetry {
     pub fn position(&self, module: usize, slot: usize) -> Option<(u64, u64)> {
         let p = self.pos[module][slot].load(Ordering::Relaxed);
         (p != NOT_PLAYING).then(|| (p, self.len[module][slot].load(Ordering::Relaxed)))
+    }
+
+    /// L'emplacement est-il en train de s'éteindre en fondu ?
+    pub fn is_fading(&self, module: usize, slot: usize) -> bool {
+        self.fading[module][slot].load(Ordering::Relaxed)
     }
 
     pub fn take_peak(&self, module: usize) -> [f32; 2] {
@@ -160,6 +192,7 @@ impl Telemetry {
         for m in 0..MAX_MODULES {
             for s in 0..SLOTS {
                 self.pos[m][s].store(NOT_PLAYING, Ordering::Relaxed);
+                self.fading[m][s].store(false, Ordering::Relaxed);
             }
         }
     }
@@ -201,6 +234,10 @@ struct Voice {
     paused: bool,
     pause_gain: f32,
     pause_step: f32,
+    /// Images de silence avant le départ, dans le premier bloc (son enchaîné à l'image près).
+    delay: usize,
+    /// Son lu depuis le disque : place de cette lecture, pour que la suite soit chargée d'avance.
+    reader: ReaderSlot,
 }
 
 impl Voice {
@@ -225,6 +262,8 @@ impl Voice {
             paused: false,
             pause_gain: 1.0,
             pause_step: 1.0 / ramps.stop as f32,
+            delay: 0,
+            reader: None,
         };
         v.set_region(region, ramps);
         v.pos = v.region.start;
@@ -263,10 +302,22 @@ impl Voice {
         }
     }
 
+    /// Fondu de sortie en cours, plus long que le micro-fondu anti-clic : arrêt en fondu,
+    /// ou entrée dans le fondu de fin d'un son joué une fois.
+    fn is_fading_out(&self, declick: usize) -> bool {
+        match self.fade_left {
+            Some(_) => self.fade_len > declick,
+            None => {
+                self.region.looping.is_none()
+                    && self.region.fade_out > declick
+                    && self.pos + self.region.fade_out >= self.region.end
+            }
+        }
+    }
+
     /// Échantillon stéréo à la position `p`, avec le fondu de boucle éventuel.
     fn frame(&self, p: usize) -> (f32, f32) {
-        let d = &self.buffer.samples;
-        let (l, r) = (d[p * 2], d[p * 2 + 1]);
+        let (l, r) = self.buffer.frame_at(p);
         let Some((ls, le)) = self.region.looping else { return (l, r) };
         let (other, t) = if self.loop_pre > 0 && p < le && p + self.loop_pre >= le {
             let k = p + self.loop_pre - le;
@@ -277,7 +328,24 @@ impl Voice {
         } else {
             return (l, r);
         };
-        (l + (d[other * 2] - l) * t, r + (d[other * 2 + 1] - r) * t)
+        let (ol, or) = self.buffer.frame_at(other);
+        (l + (ol - l) * t, r + (or - r) * t)
+    }
+
+    /// Son lu depuis le disque : publie la tête de lecture (et la cible d'un déplacement
+    /// ou le début de boucle) pour que la suite soit chargée d'avance.
+    fn publish(&mut self) {
+        if let Some(s) = self.buffer.stream.as_deref() {
+            let extra = self.seek.or(self.region.looping.map(|(ls, _)| ls));
+            self.reader = s.publish(self.reader, self.pos, extra, self.region.looping.map(|(_, le)| le));
+        }
+    }
+
+    /// Lecture terminée : rend sa place.
+    fn release(&mut self) {
+        if let Some(s) = self.buffer.stream.as_deref() {
+            s.release(self.reader.take());
+        }
     }
 }
 
@@ -304,6 +372,8 @@ struct ModuleState {
     voices: [Option<Voice>; SLOTS],
     tails: [Option<Tail>; TAILS],
     next: Option<Queued>,
+    /// Son à enchaîner à la fin naturelle de la voix de chaque emplacement.
+    follow: [Option<FollowOn>; SLOTS],
     eq: EqProcessor,
     slot_eq: [EqProcessor; SLOTS],
 }
@@ -367,6 +437,7 @@ impl Mixer {
                     voices: std::array::from_fn(|_| None),
                     tails: std::array::from_fn(|_| None),
                     next: None,
+                    follow: std::array::from_fn(|_| None),
                     eq: flat,
                     slot_eq: [flat; SLOTS],
                 })
@@ -406,35 +477,30 @@ impl Mixer {
     /// Retire la voix d'un emplacement sans couper net : elle finit en fondu court
     /// sur une voix de traîne, avec l'état de son égaliseur.
     fn retire(&mut self, m: usize, slot: usize, new_eq: EqCoeffs) {
-        let ramps = self.ramps;
-        let st = &mut self.modules[m];
-        let eq = std::mem::replace(&mut st.slot_eq[slot], EqProcessor::new(new_eq, ramps.eq_xfade));
-        let Some(mut voice) = st.voices[slot].take() else { return };
-        voice.fade_within(ramps.stop);
-        let tail = Tail { voice, eq };
-        // Plus de place : on remplace la traîne la plus avancée dans son fondu.
-        let i = st.tails.iter().position(|t| t.is_none()).unwrap_or_else(|| {
-            (0..TAILS).min_by_key(|&i| st.tails[i].as_ref().map_or(0, |t| t.voice.fade_left.unwrap_or(0))).unwrap_or(0)
-        });
-        if let Some(old) = st.tails[i].replace(tail) {
-            self.dispose(old.voice.buffer);
-        }
+        retire(&mut self.modules[m], slot, new_eq, self.ramps, &self.garbage);
     }
 
     fn handle(&mut self, cmd: Command) {
         let ramps = self.ramps;
         match cmd {
             Command::Play { module, slot, id, buffer, gain, region, eq } => {
-                self.telemetry.len[module][slot].store(buffer.frames as u64, Ordering::Relaxed);
-                self.telemetry.pos[module][slot].store(region.start.min(buffer.frames) as u64, Ordering::Relaxed);
+                let next = FollowOn { slot, id, buffer, gain, region, eq };
+                start_voice(&mut self.modules[module], &self.telemetry, module, next, ramps, &self.garbage);
+            }
+            Command::PlayAfter { module, after_slot, after_id, next } => {
                 let st = &mut self.modules[module];
-                if st.is_idle() {
-                    // Premier son du module : le volume réglé juste avant s'applique d'emblée.
-                    st.current_gain = st.gain;
-                    st.route_left = 0;
+                let ok = next.slot != after_slot
+                    && next.slot < SLOTS
+                    && st.voices[after_slot].as_ref().is_some_and(|v| v.id == after_id && v.fade_left.is_none());
+                let old = if ok { st.follow[after_slot].replace(next) } else { Some(next) };
+                if let Some(old) = old {
+                    self.dispose(old.buffer);
                 }
-                self.retire(module, slot, eq);
-                self.modules[module].voices[slot] = Some(Voice::new(id, buffer, gain, region, ramps));
+            }
+            Command::CancelFollow { module, slot } => {
+                if let Some(old) = self.modules[module].follow[slot].take() {
+                    self.dispose(old.buffer);
+                }
             }
             Command::SetRegion { module, slot, region } => {
                 if let Some(v) = self.modules[module].voices[slot].as_mut() {
@@ -468,16 +534,19 @@ impl Mixer {
             Command::Stop { module, slot } => self.fade(module, slot, true),
             Command::StopModule { module } => {
                 self.clear_next(module);
+                self.clear_follows(module);
                 (0..SLOTS).for_each(|s| self.fade(module, s, false));
             }
             Command::StopAll => {
                 for m in 0..MAX_MODULES {
                     self.clear_next(m);
+                    self.clear_follows(m);
                     (0..SLOTS).for_each(|s| self.fade(m, s, false));
                 }
             }
             Command::StopJingles => {
                 for m in 0..MAX_MODULES {
+                    self.clear_follows(m);
                     (0..JINGLE_SLOTS).for_each(|s| self.fade(m, s, false));
                 }
             }
@@ -508,6 +577,14 @@ impl Mixer {
                 if let Some(q) = old {
                     self.dispose(q.buffer);
                 }
+            }
+        }
+    }
+
+    fn clear_follows(&mut self, module: usize) {
+        for slot in 0..SLOTS {
+            if let Some(f) = self.modules[module].follow[slot].take() {
+                self.dispose(f.buffer);
             }
         }
     }
@@ -576,6 +653,7 @@ impl Mixer {
 
     /// Remplit `out` (entrelacé, `channels` canaux).
     pub fn process(&mut self, out: &mut [f32]) {
+        self.telemetry.callbacks.fetch_add(1, Ordering::Relaxed);
         while let Ok(cmd) = self.commands.try_recv() {
             self.handle(cmd);
         }
@@ -623,63 +701,101 @@ impl Mixer {
                 }
             }
 
-            for slot in 0..SLOTS {
-                let mut ended = false;
-                let mut advanced = false;
-                let ended_id;
-                {
-                    let st = &mut self.modules[m];
-                    let Some(v) = st.voices[slot].as_mut() else { continue };
-                    ended_id = v.id;
-                    // Avec un égaliseur, la voix est rendue à part, filtrée, puis ajoutée au bus.
-                    let has_eq = !st.slot_eq[slot].is_bypassed();
-                    let target: &mut [f32] = if has_eq {
-                        voice_bus.fill(0.0);
-                        &mut *voice_bus
-                    } else {
-                        &mut *bus
-                    };
-                    let mut from = 0;
-                    while let Some(stop_at) = render_voice(v, target, from, frames, smooth) {
-                        // Fin naturelle d'un morceau de playlist : on enchaîne sur la même
-                        // image si un suivant est prêt, sinon la voix se termine.
-                        let natural = is_playlist_slot(slot) && v.fade_left.is_none();
-                        match st.next.take().filter(|_| natural) {
-                            Some(q) => {
-                                let region = Region::full(&q.buffer);
-                                let old = std::mem::replace(v, Voice::new(q.id, q.buffer, q.gain, region, ramps));
-                                // Pause demandée juste avant la fin : le suivant reste en pause.
-                                (v.paused, v.pause_gain) = (old.paused, old.pause_gain);
-                                let _ = self.garbage.try_send(old.buffer);
-                                advanced = true;
-                                from = stop_at;
-                            }
-                            None => {
-                                ended = true;
-                                break;
+            // Deux passages : un son enchaîné à l'image près sur un emplacement déjà rendu
+            // dans ce bloc y est rendu au second passage, après son silence de départ.
+            let mut revisit = [false; SLOTS];
+            for pass in 0..2 {
+                if pass == 1 && !revisit.iter().any(|r| *r) {
+                    break;
+                }
+                for slot in 0..SLOTS {
+                    if pass == 1 && !revisit[slot] {
+                        continue;
+                    }
+                    let mut ended = false;
+                    let mut natural_end = false;
+                    let mut ended_at = 0;
+                    let mut advanced = false;
+                    let ended_id;
+                    {
+                        let st = &mut self.modules[m];
+                        let Some(v) = st.voices[slot].as_mut() else { continue };
+                        ended_id = v.id;
+                        // Avec un égaliseur, la voix est rendue à part, filtrée, puis ajoutée au bus.
+                        let has_eq = !st.slot_eq[slot].is_bypassed();
+                        let target: &mut [f32] = if has_eq {
+                            voice_bus.fill(0.0);
+                            &mut *voice_bus
+                        } else {
+                            &mut *bus
+                        };
+                        let mut from = std::mem::take(&mut v.delay).min(frames);
+                        while let Some(stop_at) = render_voice(v, target, from, frames, smooth) {
+                            // Fin naturelle d'un morceau de playlist : on enchaîne sur la même
+                            // image si un suivant est prêt, sinon la voix se termine.
+                            let natural = is_playlist_slot(slot) && v.fade_left.is_none();
+                            match st.next.take().filter(|_| natural) {
+                                Some(q) => {
+                                    let region = Region::full(&q.buffer);
+                                    let old = std::mem::replace(v, Voice::new(q.id, q.buffer, q.gain, region, ramps));
+                                    // Pause demandée juste avant la fin : le suivant reste en pause.
+                                    (v.paused, v.pause_gain) = (old.paused, old.pause_gain);
+                                    let _ = self.garbage.try_send(old.buffer);
+                                    advanced = true;
+                                    from = stop_at;
+                                }
+                                None => {
+                                    ended = true;
+                                    natural_end = v.fade_left.is_none();
+                                    ended_at = stop_at;
+                                    break;
+                                }
                             }
                         }
+                        if has_eq {
+                            st.slot_eq[slot].process(voice_bus, scratch);
+                            bus.iter_mut().zip(voice_bus.iter()).for_each(|(b, x)| *b += *x);
+                        }
                     }
-                    if has_eq {
-                        st.slot_eq[slot].process(voice_bus, scratch);
-                        bus.iter_mut().zip(voice_bus.iter()).for_each(|(b, x)| *b += *x);
+                    let tel = &self.telemetry;
+                    if ended {
+                        let st = &mut self.modules[m];
+                        if let Some(old) = st.voices[slot].take() {
+                            let _ = self.garbage.try_send(old.buffer);
+                        }
+                        st.slot_eq[slot].reset();
+                        tel.pos[m][slot].store(NOT_PLAYING, Ordering::Relaxed);
+                        tel.fading[m][slot].store(false, Ordering::Relaxed);
+                        // Son prévu à la fin de celui-ci : il part sur la même image.
+                        let mut follow = None;
+                        match st.follow[slot].take() {
+                            Some(f) if natural_end => {
+                                let (ns, nid) = (f.slot, f.id);
+                                start_voice(st, tel, m, f, ramps, &self.garbage);
+                                // Rendu plus loin dans ce bloc (ou au second passage) : départ à l'image de fin.
+                                let later = ns > slot || pass == 0;
+                                if let Some(v) = st.voices[ns].as_mut() {
+                                    v.delay = if later { ended_at } else { 0 };
+                                }
+                                if (pass == 0 && ns < slot) || (pass == 1 && ns > slot) {
+                                    revisit[ns] = true;
+                                }
+                                follow = Some((ns, nid));
+                            }
+                            Some(f) => {
+                                let _ = self.garbage.try_send(f.buffer);
+                            }
+                            None => {}
+                        }
+                        let _ = self.events.try_send(Event::Ended { module: m, slot, id: ended_id, follow });
+                    } else if let Some(v) = self.modules[m].voices[slot].as_ref() {
+                        if advanced {
+                            tel.len[m][slot].store(v.buffer.frames as u64, Ordering::Relaxed);
+                            let _ = self.events.try_send(Event::Advanced { module: m, id: v.id, slot });
+                        }
+                        tel.pos[m][slot].store(v.pos as u64, Ordering::Relaxed);
+                        tel.fading[m][slot].store(v.is_fading_out(ramps.stop), Ordering::Relaxed);
                     }
-                }
-                let tel = &self.telemetry;
-                if ended {
-                    let st = &mut self.modules[m];
-                    if let Some(old) = st.voices[slot].take() {
-                        let _ = self.garbage.try_send(old.buffer);
-                    }
-                    st.slot_eq[slot].reset();
-                    tel.pos[m][slot].store(NOT_PLAYING, Ordering::Relaxed);
-                    let _ = self.events.try_send(Event::Ended { module: m, slot, id: ended_id });
-                } else if let Some(v) = self.modules[m].voices[slot].as_ref() {
-                    if advanced {
-                        tel.len[m][slot].store(v.buffer.frames as u64, Ordering::Relaxed);
-                        let _ = self.events.try_send(Event::Advanced { module: m, id: v.id, slot });
-                    }
-                    tel.pos[m][slot].store(v.pos as u64, Ordering::Relaxed);
                 }
             }
 
@@ -726,7 +842,48 @@ impl Mixer {
 
 /// Mixe une voix dans le bus stéréo à partir de l'image `from`.
 /// Renvoie l'image où la voix s'est terminée, ou `None` si elle continue.
+/// Le son de l'emplacement s'éteint en fondu court sur une voix de traîne ; son égaliseur
+/// passe au réglage `new_eq` et le son qui devait suivre est abandonné.
+fn retire(st: &mut ModuleState, slot: usize, new_eq: EqCoeffs, ramps: Ramps, garbage: &Sender<Arc<AudioBuffer>>) {
+    if let Some(f) = st.follow[slot].take() {
+        let _ = garbage.try_send(f.buffer);
+    }
+    let eq = std::mem::replace(&mut st.slot_eq[slot], EqProcessor::new(new_eq, ramps.eq_xfade));
+    let Some(mut voice) = st.voices[slot].take() else { return };
+    voice.fade_within(ramps.stop);
+    let tail = Tail { voice, eq };
+    // Plus de place : on remplace la traîne la plus avancée dans son fondu.
+    let i = st.tails.iter().position(|t| t.is_none()).unwrap_or_else(|| {
+        (0..TAILS).min_by_key(|&i| st.tails[i].as_ref().map_or(0, |t| t.voice.fade_left.unwrap_or(0))).unwrap_or(0)
+    });
+    if let Some(old) = st.tails[i].replace(tail) {
+        let _ = garbage.try_send(old.voice.buffer);
+    }
+}
+
+/// Lance un son sur un emplacement (l'ancien s'éteint en fondu court).
+fn start_voice(st: &mut ModuleState, tel: &Telemetry, m: usize, f: FollowOn, ramps: Ramps, garbage: &Sender<Arc<AudioBuffer>>) {
+    tel.len[m][f.slot].store(f.buffer.frames as u64, Ordering::Relaxed);
+    tel.pos[m][f.slot].store(f.region.start.min(f.buffer.frames) as u64, Ordering::Relaxed);
+    if st.is_idle() {
+        // Premier son du module : le volume réglé juste avant s'applique d'emblée.
+        st.current_gain = st.gain;
+        st.route_left = 0;
+    }
+    retire(st, f.slot, f.eq, ramps, garbage);
+    st.voices[f.slot] = Some(Voice::new(f.id, f.buffer, f.gain, f.region, ramps));
+}
+
 fn render_voice(v: &mut Voice, bus: &mut [f32], from: usize, frames: usize, smooth: f32) -> Option<usize> {
+    v.publish();
+    let end = render_frames(v, bus, from, frames, smooth);
+    if end.is_some() {
+        v.release();
+    }
+    end
+}
+
+fn render_frames(v: &mut Voice, bus: &mut [f32], from: usize, frames: usize, smooth: f32) -> Option<usize> {
     for f in from..frames {
         // Micro-fondu de déplacement : descente, saut, remontée.
         let mut dip = 1.0;
@@ -830,6 +987,23 @@ mod tests {
     }
 
     #[test]
+    fn streamed_sound_plays_like_in_memory() {
+        // 40 s à 1 kHz : lu depuis le disque, son début est déjà en mémoire.
+        let v: Vec<f32> = (0..40_000).map(|i| (i % 1000) as f32 / 1000.0).collect();
+        let mut b = AudioBuffer::from_planar(v.clone(), v.clone(), 1000);
+        b.stream_if_long();
+        assert!(b.stream.is_some() && b.samples.is_empty());
+        let buf = Arc::new(b);
+        let (mut mx, tx, _) = setup(2);
+        tx.send(Command::Play { module: 0, slot: 0, id: 1, region: Region::full(&buf), buffer: buf, gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
+        let mut out = vec![0.0; 2 * 500];
+        mx.process(&mut out);
+        for (i, f) in out.chunks(2).enumerate() {
+            assert_eq!(f[0], v[i], "image {i}");
+        }
+    }
+
+    #[test]
     fn missing_pair_falls_back_to_1_2() {
         let (mut mx, tx, _) = setup(2);
         let buf = ramp(100);
@@ -887,6 +1061,51 @@ mod tests {
         // Le second morceau démarre immédiatement après le premier.
         assert_eq!(out[10 * 2], 0.0);
         assert!((out[11 * 2] - 0.1).abs() < 1e-6);
+    }
+
+    #[test]
+    fn follow_on_starts_on_the_same_frame() {
+        // Le cue suivant part à l'image qui suit la fin du premier, quel que soit l'ordre
+        // des emplacements (avant ou après dans le bloc).
+        for (first, second) in [(0usize, 3usize), (5, 1)] {
+            let (mut mx, tx, ev) = setup(2);
+            let a = Arc::new(AudioBuffer::from_planar(vec![0.5; 30], vec![0.5; 30], 1000));
+            let b = Arc::new(AudioBuffer::from_planar(vec![0.25; 30], vec![0.25; 30], 1000));
+            tx.send(Command::Play { module: 0, slot: first, id: 1, region: Region::full(&a), buffer: a, gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
+            let next = FollowOn { slot: second, id: 2, region: Region::full(&b), buffer: b, gain: 1.0, eq: EqCoeffs::flat() };
+            tx.send(Command::PlayAfter { module: 0, after_slot: first, after_id: 1, next }).unwrap();
+            let mut out = vec![0.0; 2 * 64];
+            mx.process(&mut out);
+            assert!(matches!(ev.try_recv(), Ok(Event::Ended { id: 1, follow: Some((s, 2)), .. }) if s == second));
+            let l: Vec<f32> = out.chunks(2).map(|f| f[0]).collect();
+            assert!((l[29] - 0.5).abs() < 1e-6, "dernière image du premier ({first} → {second})");
+            assert!((l[30] - 0.25).abs() < 1e-6, "première image du second, sans blanc ({first} → {second}) : {}", l[30]);
+            assert!((l[59] - 0.25).abs() < 1e-6);
+            assert_eq!(l[60], 0.0);
+        }
+    }
+
+    #[test]
+    fn stopped_voice_does_not_follow() {
+        let (mut mx, tx, ev) = setup(2);
+        let a = Arc::new(AudioBuffer::from_planar(vec![0.5; 300], vec![0.5; 300], 1000));
+        let b = Arc::new(AudioBuffer::from_planar(vec![0.25; 30], vec![0.25; 30], 1000));
+        tx.send(Command::Play { module: 0, slot: 0, id: 1, region: Region::full(&a), buffer: a, gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
+        let next = FollowOn { slot: 1, id: 2, region: Region::full(&b), buffer: b, gain: 1.0, eq: EqCoeffs::flat() };
+        tx.send(Command::PlayAfter { module: 0, after_slot: 0, after_id: 1, next }).unwrap();
+        let mut out = vec![0.0; 2 * 64];
+        mx.process(&mut out);
+        tx.send(Command::Stop { module: 0, slot: 0 }).unwrap();
+        mx.process(&mut out);
+        mx.process(&mut out);
+        assert!(matches!(ev.try_recv(), Ok(Event::Ended { id: 1, follow: None, .. })));
+        assert!(mx.telemetry.position(0, 1).is_none(), "le suivant n'est pas parti");
+        // Une voix déjà terminée n'accepte pas de suite.
+        let b = Arc::new(AudioBuffer::from_planar(vec![0.25; 30], vec![0.25; 30], 1000));
+        let next = FollowOn { slot: 1, id: 3, region: Region::full(&b), buffer: b, gain: 1.0, eq: EqCoeffs::flat() };
+        tx.send(Command::PlayAfter { module: 0, after_slot: 0, after_id: 1, next }).unwrap();
+        mx.process(&mut out);
+        assert!(mx.modules[0].follow.iter().all(|f| f.is_none()));
     }
 
     #[test]
@@ -978,5 +1197,37 @@ mod tests {
         assert!((out[5 * 2] - 0.5).abs() < 1e-6);
         assert!((out[50 * 2] - 1.0).abs() < 1e-6);
         assert!((out[90 * 2] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn telemetry_flags_audible_fade_outs() {
+        let (mut mx, tx, _) = setup(2);
+        let tel = mx.telemetry.clone();
+        let buf = ramp(1000);
+        // Son joué une fois : en fondu dès qu'il entre dans son fondu de fin.
+        let region = Region { start: 0, end: 1000, looping: None, fade_in: 0, fade_out: 200 };
+        tx.send(Command::Play { module: 0, slot: 0, id: 1, region, buffer: buf.clone(), gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
+        let mut out = vec![0.0; 2 * 500];
+        mx.process(&mut out);
+        assert!(!tel.is_fading(0, 0));
+        mx.process(&mut out[..2 * 350]);
+        assert!(tel.is_fading(0, 0));
+
+        // Boucle arrêtée après son intro : son fondu de sortie entier est signalé.
+        let region = Region { start: 0, end: 1000, looping: Some((100, 900)), fade_in: 0, fade_out: 300 };
+        tx.send(Command::Play { module: 0, slot: 1, id: 2, region, buffer: buf.clone(), gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
+        mx.process(&mut out[..2 * 200]);
+        assert!(!tel.is_fading(0, 1));
+        tx.send(Command::Stop { module: 0, slot: 1 }).unwrap();
+        mx.process(&mut out[..2 * 10]);
+        assert!(tel.is_fading(0, 1));
+
+        // Arrêt pendant l'intro : simple micro-fondu, pas de repère.
+        let region = Region { start: 0, end: 1000, looping: Some((500, 900)), fade_in: 0, fade_out: 300 };
+        tx.send(Command::Play { module: 0, slot: 2, id: 3, region, buffer: buf, gain: 1.0, eq: EqCoeffs::flat() }).unwrap();
+        mx.process(&mut out[..2 * 100]);
+        tx.send(Command::Stop { module: 0, slot: 2 }).unwrap();
+        mx.process(&mut out[..2 * 2]);
+        assert!(!tel.is_fading(0, 2));
     }
 }

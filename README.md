@@ -6,12 +6,12 @@ audio cpal, décodage symphonia).
 
 ## Fonctionnalités
 
-- **Modules dynamiques** : on démarre avec un seul, on en ajoute jusqu'à 4 (« ＋ Ajouter un module »)
-  et on les supprime en mode édition (🗑). Chacun en mode **Jingles**, **Playlist**, **Cuelist** ou **Texte**, avec son propre volume et son vumètre.
+- **Modules dynamiques** : on démarre avec un seul, on en ajoute jusqu'à 4 (« Ajouter un module »)
+  et on les supprime en mode édition (🗑). Chacun en mode **Jingles**, **Playlist**, **Cuelist** ou **Texte** (type changé seulement en mode édition, avec validation), avec son propre volume et son vumètre.
   Double-clic sur le titre d'un module pour le renommer ; glisser la séparation entre deux modules règle leur largeur.
 - **Cuelist** : une conduite de spectacle façon QLab. Le gros bouton **GO** (ou la barre d'espace)
   lance le cue en attente, bien visible, et passe au suivant ; cadre du cue en cours (écoulé, barre,
-  restant) ; pour chaque cue, les réglages d'un jingle (volume, points, fondus, EQ) et le choix
+  restant, clic dans la barre pour s'y déplacer) ; double-clic sur un cue = GO ; pour chaque cue, les réglages d'un jingle (volume, points, fondus, EQ) et le choix
   enchaîner / arrêter à la fin ; précédent / suivant, arrêt par cue, ordre au glisser-déposer, commandes OSC et télécommandes.
 - **Module Texte** : un grand champ libre pour écrire sa conduite, sauvegardé avec le projet.
 - **Routage** : chaque module sort sur une paire stéréo (1-2, 3-4, 5-6…). Multipiste avec une carte
@@ -152,10 +152,13 @@ ci-dessous sont données avec le préfixe par défaut.
 | `/jinglestar/module/<m>/cue/next` | — | Cue suivant en attente |
 | `/jinglestar/module/<m>/cue/previous` | — | Cue précédent en attente |
 | `/jinglestar/module/<m>/cue/standby` | int | Met le cue n° en attente |
+| `/jinglestar/module/<m>/cue/pause` | — | Pause / reprise des cues qui sonnent |
+| `/jinglestar/module/<m>/cue/paused` | bool | Met en pause (vrai) ou reprend (faux) |
 
 - Les déclencheurs (`play`, `stop`, `toggle`, `next`…) partent sans argument ou avec une valeur
   non nulle : un bouton qui envoie 1 à l'appui puis 0 au relâché ne déclenche qu'une fois.
 - Les booléens acceptent `T`/`F`, un entier ou un float (≥ 0,5 = vrai), ou `true`/`false`/`on`/`off`.
+- **Bitfocus Companion / Stream Deck** : un module prêt à l'emploi se trouve dans le dossier `companion/` du dépôt (voir son README). OSCQuery publie aussi, pour les touches, la couleur et le temps restant de chaque jingle, le titre et le temps restant du morceau, le nom et le temps restant du cue qui sonne, et l'avancement (`progress`, de 0 à 1) de chacun. `/jinglestar/subscribe` abonne l'expéditeur pendant 5 s aux niveaux des modules (`/jinglestar/module/<m>/meter`, dB gauche et droite, environ 20 fois par seconde) : à renouveler toutes les 2 à 3 s.
 - Les commandes de jingle n'agissent que sur un module en mode Jingles, celles de playlist
   sur un module en mode Playlist. Les paquets groupés (bundles) sont acceptés.
 

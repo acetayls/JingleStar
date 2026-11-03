@@ -1,0 +1,20 @@
+{
+	"name": "jinglestar",
+	"version": "0.2.0",
+	"description": "Module Bitfocus Companion pour JingleStar",
+	"main": "src/main.js",
+	"license": "MIT",
+	"scripts": {
+		"test": "node --test test/",
+		"package": "companion-module-build"
+	},
+	"engines": {
+		"node": ">=18"
+	},
+	"dependencies": {
+		"@companion-module/base": "~1.14.0"
+	},
+	"devDependencies": {
+		"@companion-module/tools": "^2.1.0"
+	}
+}

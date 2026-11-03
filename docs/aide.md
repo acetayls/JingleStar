@@ -13,6 +13,11 @@ avec son propre volume, son égaliseur et sa paire de sorties.
 3. Cliquez sur un bouton rempli pour lancer le son, cliquez à nouveau pour l'arrêter.
 4. **Échap** ou le bouton rouge **TOUT ARRÊTER** coupe tous les sons.
 5. Vérifiez la sortie audio dans la barre du bas. Pour en changer : **Préférences → Audio**.
+6. À droite de la barre du bas, **● Tout est chargé** (vert) indique que tous les sons des jingles
+   et des cues sont décodés en mémoire et partiront instantanément. Pendant le chargement, le voyant
+   est orange et compte les sons prêts ; **⚠** (rouge) signale un fichier introuvable ou illisible
+   (son nom s'affiche au survol). À côté, la mémoire occupée par les sons décodés (environ 23 Mo
+   par minute de son).
 
 Tout est enregistré automatiquement : en relançant JingleStar, vous retrouvez la session telle
 que vous l'avez laissée.
@@ -23,10 +28,13 @@ Formats lus : WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 
 ### Barre du haut
 
-- **＋ Ajouter un module** : ajoute un module à la fin (4 au maximum). Le compteur indique le nombre de modules.
+- **Nom du projet** : en grand à gauche (● = modifications non enregistrées ; le chemin du fichier au survol). **Double-clic** pour le renommer : Entrée valide, Échap annule. Le nom est enregistré dans le projet, le fichier garde le sien ; un nom vide affiche le nom du fichier.
+- **▾** à côté du nom : **Nouveau**, **Ouvrir…**, **Enregistrer sous…** et **Renommer le projet**.
+- **+ Module** (à droite, + orange) : ajoute un module à la fin (4 au maximum). Le compteur indique le nombre de modules.
 - Les modules sont côte à côte sur une rangée. **Glissez la séparation** entre deux modules pour régler leur largeur ; un **double-clic** sur une séparation remet toutes les largeurs à égalité. Les largeurs sont enregistrées avec le projet.
-- **Ouvrir…** / **Enregistrer sous…** : ouvre ou enregistre un projet (fichier `.jinglestar`).
-- **Télécommandes** : pilotage OSC, MIDI, console Yamaha et Midas M32, correspondances et mode apprendre. Voir [Pilotage MIDI](#pilotage-midi), [Pilotage depuis une console Yamaha](#pilotage-depuis-une-console-yamaha) et [Pilotage depuis une Midas M32 / Behringer X32](#pilotage-depuis-une-midas-m32--behringer-x32).
+- **Nouveau** (menu ▾) : projet vierge avec un module **Jingles** et un module **Playlist**. Un second clic sur **Remplacer le projet ?** confirme (**Annuler** sinon) ; les préférences (audio, télécommandes, langue) sont gardées. Enregistrez d'abord le projet en cours si vous voulez le retrouver.
+- **Ouvrir…** / **Enregistrer sous…** (menu ▾) : ouvre ou enregistre un projet (fichier `.jinglestar`).
+- **Télécommandes** : une fenêtre à onglets, un par protocole (**OSC**, **MIDI**, **Yamaha**, **Midas M32 / X32**), plus **Correspondances** (mode apprendre) et **Raccourcis** (la liste des touches). Voir [Pilotage MIDI](#pilotage-midi), [Pilotage depuis une console Yamaha](#pilotage-depuis-une-console-yamaha) et [Pilotage depuis une Midas M32 / Behringer X32](#pilotage-depuis-une-midas-m32--behringer-x32).
 - **⚙ Préférences** : audio, langue et anti-veille.
 - **? Aide** (touche **F1**) : ce manuel. Le champ **🔍 Rechercher** en haut (ou **Ctrl+F**) n'affiche que les passages qui contiennent les mots tapés, sans tenir compte des accents ni des majuscules ; **✕** revient au sommaire.
 - **■ TOUT ARRÊTER** : arrête tous les sons de tous les modules (touche **Échap**).
@@ -37,6 +45,17 @@ Elle affiche la sortie audio en service (pilote, périphérique, nombre de canau
 d'échantillonnage) avec un voyant vert, ou un voyant rouge s'il n'y a aucune sortie. Les erreurs
 et les messages (projet enregistré, fichier illisible…) s'y affichent aussi.
 
+À droite : l'état des sons (« Tout est chargé », sons illisibles), un ⚠ orange pour les sons à
+vérifier (fichier abîmé ou tronqué, son très long : survolez-le pour la liste) et la mémoire
+occupée, en rouge au-delà du seuil d'alerte des Préférences. Quand des sons sont introuvables,
+**Rechercher…** les cherche par nom de fichier dans un dossier et ses sous-dossiers.
+
+**Sortie audio perdue** (carte son débranchée, pilote arrêté) : un bandeau rouge l'annonce en haut
+de la fenêtre et JingleStar se reconnecte tout seul au même périphérique dès qu'il revient (essai
+toutes les 2 s, ou tout de suite avec **Reconnecter**). Les sons en cours au moment de la coupure
+sont arrêtés. Si l'interface choisie est absente au lancement, un bandeau orange indique la sortie
+de secours utilisée ; JingleStar repasse sur l'interface dès qu'elle est branchée et que rien ne joue.
+
 ## Les modules
 
 Chaque module a, de haut en bas :
@@ -45,15 +64,18 @@ Chaque module a, de haut en bas :
 - le choix de **sortie** (paire stéréo 1-2, 3-4…) ;
 - le bouton **EQ** (égaliseur du module) ;
 - le bouton **✏** (mode édition) ;
-- le choix du mode : **Jingles**, **Playlist**, **Cuelist** ou **Texte** ;
+- à côté du nom, le type du module en petites capitales : **JINGLES**, **PLAYLIST**, **CUELIST** ou **TEXTE** ;
 - à droite, le **fader** de volume (-∞ à +10 dB) avec des repères à +3, 0 et -6 dB et sa valeur en dB en dessous, le **vumètre** stéréo et le bouton **■** qui arrête le module.
 
 Le cadre du module devient vert quand un son y joue.
 
 - **Volume** : glissez le fader. Un **double-clic** sur le fader le remet à 0 dB ; un **clic sur la valeur en dB** permet de la taper au clavier (Entrée valide, Échap annule). Un nombre tapé sans signe est négatif : `6` donne -6 dB ; tapez `+3` pour monter au-dessus de 0 dB.
-- **Changer de mode** : cliquez sur **Jingles**, **Playlist**, **Cuelist** ou **Texte**. Le module s'arrête ; les jingles, la playlist, la conduite et le texte sont conservés.
+- **Changer de type** : passez en mode édition (✏), choisissez **Jingles**, **Playlist**, **Cuelist** ou **Texte** dans le menu **Type**, puis cliquez sur **Valider** (**Annuler** sinon). Le type ne peut pas changer par erreur pendant le spectacle. Si le module joue, un avertissement rouge prévient que le son sera coupé. Les jingles, la playlist, la conduite et le texte sont conservés : on les retrouve en revenant au type d'avant.
 - **Renommer** : **double-clic sur le nom** du module, tapez le nouveau nom puis Entrée (Échap annule). En mode édition (✏), le nom est aussi modifiable directement.
-- **Module Texte** : un grand champ libre pour écrire sa conduite, sauvegardé avec le projet. Échap y arrête quand même les jingles.
+- **Module Texte** : un grand champ libre pour écrire sa conduite, sauvegardé avec le projet. Échap y arrête quand même les jingles ; la barre d'espace y tape un espace (pas de GO).
+  - **Mise en forme** : sélectionnez du texte puis cliquez sur **G**, **I**, **S**, **B** (barré) ou une pastille de couleur (rouge, bleu, vert, rose), ou utilisez Ctrl+B / Ctrl+I / Ctrl+U. Les boutons des styles du texte sélectionné (ou sous le curseur) s'allument. Un second clic retire le style. Sans sélection, le style s'applique au mot sous le curseur. On ne voit que le texte mis en forme : les balises enregistrées dans le projet (`{b}`, `{i}`, `{u}`, `{s}`, `{rouge}`, `{bleu}`, `{vert}`, `{rose}`, refermées par `{/b}`, `{/rouge}`…) restent invisibles. Le curseur les traverse : aux limites d'un style, une flèche peut demander un appui de plus.
+  - **Zoom** : les boutons **−** et **+** de la barre d'outils réduisent ou agrandissent le texte (de 60 % à 300 %).
+  - **Importer…** ajoute un fichier texte (.txt, .md) à la fin de la conduite.
 - **Supprimer** : en mode édition, cliquez sur **🗑** puis confirmez avec **Supprimer ?**. Les modules suivants remontent d'un rang. Le dernier module restant ne peut pas être supprimé.
 
 ### Mode édition (✏)
@@ -70,7 +92,7 @@ En fermant l'éditeur d'un jingle (**✓ Terminé** ou la croix), le module repa
 Un module en mode **Jingles** offre 12 boutons (3 colonnes, 4 rangées). Chaque bouton montre son
 numéro, le nom du son, sa couleur et sa durée. Pendant la lecture, une barre de progression
 indique le temps écoulé et le temps restant ; un jingle en boucle affiche **BOUCLE** à la place du
-temps restant. Le jingle qui joue est entouré d'un cadre vert épais. Le volume du jingle est affiché en haut à droite (en orange s'il n'est pas à
+temps restant. Au repos, le bouton est de sa couleur, assombrie ; le jingle qui joue prend sa couleur vive, avec un texte foncé, et un cadre vert épais. Pendant un fondu de sortie (arrêt en fondu ou fondu de fin), une **diagonale orange** descend sur le bouton, la barre devient orange et **FONDU** remplace le temps restant. Le volume du jingle est affiché en haut à droite (en orange s'il n'est pas à
 0 dB). Des repères complètent le bouton : en haut à gauche, après le numéro, un badge orange **⟲** pour un jingle en boucle et **EQ** si son égaliseur est actif ; **…** pendant le chargement du son et
 **⚠** si le fichier est introuvable ou illisible.
 
@@ -92,7 +114,7 @@ Ouvrez l'éditeur par le mode édition (✏ puis clic sur le bouton) ou par **cl
   - **En boucle** : le fondu d'entrée ne joue qu'au premier départ, pas à chaque tour. Le fondu de sortie ne sert qu'à l'arrêt, et en entier : c'est ainsi qu'on fait disparaître lentement un fond sonore. Arrêté pendant l'intro (avant le début de la boucle), il coupe tout de suite.
   - **Échap**, **TOUT ARRÊTER** et le **■** du module coupent toujours en 1 s au plus.
 - **Couleur** : 8 couleurs au choix.
-- **▶ Écouter / ■ Stop** : pour tester le son depuis l'éditeur.
+- **Écouter / Stop** : le gros bouton vert en haut de l'éditeur, pour tester le son.
 - **Vider l'emplacement** : retire le son du bouton.
 - **✓ Terminé** : ferme l'éditeur.
 
@@ -117,7 +139,7 @@ pointeur ; le défilement horizontal ou un glisser hors des poignées déplace l
 ou **Tout afficher** revient au son entier. Zoomé, une **barre de défilement** sous la forme d'onde
 montre la partie visible : glissez-la pour vous promener dans le son, ou cliquez à côté pour y aller.
 
-Pendant la lecture (bouton du jingle ou **▶ Écouter**), un **clic dans la forme d'onde**, hors des
+Pendant la lecture (bouton du jingle ou **Écouter**), un **clic dans la forme d'onde**, hors des
 poignées, fait repartir la lecture à cet endroit, avec un micro-fondu sans clic.
 
 Les parties exclues sont assombries et les fondus sont dessinés en rampe. Le début et la fin se
@@ -141,7 +163,7 @@ Elle s'affiche en orange avec la mention « actif » quand il modifie le son. Vo
 Un module en mode **Playlist** lit une liste de fichiers audio : un dossier entier, trié par nom,
 ou des fichiers choisis un par un.
 
-- **＋ Ajouter** :
+- **Ajouter** (+ orange) :
   - **Des fichiers…** ou **Un dossier…** : ajoute les sons à la fin de la liste en cours ;
   - **Ouvrir un dossier (remplace la liste)…** : la liste devient le contenu du dossier.
   Vous pouvez aussi glisser des fichiers ou un dossier sur la playlist.
@@ -200,32 +222,35 @@ Hors mode édition, une ligne **Équilibrage** rappelle le réglage en cours.
 Le mode **Cuelist** suit une conduite de spectacle, à la façon de QLab : une liste ordonnée de sons
 (les **cues**) que l'on lance un par un.
 
-- **Ajouter des sons** : **＋ Ajouter des sons…**, ou glissez des fichiers ou des dossiers sur la
+- **Ajouter des sons** : bouton **Ajouter des sons…** (+ orange), ou glissez des fichiers ou des dossiers sur la
   conduite. Un morceau de playlist peut aussi y être glissé, à l'endroit voulu.
 - **EN COURS** : le cadre vert, en haut, suit le dernier cue lancé qui joue encore : son nom,
-  le temps écoulé, une barre de progression et le temps restant.
-- **EN ATTENTE** : le cadre ambre affiche le cue que le prochain GO va lancer, et celui qui suit.
+  le temps écoulé, une barre de progression et le temps restant. Un **clic dans la barre** fait sauter la lecture à cet endroit.
+- **SUIVANT** : le cadre ambre affiche le cue que le prochain GO va lancer (le cue « en attente »), et celui qui suit. Il s'intitule **ENCHAÎNÉ** quand ce cue partira tout seul à la fin du précédent.
   Dans la liste, il est surligné et marqué ▶.
 - **GO** (ou la **barre d'espace**) : lance le cue en attente et met le suivant en attente.
   Les cues lancés continuent de jouer ensemble jusqu'à leur fin. Le délai anti double-GO des
   préférences protège aussi ce bouton. Après le dernier cue, le cadre affiche **Fin de la
   conduite** et GO s'éteint.
-- **Précédent** / **Suivant** : déplacent le cue en attente sans rien lancer. Un **clic** sur un
-  cue le met en attente.
+- **Pause** (ou la touche **P**) : met en pause les cues qui sonnent, sans perdre leur place ; le cadre affiche
+  **EN PAUSE**. **P** ou **GO** reprend (GO reprend puis lance le cue en attente). Un enchaînement attend la reprise.
+- **Précédent** / **Suivant** (ou les **flèches Haut / Bas**) : déplacent le cue en attente sans rien lancer. Un **clic** sur un
+  cue le met en attente ; un **double-clic** fait GO sur ce cue (il part, et le suivant passe en attente).
 - **Arrêter** : arrête tous les cues de la conduite ; le cue en attente ne change pas. Pendant
   qu'un cue joue, sa ligne se remplit en vert, affiche le temps restant et un bouton **■** qui
   n'arrête que lui.
-- **Enchaîner ou arrêter** : la petite flèche à côté du numéro d'un cue. **↓** (orange) :
-  à la fin du cue, le suivant part tout seul et le cue en attente avance. **·** : à la fin, on
+- **Enchaîner ou arrêter** : la petite pastille à côté du numéro d'un cue. **Flèche noire sur fond orange** :
+  à la fin du cue, le suivant part tout seul et le cue en attente avance. **Trait gris dans une case** : à la fin, on
   attend le prochain GO. Un clic bascule de l'un à l'autre. Un cue arrêté à la main (■, Arrêter,
   Échap) n'enchaîne pas.
-- **Réglages d'un cue** : **double-clic** sur le cue, ou **clic droit → Réglages…**. La fenêtre
+- **Réglages d'un cue** : **clic droit → Réglages…**, ou double-clic sur le cue en mode édition (✏). La fenêtre
   est celle d'un jingle : volume, fondus d'entrée et de sortie, points de début et de fin sur la
   forme d'onde (clic dans la forme d'onde pendant la lecture pour s'y déplacer), égaliseur, et le
   choix **À la fin : Arrêter / Enchaîner**. Pas de boucle pour les cues pour l'instant. Un badge
   **EQ** sur la ligne signale un égaliseur actif.
 - **Volume** : un **clic** sur la valeur en dB d’un cue permet de la taper (Entrée valide ; sans signe, la valeur est négative).
-- **Ordre** : glissez un cue vers le haut ou le bas ; un trait bleu montre où il sera posé. Le
+- **Ordre** : glissez un cue vers le haut ou le bas (en mode édition, attrapez-le par son numéro) ; un trait bleu
+  montre où il sera posé, et la liste défile toute seule près des bords. Le
   cue en attente reste le même son.
 - **Clic droit** sur un cue : **Lancer maintenant** (sans changer le cue en attente), **Réglages…**, **Mettre en
   attente**, **Retirer de la conduite**.
@@ -297,6 +322,7 @@ rien n'a changé dans l'audio, la lecture n'est pas interrompue.
 ### Système
 
 - **Langue** : Français ou English. L'interface et cette aide changent immédiatement.
+- **Alerte mémoire au-delà de** : seuil (en Mo) au-delà duquel la mémoire des sons s'affiche en rouge dans la barre du bas (0 = jamais). Jingles et cues sont gardés entiers en mémoire ; les longs morceaux vont mieux dans une playlist.
 - **Empêcher la mise en veille pendant la lecture** : tant qu'un son joue (ou est en pause), l'ordinateur et l'écran ne se mettent pas en veille. Sous Windows, JingleStar le demande au système (visible avec `powercfg /requests`) ; sous macOS, par une assertion d'alimentation (visible avec `pmset -g assertions`). Un portable qu'on referme se met quand même en veille.
 
 En bas de la fenêtre, la **version de build** (version, commit et date de compilation) permet de
@@ -305,12 +331,25 @@ vérifier quelle mise à jour est installée ; un clic la copie.
 ## Projets et sauvegarde
 
 - La session est **enregistrée automatiquement** et restaurée au lancement suivant (modules, jingles, playlists, préférences).
+- **Enregistrer** (Ctrl+S) enregistre dans le projet ouvert ; un point (●) signale des modifications pas encore enregistrées. Sans projet ouvert, il demande où l'enregistrer.
 - **Enregistrer sous…** crée un fichier `.jinglestar` (un projet), pour garder plusieurs configurations.
-- **Ouvrir…** charge un projet : tous les sons sont arrêtés, puis le projet remplace la session en cours.
+- **Ouvrir…** charge un projet : tous les sons sont arrêtés, puis le projet remplace la session en cours. La carte son, les préférences et les télécommandes restent celles de cet ordinateur (gardées à part, dans `machine.json`).
 
-Un projet garde le **chemin** des fichiers son, pas les sons eux-mêmes : si vous déplacez ou
-renommez un fichier, le bouton correspondant signale une erreur. Rechoisissez le fichier
-(**Changer…** ou clic droit → **Choisir un fichier…**).
+Un projet garde le **chemin** des fichiers son, pas les sons eux-mêmes. Si un son est introuvable :
+
+- à l'ouverture d'un projet copié depuis un autre ordinateur, JingleStar cherche chaque son à la
+  même place par rapport au fichier projet (gardez le projet dans le dossier du spectacle) ;
+- **Rechercher…** dans la barre du bas cherche les sons manquants dans un dossier, par nom ;
+- un disque rebranché est vu tout seul (nouvel essai toutes les 5 s), et un fichier remplacé sur
+  le disque est relu ;
+- sinon, rechoisissez le fichier (**Changer…** ou clic droit → **Choisir un fichier…**).
+
+**Sécurité de la session** : chaque sauvegarde est écrite puis forcée sur le disque avant de
+remplacer l'ancienne, gardée en `session.json.bak`. Au lancement, une copie datée part dans le
+dossier `sauvegardes` (les 5 dernières). Une session illisible n'est jamais écrasée : elle est mise
+de côté (`session-illisible-<date>.json`), la copie de secours est chargée et un bandeau le
+signale. Ces fichiers et le journal `jinglestar.log` (erreurs, plantages) sont dans le dossier de
+configuration : `%APPDATA%\acetayls\JingleStar\config` sous Windows.
 
 ## Pilotage OSC
 
@@ -362,9 +401,12 @@ données avec le préfixe par défaut.
 | `/jinglestar/module/<m>/cue/next` | — | Cue suivant en attente |
 | `/jinglestar/module/<m>/cue/previous` | — | Cue précédent en attente |
 | `/jinglestar/module/<m>/cue/standby` | int | Met le cue n° en attente |
+| `/jinglestar/module/<m>/cue/pause` | — | Pause / reprise des cues qui sonnent |
+| `/jinglestar/module/<m>/cue/paused` | bool | Met en pause (vrai) ou reprend (faux) |
 
 - Les déclencheurs (`play`, `stop`, `toggle`, `next`…) partent sans argument ou avec une valeur non nulle : un bouton qui envoie 1 à l'appui puis 0 au relâché ne déclenche qu'une fois.
 - Les booléens acceptent `T`/`F`, un entier ou un float (≥ 0,5 = vrai), ou `true`/`false`/`on`/`off`.
+- **Bitfocus Companion / Stream Deck** : un module prêt à l'emploi se trouve dans le dossier `companion/` du dépôt (voir son README). OSCQuery publie aussi, pour les touches, la couleur et le temps restant de chaque jingle, le titre et le temps restant du morceau, le nom et le temps restant du cue qui sonne, et l'avancement (`progress`, de 0 à 1) de chacun. `/jinglestar/subscribe` abonne l'expéditeur pendant 5 s aux niveaux des modules (`/jinglestar/module/<m>/meter`, dB gauche et droite, environ 20 fois par seconde) : à renouveler toutes les 2 à 3 s.
 - Les commandes de jingle n'agissent que sur un module en mode Jingles, celles de playlist sur un module en mode Playlist. Les paquets groupés (bundles) sont acceptés.
 
 ### OSCQuery
@@ -522,18 +564,27 @@ Le déclencheur appris s'affiche par exemple **M32 · ch/05/mix/on** (touche MUT
 
 ## Raccourcis clavier et souris
 
+La liste des touches est aussi dans **Télécommandes → Raccourcis**.
+
 | Action | Raccourci |
 |---|---|
 | Tout arrêter | **Échap** (sauf pendant la saisie d'un texte) |
 | Ouvrir ou fermer l'aide | **F1** |
+| Enregistrer / Enregistrer sous | **Ctrl+S** / **Ctrl+Maj+S** |
+| Ouvrir un projet | **Ctrl+O** |
+| Fermer le projet (projet vierge, après confirmation) | **Ctrl+W** ou **Ctrl+N** |
 | GO de la première Cuelist | **Espace** (sauf pendant la saisie d'un texte) |
-| Changer l'ordre de la conduite | Glisser un cue |
-| Lancer / arrêter un jingle | Clic sur le bouton (mode lecture) |
+| Pause / reprise de la première Cuelist | **P** (sauf pendant la saisie d'un texte) |
+| Cue précédent / suivant en attente, sans le lancer | **Flèche Haut / Bas** (sauf pendant la saisie d'un texte) |
+| Changer l'ordre de la conduite | Glisser un cue (par son numéro en mode édition) |
+| Lancer / arrêter un jingle | Clic sur le bouton (mode lecture), ou son raccourci clavier |
+| Donner un raccourci à un jingle | Éditeur du jingle → **Raccourci** → **Choisir…**, puis la touche (refusée si elle est déjà prise) |
 | Menu d'un jingle | Clic droit sur le bouton |
 | Remplir des boutons | Glisser-déposer un ou plusieurs fichiers |
 | Ajouter à une playlist | Glisser-déposer des fichiers ou un dossier sur la playlist |
 | Lancer un morceau de la playlist | Double-clic sur le morceau |
 | Volume du module à 0 dB | Double-clic sur le fader |
+| Monter / baisser le volume d'un module de 1 dB | Clic sur le fader, puis **+** / **−** (les flèches ne le bougent pas) |
 | Taper une valeur en dB (fader, jingle, morceau) | Clic sur la valeur, puis Entrée (Échap annule) ; sans signe = négatif |
 | Largeur des modules | Glisser la séparation ; double-clic pour égaliser |
 | Rechercher dans l'aide | Ctrl+F dans la fenêtre d'aide |
@@ -546,7 +597,9 @@ Le déclencheur appris s'affiche par exemple **M32 · ch/05/mix/on** (touche MUT
 
 ## En cas de problème
 
-- **Aucune sortie audio** (voyant rouge) : ouvrez **Préférences → Audio**, choisissez un périphérique, cliquez sur **Rafraîchir la liste** si besoin, puis **Appliquer**.
+- **Aucune sortie audio** (voyant rouge) : ouvrez **Préférences → Audio**, choisissez un périphérique, cliquez sur **Rafraîchir la liste** si besoin, puis **Appliquer** (qui rouvre toujours une sortie en panne).
+- **Sortie audio perdue** (bandeau rouge) : rebranchez l'interface, JingleStar se reconnecte seul ; **Reconnecter** force un essai.
+- **Un comportement étrange ou un plantage** : le journal `jinglestar.log`, dans le dossier de configuration, garde les erreurs et la trace des plantages.
 - **Craquements** : augmentez la **taille de buffer** (512 ou 1024 échantillons).
 - **Un bouton affiche une erreur** : le fichier a été déplacé, renommé, ou son format n'est pas lu. Rechoisissez le fichier.
 - **Un module ne sort pas où il faut** : vérifiez son menu **Sortie** ; un ⚠ orange signale une paire absente de la carte en service.
