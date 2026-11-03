@@ -1,6 +1,6 @@
 # Journal des modifications
 
-## 0.1.3 — en cours
+## 0.1.3pre — préversion du 3 novembre 2026
 
 ### Interface
 
@@ -28,13 +28,33 @@
 - **Faders** : après un clic sur un fader, **+** et **−** montent ou baissent son volume de 1 dB.
   Les flèches ne bougent plus le volume (elles servent à la Cuelist).
 
+### Playlist
+
+- **Suivant en aléatoire** : le bouton (et la télécommande) lance un morceau au hasard, celui que
+  la fin du morceau aurait enchaîné, au lieu du suivant dans l'ordre. **Précédent** revient au
+  morceau joué juste avant.
+- La barre de lecture n'est plus coupée dans un module étroit : un titre long est raccourci
+  (complet au survol), et le gain s'efface s'il manque la place pour le temps restant.
+
+### Télécommandes
+
+- **Correspondances plus claires** : à côté du numéro de module s'affiche son nom, ou un ⚠ si
+  la correspondance ne fera rien (module absent du projet, ou dans un autre mode que l'action,
+  par exemple un jingle visé dans un module passé en Playlist). Un jingle visé sur un
+  emplacement vide est signalé aussi.
+- Le volume d'un jingle et les options aléatoire / boucle d'une playlist ne changent plus à
+  distance quand le module n'est pas dans le bon mode, comme les autres actions.
+- Raccourcis clavier : la liste indique les jingles **inactifs** (module hors mode Jingles), et
+  le refus d'une touche déjà prise par un tel jingle dit où l'effacer.
+
 ### Module Texte
 
 - **Mise en forme** : gras, italique, souligné, barré et surlignage en 4 couleurs (rouge, bleu,
   vert, rose), depuis une barre d'outils au-dessus du texte ou avec Ctrl+B / Ctrl+I / Ctrl+U.
-  Un second clic retire le style ; « Effacer le style » enlève toute la mise en forme de la
-  sélection. Les boutons des styles du texte sélectionné (ou sous le curseur) s'allument.
-  Les balises de mise en forme ne se voient pas : on ne voit que le texte mis en forme.
+  Un second clic retire le style. Sans sélection, le style s'applique au mot sous le curseur.
+  Les boutons des styles du texte sélectionné (ou sous le curseur) s'allument. On ne voit que
+  le texte mis en forme, jamais de balise.
+- **Zoom du texte** : boutons **−** et **+** dans la barre d'outils (de 60 % à 300 %).
 - **Importer…** : ajoute un fichier texte (.txt, .md) à la suite de la conduite.
 
 ### Cuelist
@@ -83,6 +103,11 @@
   l'orange dans les dernières secondes.
 - **Pause de la Cuelist à distance** : nouvelles commandes OSC `cue/pause` et `cue/paused`, et
   action « Conduite : pause / reprise » pour les télécommandes MIDI et les consoles.
+- **Barre de lecture** sur les touches : elle avance en bas de la touche du jingle, du morceau
+  ou du cue qui sonne. L'état est rafraîchi 10 fois par seconde.
+- **Vumètres sur le Stream Deck** : une touche par module affiche son niveau gauche et droite
+  (vert, jaune, rouge), en entier ou en bande sur le bord d'une touche. JingleStar envoie les
+  niveaux environ 20 fois par seconde au module Companion, sans réglage à faire.
 
 ## 0.1.2 — 26 octobre 2026
 

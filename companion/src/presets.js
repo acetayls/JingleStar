@@ -5,6 +5,9 @@ const { colors } = require('./feedbacks')
 
 const GREY = combineRgb(40, 40, 40)
 
+/** Options de la barre de lecture en bas d'une touche. */
+const bar = (source, opts) => ({ ...opts, source, color: colors.WHITE, height: 8 })
+
 function button(category, name, text, actions, feedbacks = [], bgcolor = GREY) {
 	return {
 		type: 'button',
@@ -45,6 +48,7 @@ function getPresets(state, label) {
 					['jingle_color', opts],
 					['jingle_playing', opts, { bgcolor: colors.RED, color: colors.WHITE }],
 					['time_warning', { ...opts, source: 'jingle', seconds: 5 }, { bgcolor: colors.ORANGE, color: colors.WHITE }],
+					['progress_bar', bar('jingle', opts)],
 				],
 			)
 		}
@@ -69,7 +73,11 @@ function getPresets(state, label) {
 				'Morceau en cours',
 				`${v(`${p}_track`)}/${v(`${p}_tracks`)}\n${v(`${p}_track_title`)}\n${v(`${p}_track_remaining`)}`,
 				[],
-				[fbPlaying, ['time_warning', { ...mod, source: 'playlist', seconds: 10 }, { bgcolor: colors.ORANGE, color: colors.WHITE }]],
+				[
+					fbPlaying,
+					['time_warning', { ...mod, source: 'playlist', seconds: 10 }, { bgcolor: colors.ORANGE, color: colors.WHITE }],
+					['progress_bar', bar('playlist', mod)],
+				],
 			)
 		}
 
@@ -82,6 +90,7 @@ function getPresets(state, label) {
 				[
 					['cue_playing', mod, { bgcolor: colors.GREEN, color: colors.WHITE }],
 					['cue_end', mod, { bgcolor: combineRgb(80, 80, 80), color: colors.WHITE }],
+					['progress_bar', bar('cue', mod)],
 				],
 				combineRgb(0, 90, 0),
 			)
@@ -98,9 +107,20 @@ function getPresets(state, label) {
 				[
 					['cue_playing', mod, { bgcolor: colors.GREEN, color: colors.WHITE }],
 					['time_warning', { ...mod, source: 'cue', seconds: 10 }, { bgcolor: colors.ORANGE, color: colors.WHITE }],
+					['progress_bar', bar('cue', mod)],
 				],
 			)
 		}
+
+		presets[`${p}_meter`] = button(cat, 'Vumètre', v(`${p}_name`), [], [['module_meter', { ...mod, layout: 'full' }]], colors.BLACK)
+		presets[`${p}_stop_meter`] = button(
+			cat,
+			'Arrêter le module, avec vumètre',
+			`STOP\n${v(`${p}_name`)}`,
+			[['module_stop', mod]],
+			[['module_meter', { ...mod, layout: 'side' }]],
+			colors.RED,
+		)
 	}
 	return presets
 }

@@ -100,6 +100,18 @@ pub enum TrackGain {
     Manual(f32),
 }
 
+impl PlaylistRuntime {
+    /// Note un morceau lancé dans l'historique (borné).
+    fn remember(&mut self, index: usize) {
+        if self.history.last() != Some(&index) {
+            self.history.push(index);
+        }
+        if self.history.len() > 200 {
+            self.history.remove(0);
+        }
+    }
+}
+
 impl TrackGain {
     /// Gain linéaire à appliquer à la lecture.
     pub fn linear(&self) -> f32 {
@@ -122,6 +134,8 @@ pub struct PlaylistRuntime {
     pub slot: usize,
     /// Morceaux déjà joués dans ce cycle (lecture aléatoire).
     played: HashSet<usize>,
+    /// Morceaux lancés, du plus ancien au plus récent : « précédent » en lecture aléatoire.
+    history: Vec<usize>,
     /// Morceau en file dans le mixeur (index, identifiant de voix).
     queued: Option<(usize, u64)>,
     /// Un chargement est en cours pour cette playlist.
@@ -193,6 +207,9 @@ pub struct Controller {
     /// Pilotage OSC, s'il est activé dans les préférences.
     pub osc: Option<OscServer>,
     last_osc_publish: Instant,
+    /// Niveaux affichés par les vumètres (dB, G et D), envoyés aux abonnés OSC.
+    pub meters_db: [[f32; 2]; MAX_MODULES],
+    last_levels_sent: Instant,
     /// Entrée MIDI ouverte, ou l'erreur d'ouverture.
     pub midi: Option<MidiListener>,
     pub midi_error: Option<String>,
@@ -295,6 +312,8 @@ impl Controller {
             analysis_done,
             osc: None,
             last_osc_publish: Instant::now(),
+            meters_db: [[-120.0; 2]; MAX_MODULES],
+            last_levels_sent: Instant::now(),
             midi: None,
             midi_error: None,
             midi_retry: Instant::now(),
@@ -869,6 +888,7 @@ impl Controller {
                         rt.voice = Some(id);
                         rt.slot = slot;
                         rt.played.insert(index);
+                        rt.remember(index);
                         rt.duration = None;
                         self.preload_next(module);
                     }
@@ -1171,6 +1191,7 @@ impl Controller {
         let rt = &mut self.playlists[m];
         rt.current = current.and_then(|p| tracks.iter().position(|t| *t == p));
         rt.played.clear();
+        rt.history.clear();
     }
 
     pub fn remove_track(&mut self, m: usize, index: usize) {
@@ -1189,6 +1210,7 @@ impl Controller {
                 std::cmp::Ordering::Greater => Some(c - 1),
             });
             rt.played.clear();
+            rt.history.clear();
             self.mark_dirty();
             self.requeue(m);
         }
@@ -1413,6 +1435,7 @@ impl Controller {
         rt.current = Some(index);
         rt.voice = Some(id);
         rt.played.insert(index);
+        rt.remember(index);
         rt.duration = Some(buf.duration_secs());
         let region = Region::full(&buf);
         let slot = rt.slot;
@@ -1525,13 +1548,37 @@ impl Controller {
         if len == 0 {
             return;
         }
-        let cur = self.playlists[m].current.unwrap_or(0) as isize;
-        let idx = (cur + delta).rem_euclid(len as isize) as usize;
+        let cur = self.playlists[m].current.unwrap_or(0);
+        let idx = if self.project.modules[m].playlist.shuffle {
+            self.shuffle_step(m, cur, delta)
+        } else {
+            (cur as isize + delta).rem_euclid(len as isize) as usize
+        };
         if self.playlists[m].playing {
             self.playlist_play(m, idx);
         } else {
             self.playlists[m].current = Some(idx);
         }
+    }
+
+    /// Suivant ou précédent en lecture aléatoire : « suivant » prend le morceau déjà tiré
+    /// au sort (celui que la fin du morceau aurait lancé), « précédent » revient sur l'historique.
+    fn shuffle_step(&mut self, m: usize, cur: usize, delta: isize) -> usize {
+        let rt = &mut self.playlists[m];
+        if delta < 0 {
+            if rt.history.last() == Some(&cur) {
+                rt.history.pop();
+            }
+            return rt.history.pop().unwrap_or(cur);
+        }
+        if let Some((index, _)) = rt.queued.filter(|_| rt.playing) {
+            return index;
+        }
+        // Fin d'un tour sans boucle : on repart sur un nouveau tirage plutôt que de rester bloqué.
+        self.next_index(m, cur).unwrap_or_else(|| {
+            self.playlists[m].played.clear();
+            self.next_index(m, cur).unwrap_or(cur)
+        })
     }
 
     pub fn select_track(&mut self, m: usize, index: usize) {
@@ -1650,11 +1697,18 @@ impl Controller {
         for cmd in commands {
             self.handle_command("OSC", cmd);
         }
-        if changed || self.last_osc_publish.elapsed() > Duration::from_millis(200) {
+        if changed || self.last_osc_publish.elapsed() > Duration::from_millis(100) {
             self.last_osc_publish = Instant::now();
             let snap = self.osc_snapshot();
             if let Some(server) = self.osc.as_ref() {
                 server.publish(snap);
+            }
+        }
+        // Vumètres à distance (Companion…), environ 20 fois par seconde.
+        if self.last_levels_sent.elapsed() >= Duration::from_millis(45) {
+            self.last_levels_sent = Instant::now();
+            if let Some(server) = self.osc.as_ref().filter(|s| s.has_subscribers()) {
+                server.send_levels(&self.meters_db[..self.project.module_count]);
             }
         }
     }
@@ -1671,7 +1725,7 @@ impl Controller {
             OscCommand::JinglePlay(m, s) if m < n && mode(self, m) == ModuleMode::Jingle => self.start_jingle(m, s),
             OscCommand::JingleStop(m, s) if m < n && mode(self, m) == ModuleMode::Jingle => self.stop_jingle(m, s),
             OscCommand::JingleToggle(m, s) if m < n && mode(self, m) == ModuleMode::Jingle => self.trigger_jingle(m, s),
-            OscCommand::JingleVolume(m, s, db) if m < n => self.update_jingle(m, s, |j| j.sound.volume_db = db),
+            OscCommand::JingleVolume(m, s, db) if m < n && mode(self, m) == ModuleMode::Jingle => self.update_jingle(m, s, |j| j.sound.volume_db = db),
             OscCommand::PlaylistPlay(m, track) if m < n && mode(self, m) == ModuleMode::Playlist => match track {
                 Some(i) => self.playlist_play(m, i),
                 None => self.playlist_go(m),
@@ -1693,8 +1747,10 @@ impl Controller {
                 Some(p) => self.cue_set_paused(m, p),
                 None => self.cue_toggle_pause(m),
             },
-            OscCommand::PlaylistShuffle(m, on) if m < n => self.update_playlist(m, |p| p.shuffle = on),
-            OscCommand::PlaylistLoop(m, on) if m < n => self.update_playlist(m, |p| p.looping = on),
+            OscCommand::PlaylistShuffle(m, on) if m < n && mode(self, m) == ModuleMode::Playlist => {
+                self.update_playlist(m, |p| p.shuffle = on)
+            }
+            OscCommand::PlaylistLoop(m, on) if m < n && mode(self, m) == ModuleMode::Playlist => self.update_playlist(m, |p| p.looping = on),
             other => self.status = Some(format!("{source} : {} ({other:?})", tr("commande ignorée", "command ignored"))),
         }
     }
@@ -1876,6 +1932,7 @@ impl Controller {
     pub fn osc_snapshot(&self) -> osc::Snapshot {
         let rate = self.rate() as f64;
         let left = |(pos, len): (u64, u64)| (len.saturating_sub(pos) as f64 / rate) as f32;
+        let fraction = |(pos, len): (u64, u64)| (pos as f64 / len.max(1) as f64) as f32;
         let modules = (0..self.project.module_count)
             .map(|m| {
                 let cfg = &self.project.modules[m];
@@ -1901,6 +1958,10 @@ impl Controller {
                                     let (_, _, _, end) = j.sound.markers(len as f64 / rate);
                                     (end - p as f64 / rate).max(0.0) as f32
                                 }),
+                                progress: pos.map(|(p, len)| {
+                                    let (start, _, _, end) = j.sound.markers(len as f64 / rate);
+                                    ((p as f64 / rate - start) / (end - start).max(1e-6)) as f32
+                                }),
                             })
                         })
                         .collect(),
@@ -1914,6 +1975,7 @@ impl Controller {
                             .map(|n| n.to_string_lossy().into_owned())
                             .unwrap_or_default(),
                         remaining: self.playlist_position(m).map(left),
+                        progress: self.playlist_position(m).map(fraction),
                         playing: rt.playing,
                         paused: rt.paused,
                         shuffle: cfg.playlist.shuffle,
@@ -1925,6 +1987,7 @@ impl Controller {
                         playing: (0..cfg.cues.len()).filter(|&i| self.cue_position(m, i).is_some()).count(),
                         playing_name: running.and_then(|(i, ..)| cfg.cues.get(i)).map(|c| c.name.clone()).unwrap_or_default(),
                         remaining: running.map(|(_, pos, len)| left((pos, len))),
+                        progress: running.map(|(_, pos, len)| fraction((pos, len))),
                         paused: self.gos[m].paused,
                     },
                 }

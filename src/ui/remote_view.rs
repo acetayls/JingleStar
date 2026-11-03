@@ -379,6 +379,29 @@ fn mappings(ui: &mut Ui, ctrl: &mut Controller) {
                         let mut n = m.module + 1;
                         ui.add(egui::DragValue::new(&mut n).range(1..=MAX_MODULES));
                         m.module = n - 1;
+                        // Dit tout de suite si la correspondance ne fera rien : module absent
+                        // ou dans un autre mode que celui de l'action.
+                        let p = &ctrl.project;
+                        let (txt, warn) = if m.module >= p.module_count {
+                            (format!("{} ({} {})", tr("absent", "missing"), tr("le projet en a", "the project has"), p.module_count), true)
+                        } else {
+                            let md = &p.modules[m.module];
+                            match m.action.required_mode() {
+                                Some(need) if md.mode != need => (
+                                    format!("{} : {} {}", md.name, tr("sans effet, module en mode", "no effect, module in"), super::mode_label(md.mode)),
+                                    true,
+                                ),
+                                _ => (md.name.clone(), false),
+                            }
+                        };
+                        let txt = if warn { format!("⚠ {txt}") } else { txt };
+                        let resp = ui.label(RichText::new(txt).small().color(if warn { ACCENT } else { TEXT_DIM }));
+                        if warn {
+                            resp.on_hover_text(tr(
+                                "Cette correspondance n'agit que sur un module présent et dans le mode de l'action (Jingles, Playlist ou Cuelist).",
+                                "This mapping only acts on a module that exists and is in the action's mode (Jingles, Playlist or Cuelist).",
+                            ));
+                        }
                     });
                 } else {
                     ui.label("");
@@ -390,9 +413,10 @@ fn mappings(ui: &mut Ui, ctrl: &mut Controller) {
                         ui.add(egui::DragValue::new(&mut n).range(1..=JINGLE_SLOTS));
                         m.jingle = n - 1;
                         let name = ctrl.project.modules.get(m.module).and_then(|md| md.jingles[m.jingle].as_ref()).map(|j| j.name.clone());
-                        if let Some(name) = name {
-                            ui.label(RichText::new(name).small().color(TEXT_DIM));
-                        }
+                        match name {
+                            Some(name) => ui.label(RichText::new(name).small().color(TEXT_DIM)),
+                            None => ui.label(RichText::new(tr("⚠ emplacement vide", "⚠ empty slot")).small().color(ACCENT)),
+                        };
                     });
                 } else {
                     ui.label("");

@@ -18,7 +18,15 @@ Préférences → Pilotage à distance : activer **OSC** et **OSCQuery**. Les po
 
 Les presets suivent le projet ouvert dans JingleStar : une catégorie par module, avec les
 12 jingles (nom, couleur, rouge quand il joue), le transport de playlist, le GO de la cuelist
-avec le nom du cue en attente, et « Tout arrêter ».
+avec le nom du cue en attente, et « Tout arrêter ». Les touches de jingle, de morceau et de
+cue montrent une **barre de lecture** qui avance en bas.
+
+### Vumètres
+
+Le retour « Module : vumètre » dessine le niveau gauche et droite d'un module, sur toute la
+touche ou en bande sur le bord droit. JingleStar envoie les niveaux environ 20 fois par seconde
+dès que la case « Recevoir les vumètres » est cochée (par défaut). Aucun réglage n'est
+nécessaire dans JingleStar.
 
 ### Variables utiles
 

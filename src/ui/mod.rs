@@ -189,6 +189,8 @@ impl JingleStarApp {
                 *shown = if db > *shown { db } else { (*shown - 30.0 * dt).max(db).max(-120.0) };
             }
         }
+        // Mêmes niveaux pour les vumètres à distance (OSC).
+        self.ctrl.meters_db = self.meters;
     }
 
     // ------------------------------------------------------------ barre haute
@@ -1106,15 +1108,23 @@ impl JingleStarApp {
         let rate = self.ctrl.device.as_ref().map(|d| d.sample_rate).unwrap_or(48_000) as f64;
         let pos = self.ctrl.playlist_position(m);
         egui::Frame::new().fill(Color32::from_rgb(0x1c, 0x1c, 0x20)).corner_radius(4).inner_margin(6).show(ui, |ui| {
-            ui.set_width(area.width() - 12.0);
+            // Largeur imposée : rien dans le cadre ne doit l'élargir au-delà du module,
+            // sinon la barre de lecture et le temps restant sortent du champ.
+            let inner = (area.width() - 12.0).max(0.0);
+            ui.set_width(inner);
+            ui.set_max_width(inner);
             let col = if rt.paused { ACCENT } else if rt.playing { GO } else { TEXT };
+            // « EN PAUSE » d'abord à droite, puis le titre tronqué dans la place restante.
             ui.horizontal(|ui| {
-                ui.label(RichText::new(&current_name).strong().size(15.0).color(col));
-                if rt.paused {
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if rt.paused {
                         ui.label(RichText::new(tr("EN PAUSE", "PAUSED")).strong().small().color(ACCENT));
+                    }
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        ui.add(egui::Label::new(RichText::new(&current_name).strong().size(15.0).color(col)).truncate())
+                            .on_hover_text(&current_name);
                     });
-                }
+                });
             });
             let (mut t, len) = pos.map(|(p, l)| (p as f64 / rate, l as f64 / rate)).unwrap_or((0.0, 0.0));
             // Barre de lecture : un clic ou un glisser (appliqué au relâché) déplace la lecture.
@@ -1145,7 +1155,8 @@ impl JingleStarApp {
             }
             ui.horizontal(|ui| {
                 ui.label(RichText::new(fmt_time(t)).monospace().color(TEXT_DIM));
-                if let Some(i) = rt.current {
+                // Le gain passe en dernier : on le masque s'il ne reste pas la place du temps restant.
+                if let Some(i) = rt.current.filter(|_| ui.available_width() > 170.0) {
                     let g = self.ctrl.track_gain(m, i);
                     if !matches!(g, TrackGain::Off) {
                         let (txt, col, tip, _) = gain_label(&g);

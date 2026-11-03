@@ -96,12 +96,16 @@ impl JingleStarApp {
             return true;
         }
         if let Some((om, os, name)) = self.jingle_with_hotkey(&h, Some((m, s))) {
+            // Le jingle qui le porte peut dormir dans un module passé en Playlist ou Cuelist :
+            // on le dit, sinon le refus paraît incompréhensible.
+            let asleep = self.ctrl.project.modules[om].mode != ModuleMode::Jingle;
             self.hotkey_msg = Some(format!(
-                "{} {} {}.{} « {name} ».",
+                "{} {} {}.{} « {name} »{}.",
                 display_hotkey(&h),
                 tr("est déjà utilisé par le jingle", "is already used by jingle"),
                 om + 1,
-                os + 1
+                os + 1,
+                if asleep { tr(" (module hors mode Jingles, effacez-le dans ce module)", " (module not in Jingles mode, clear it there)") } else { "" }
             ));
             return true;
         }
@@ -182,7 +186,7 @@ pub(super) fn jingle_hotkeys_list(ui: &mut Ui, ctrl: &Controller) {
     for (m, module) in p.modules.iter().enumerate().take(p.module_count) {
         for (s, j) in module.jingles.iter().enumerate() {
             if let Some(h) = j.as_ref().and_then(|j| j.hotkey.as_deref().map(|h| (h, &j.name))) {
-                rows.push((m, s, display_hotkey(h.0), h.1.clone()));
+                rows.push((m, s, display_hotkey(h.0), h.1.clone(), module.mode == ModuleMode::Jingle));
             }
         }
     }
@@ -194,9 +198,15 @@ pub(super) fn jingle_hotkeys_list(ui: &mut Ui, ctrl: &Controller) {
         return;
     }
     egui::Grid::new("jingle-hotkeys").num_columns(2).spacing([16.0, 6.0]).striped(true).show(ui, |ui| {
-        for (m, s, h, name) in rows {
-            ui.label(RichText::new(h).monospace().strong().color(ACCENT));
-            ui.label(format!("{} {}.{} « {name} »", tr("Jingle", "Jingle"), m + 1, s + 1));
+        for (m, s, h, name, active) in rows {
+            ui.label(RichText::new(h).monospace().strong().color(if active { ACCENT } else { TEXT_DIM }));
+            let what = format!("{} {}.{} « {name} »", tr("Jingle", "Jingle"), m + 1, s + 1);
+            if active {
+                ui.label(what);
+            } else {
+                // Module passé dans un autre mode : le jingle et son raccourci sont en sommeil.
+                ui.label(RichText::new(format!("{what} — {}", tr("inactif (module hors mode Jingles)", "inactive (module not in Jingles mode)"))).color(TEXT_DIM));
+            }
             ui.end_row();
         }
     });

@@ -18,11 +18,16 @@ use egui::text::{CCursor, CCursorRange, LayoutJob, TextFormat};
 use egui::{vec2, Color32, FontFamily, FontId, Id, Key, Modifiers, Rect, RichText, Stroke};
 
 use super::dialogs::{Kind, Pick};
+use super::theme;
 use super::JingleStarApp;
 use crate::i18n::tr;
 
 /// Taille du texte de la conduite.
 const TEXT_SIZE: f32 = 15.0;
+/// Zoom du texte : bornes et pas des boutons − / +.
+const ZOOM_MIN: f32 = 0.6;
+const ZOOM_MAX: f32 = 3.0;
+const ZOOM_STEP: f32 = 0.2;
 /// Taille des balises : minuscules et transparentes, on ne voit que la mise en forme.
 const MARKER_SIZE: f32 = 0.5;
 /// Famille de police grasse, chargée depuis les polices du système (la police par défaut d'egui n'a pas de gras).
@@ -197,7 +202,6 @@ fn parse_line(line: &str, base: usize, out: &mut Vec<Span>) {
 /// Une balise commence-t-elle à l'octet `i` de la ligne ? Renvoie sa longueur et le style qui suit.
 fn marker_at(line: &str, i: usize, s: Style) -> Option<(usize, Style)> {
     let rest = &line[i..];
-    let prev_solid = line[..i].chars().next_back().is_some_and(|c| !c.is_whitespace());
 
     // Fermetures d'abord : `***` referme le gras puis l'italique.
     if let Some(h) = s.hl {
@@ -227,13 +231,6 @@ fn marker_at(line: &str, i: usize, s: Style) -> Option<(usize, Style)> {
         }
     }
     None
-}
-
-/// La balise `d` est-elle refermée plus loin (collée au texte qui la précède) ?
-fn has_closer(after: &str, d: &str) -> bool {
-    after
-        .match_indices(d)
-        .any(|(j, _)| j > 0 && after[..j].chars().next_back().is_some_and(|c| !c.is_whitespace()))
 }
 
 /// Styles communs à tout le texte sélectionné (plage en caractères) ; sans sélection, ceux
@@ -267,9 +264,9 @@ pub(crate) fn active_style(text: &str, sel: Range<usize>) -> Style {
 }
 
 /// Mise en page du texte pour le `TextEdit` : styles appliqués, balises invisibles.
-fn layout_job(text: &str, text_color: Color32, bold_font: bool) -> LayoutJob {
+fn layout_job(text: &str, text_color: Color32, bold_font: bool, size: f32) -> LayoutJob {
     let mut job = LayoutJob::default();
-    let regular = FontId::proportional(TEXT_SIZE);
+    let regular = FontId::proportional(size);
     for span in parse(text) {
         let piece = &text[span.range.clone()];
         let st = span.style;
@@ -283,7 +280,7 @@ fn layout_job(text: &str, text_color: Color32, bold_font: bool) -> LayoutJob {
             }
         } else {
             let font_id = if st.bold && bold_font {
-                FontId::new(TEXT_SIZE, FontFamily::Name(BOLD_FAMILY.into()))
+                FontId::new(size, FontFamily::Name(BOLD_FAMILY.into()))
             } else {
                 regular.clone()
             };
@@ -310,7 +307,6 @@ fn layout_job(text: &str, text_color: Color32, bold_font: bool) -> LayoutJob {
 pub(crate) enum Action {
     Toggle(Flag),
     Color(Hl),
-    Clear,
 }
 
 /// Texte d'une ligne sans ses balises (caractère + style), et pour chaque position de
@@ -410,8 +406,37 @@ fn serialize(content: &[(char, Style)]) -> (String, Vec<usize>, Vec<usize>) {
     (out, starts, ends)
 }
 
-fn byte_of_char(text: &str, c: usize) -> usize {
-    text.char_indices().nth(c).map_or(text.len(), |(b, _)| b)
+/// Nombre de caractères visibles (hors balises) avant la position `raw` (en caractères).
+fn visible_before(text: &str, raw: usize) -> usize {
+    let spans = parse(text);
+    let mut n = 0;
+    for (k, (b, _)) in text.char_indices().enumerate() {
+        if k >= raw {
+            break;
+        }
+        if !spans.iter().any(|sp| sp.marker && sp.range.contains(&b)) {
+            n += 1;
+        }
+    }
+    n
+}
+
+/// Position (en caractères) juste après le `n`-ième caractère visible et les balises qui le suivent
+/// côté ouvrant : le curseur tombe à l'intérieur du style.
+fn raw_of_visible(text: &str, n: usize) -> usize {
+    let spans = parse(text);
+    let is_marker = |b: usize| spans.iter().any(|sp| sp.marker && sp.range.contains(&b));
+    let mut seen = 0;
+    for (k, (b, _)) in text.char_indices().enumerate() {
+        if is_marker(b) {
+            continue;
+        }
+        if seen == n {
+            return k;
+        }
+        seen += 1;
+    }
+    text.chars().count()
 }
 
 /// Applique une action de mise en forme à la sélection `sel` (en caractères).
@@ -422,18 +447,15 @@ pub(crate) fn apply_format(text: &str, sel: Range<usize>, action: Action) -> (St
 
     if sel.is_empty() {
         // Sans sélection : le mot sous le curseur (des balises vides resteraient visibles).
-        // « Effacer le style » prend toute la ligne.
         let chars: Vec<char> = text.chars().collect();
-        let stop = |c: char| if action == Action::Clear { c == '\n' } else { c.is_whitespace() };
-        let start = chars[..sel.start].iter().rposition(|&c| stop(c)).map_or(0, |p| p + 1);
-        let end = chars[sel.start..].iter().position(|&c| stop(c)).map_or(total, |p| sel.start + p);
+        let start = chars[..sel.start].iter().rposition(|c| c.is_whitespace()).map_or(0, |p| p + 1);
+        let end = chars[sel.start..].iter().position(|c| c.is_whitespace()).map_or(total, |p| sel.start + p);
         if start == end {
             return (text.to_owned(), sel);
         }
         let (out, _) = apply_format(text, start..end, action);
         // Le curseur reste au même endroit du texte visible.
-        let shift = out.chars().count() as isize - text.chars().count() as isize;
-        let cursor = if sel.start == end { (sel.start as isize + shift).max(0) as usize } else { sel.start.min(out.chars().count()) };
+        let cursor = raw_of_visible(&out, visible_before(text, sel.start));
         return (out, cursor..cursor);
     }
 
@@ -459,13 +481,11 @@ pub(crate) fn apply_format(text: &str, sel: Range<usize>, action: Action) -> (St
     let all = match action {
         Action::Toggle(f) => selected.all(|(_, st)| st.get(f)),
         Action::Color(h) => selected.all(|(_, st)| st.hl == Some(h)),
-        Action::Clear => false,
     };
     let new_style = |st: Style| -> Style {
         match action {
             Action::Toggle(f) => st.with(f, !all),
             Action::Color(h) => Style { hl: if all { None } else { Some(h) }, ..st },
-            Action::Clear => Style::default(),
         }
     };
 
@@ -606,6 +626,9 @@ impl JingleStarApp {
             .or_else(|| ui.data(|d| d.get_temp::<(usize, usize)>(sel_id)));
         let on = cur_sel.map(|(a, b)| active_style(&self.ctrl.project.modules[m].notes, a..b)).unwrap_or_default();
 
+        let zoom_id = edit_id.with("zoom");
+        let mut zoom: f32 = ui.data(|d| d.get_temp(zoom_id)).unwrap_or(1.0);
+
         let top = ui.cursor().top();
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 3.0;
@@ -627,17 +650,15 @@ impl JingleStarApp {
             for h in Hl::ALL {
                 tool(ui, RichText::new("  ").background_color(h.color()), h.label(), Action::Color(h), on.hl == Some(h));
             }
-            ui.add_space(6.0);
-            tool(
-                ui,
-                RichText::new(tr("Effacer le style", "Clear style")),
-                tr(
-                    "Retirer la mise en forme de la sélection (sans sélection : de la ligne)",
-                    "Remove formatting from the selection (no selection: from the line)",
-                ),
-                Action::Clear,
-                false,
-            );
+            ui.add_space(10.0);
+            // Zoom du texte : pour lire la conduite de loin.
+            if ui.add(egui::Button::new("−").min_size(size)).on_hover_text(tr("Texte plus petit", "Smaller text")).clicked() {
+                zoom = (zoom - ZOOM_STEP).max(ZOOM_MIN);
+            }
+            ui.label(RichText::new(format!("{:.0} %", zoom * 100.0)).small().color(theme::TEXT_DIM));
+            if ui.add(egui::Button::new("+").min_size(size)).on_hover_text(tr("Texte plus grand", "Larger text")).clicked() {
+                zoom = (zoom + ZOOM_STEP).min(ZOOM_MAX);
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
                     .button(tr("Importer…", "Import…"))
@@ -671,11 +692,13 @@ impl JingleStarApp {
             ui.memory_mut(|mem| mem.request_focus(edit_id));
         }
 
+        ui.data_mut(|d| d.insert_temp(zoom_id, zoom));
+        let text_size = TEXT_SIZE * zoom;
         let height = (area.height() - (ui.cursor().top() - top)).max(40.0);
         let mut text = self.ctrl.project.modules[m].notes.clone();
         let mut focused = false;
         let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
-            let mut job = layout_job(buf.as_str(), ui.visuals().text_color(), bold_font);
+            let mut job = layout_job(buf.as_str(), ui.visuals().text_color(), bold_font, text_size);
             job.wrap.max_width = wrap_width;
             ui.fonts_mut(|f| f.layout_job(job))
         };
@@ -684,7 +707,7 @@ impl JingleStarApp {
                 vec2(area.width(), height),
                 egui::TextEdit::multiline(&mut text)
                     .id(edit_id)
-                    .font(FontId::proportional(TEXT_SIZE))
+                    .font(FontId::proportional(text_size))
                     .hint_text(tr("Écrire la conduite ici…", "Write your running order here…"))
                     .desired_width(f32::INFINITY)
                     .lock_focus(true)
@@ -727,39 +750,6 @@ impl JingleStarApp {
 mod tests {
     use super::*;
 
-    fn plain_vis(t: &str) -> String {
-        parse(t).into_iter().filter(|s| !s.marker).map(|s| t[s.range].to_string()).collect()
-    }
-
-    #[test]
-    fn zz_fuzz_visible_text_kept() {
-        let acts = [Action::Toggle(Flag::Bold), Action::Toggle(Flag::Italic), Action::Toggle(Flag::Underline), Action::Toggle(Flag::Strike), Action::Color(Hl::Rouge), Action::Color(Hl::Bleu), Action::Clear];
-        let base = "ab cd ef";
-        let n = base.chars().count();
-        let mut bad = 0;
-        for a1 in acts { for s1 in 0..=n { for e1 in s1..=n {
-            let (t1, _) = apply_format(base, s1..e1, a1);
-            let n1 = t1.chars().count();
-            for a2 in acts { for s2 in (0..=n1).step_by(1) { for e2 in (s2..=n1).step_by(2) {
-                let (t2, _) = apply_format(&t1, s2..e2, a2);
-                if plain_vis(&t2) != plain_vis(&t1) && bad < 15 { bad += 1; eprintln!("{:?} [{s1},{e1}] -> {t1:?} ; {:?} [{s2},{e2}] -> {t2:?}", a1, a2); }
-            }}}
-        }}}
-        assert_eq!(bad, 0);
-    }
-
-    #[test]
-    fn active_style_follows_selection_and_cursor() {
-        let t = "a **gras** {rouge}b{/rouge}";
-        // « gras » sélectionné (caractères 4 à 8).
-        assert!(active_style(t, 4..8).bold);
-        // Sélection à cheval sur du texte normal : pas de gras commun.
-        assert!(!active_style(t, 0..8).bold);
-        // Curseur juste après « b » surligné.
-        let b = t.find("b{/").unwrap() + 1;
-        assert_eq!(active_style(t, b..b).hl, Some(Hl::Rouge));
-    }
-
     /// Caractères visibles (balises retirées) avec leur style.
     fn visible(text: &str) -> Vec<(char, Style)> {
         parse(text)
@@ -774,8 +764,52 @@ mod tests {
     }
 
     #[test]
+    fn aucune_balise_visible_apres_deux_actions() {
+        let acts = [
+            Action::Toggle(Flag::Bold),
+            Action::Toggle(Flag::Italic),
+            Action::Toggle(Flag::Underline),
+            Action::Toggle(Flag::Strike),
+            Action::Color(Hl::Rouge),
+            Action::Color(Hl::Bleu),
+        ];
+        let base = "ab cd ef";
+        let n = base.chars().count();
+        for a1 in acts {
+            for s1 in 0..=n {
+                for e1 in s1..=n {
+                    let (t1, _) = apply_format(base, s1..e1, a1);
+                    assert_eq!(plain(&t1), base, "{a1:?} [{s1},{e1}] -> {t1:?}");
+                    let n1 = t1.chars().count();
+                    for a2 in acts {
+                        for s2 in 0..=n1 {
+                            for e2 in (s2..=n1).step_by(3) {
+                                let (t2, _) = apply_format(&t1, s2..e2, a2);
+                                assert_eq!(plain(&t2), base, "{t1:?} puis {a2:?} [{s2},{e2}] -> {t2:?}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn active_style_follows_selection_and_cursor() {
+        let t = "a {b}gras{/b} {rouge}x{/rouge}";
+        // « gras » sélectionné.
+        let g = t.find("gras").unwrap();
+        assert!(active_style(t, g..g + 4).bold);
+        // Sélection à cheval sur du texte normal : pas de gras commun.
+        assert!(!active_style(t, 0..g + 4).bold);
+        // Curseur juste après « x » surligné.
+        let x = t.find("x{/").unwrap() + 1;
+        assert_eq!(active_style(t, x..x).hl, Some(Hl::Rouge));
+    }
+
+    #[test]
     fn texte_sans_balise_inchange() {
-        let t = "Ouverture\n* point de liste\n5 * 3 = 15\nsnake_case et a~b {autre}";
+        let t = "Ouverture\n* point de liste\n5 * 3 = 15\n**gras** snake_case et a~b {autre}";
         assert_eq!(plain(t), t);
         assert!(visible(t).iter().all(|(_, st)| *st == Style::default()));
         assert!(parse(t).iter().all(|s| !s.marker));
@@ -783,26 +817,28 @@ mod tests {
 
     #[test]
     fn styles_de_base() {
-        let t = "**g** *i* __s__ ~~b~~";
+        let t = "{b}g{/b} {i}i{/i} {u}s{/u} {s}x{/s}";
         let v = visible(t);
         let style_of = |c: char| v.iter().find(|(x, _)| *x == c).unwrap().1;
         assert!(style_of('g').bold);
         assert!(style_of('i').italic && !style_of('i').bold);
         assert!(style_of('s').underline);
-        assert!(style_of('b').strike);
-        assert_eq!(plain(t), "g i s b");
+        assert!(style_of('x').strike);
+        assert_eq!(plain(t), "g i s x");
     }
 
     #[test]
     fn gras_italique_combines() {
-        let v = visible("***fort***");
+        let (t, _) = apply_format("fort", 0..4, Action::Toggle(Flag::Bold));
+        let (t, _) = apply_format(&t, 0..t.chars().count(), Action::Toggle(Flag::Italic));
+        let v = visible(&t);
         assert_eq!(v.len(), 4);
         assert!(v.iter().all(|(_, st)| st.bold && st.italic));
     }
 
     #[test]
     fn surlignage() {
-        let t = "avant {rouge}chaud **très**{/rouge} après";
+        let t = "avant {rouge}chaud {b}très{/b}{/rouge} après";
         assert_eq!(plain(t), "avant chaud très après");
         let v = visible(t);
         assert_eq!(v[6].1.hl, Some(Hl::Rouge));
@@ -812,8 +848,9 @@ mod tests {
 
     #[test]
     fn balises_limitees_a_la_ligne() {
-        let v = visible("**début\nfin**");
-        assert!(v.iter().all(|(_, st)| !st.bold));
+        let v = visible("{b}début\nfin{/b}");
+        assert!(v[0].1.bold);
+        assert!(!v.last().unwrap().1.bold);
         let v = visible("{bleu}a\nb");
         assert_eq!(v[0].1.hl, Some(Hl::Bleu));
         assert_eq!(v[2].1.hl, None);
@@ -822,8 +859,8 @@ mod tests {
     #[test]
     fn appliquer_et_retirer_le_gras() {
         let (t, sel) = apply_format("un mot ici", 3..6, Action::Toggle(Flag::Bold));
-        assert_eq!(t, "un **mot** ici");
-        assert_eq!(sel, 5..8);
+        assert_eq!(t, "un {b}mot{/b} ici");
+        assert_eq!(sel, 6..9);
         let (t, _) = apply_format(&t, sel, Action::Toggle(Flag::Bold));
         assert_eq!(t, "un mot ici");
     }
@@ -831,7 +868,7 @@ mod tests {
     #[test]
     fn espaces_hors_des_balises() {
         let (t, _) = apply_format("un mot ici", 2..7, Action::Toggle(Flag::Italic));
-        assert_eq!(t, "un *mot* ici");
+        assert_eq!(t, "un {i}mot{/i} ici");
     }
 
     #[test]
@@ -842,23 +879,16 @@ mod tests {
     }
 
     #[test]
-    fn effacer_la_mise_en_forme() {
-        let t = "a **b** {rose}c{/rose}";
-        let (t, _) = apply_format(t, 0..t.chars().count(), Action::Clear);
-        assert_eq!(t, "a b c");
-        // Sans sélection : toute la ligne du curseur.
-        let (t, _) = apply_format("x\n**y** z\nw", 4..4, Action::Clear);
-        assert_eq!(t, "x\ny z\nw");
-    }
-
-    #[test]
-    fn insertion_sans_selection() {
-        let (t, sel) = apply_format("ab", 1..1, Action::Toggle(Flag::Strike));
-        assert_eq!(t, "a~~~~b");
-        assert_eq!(sel, 3..3);
-        let (t, sel) = apply_format("", 0..0, Action::Color(Hl::Rouge));
-        assert_eq!(t, "{rouge}{/rouge}");
-        assert_eq!(sel, 7..7);
+    fn sans_selection_le_mot_du_curseur() {
+        // Curseur au milieu de « mot » : le mot entier, curseur au même endroit du texte visible.
+        let (t, sel) = apply_format("un mot ici", 4..4, Action::Toggle(Flag::Strike));
+        assert_eq!(t, "un {s}mot{/s} ici");
+        assert_eq!(visible_before(&t, sel.start), 4);
+        // Curseur dans un blanc : rien ne change, aucune balise vide.
+        let (t, _) = apply_format("a  b", 2..2, Action::Color(Hl::Rouge));
+        assert_eq!(t, "a  b");
+        let (t, _) = apply_format("", 0..0, Action::Color(Hl::Rouge));
+        assert_eq!(t, "");
     }
 
     #[test]

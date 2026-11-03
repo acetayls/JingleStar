@@ -2,6 +2,7 @@
 
 const { combineRgb } = require('@companion-module/base')
 const { moduleOption, jingleOption } = require('./actions')
+const { progressBar, stereoMeter } = require('./graphics')
 
 const RED = combineRgb(200, 0, 0)
 const GREEN = combineRgb(0, 150, 0)
@@ -71,6 +72,74 @@ function getFeedbacks(self) {
 				return typeof r === 'number' && r <= Number(fb.options.seconds)
 			},
 		),
+		progress_bar: {
+			type: 'advanced',
+			name: 'Barre de lecture',
+			description: 'Barre qui avance en bas de la touche pendant la lecture (jingle, morceau ou cue)',
+			options: [
+				mod,
+				{
+					type: 'dropdown',
+					id: 'source',
+					label: 'Son',
+					default: 'cue',
+					choices: [
+						{ id: 'jingle', label: 'Jingle' },
+						{ id: 'playlist', label: 'Morceau de la playlist' },
+						{ id: 'cue', label: 'Cue de la cuelist' },
+					],
+				},
+				{ ...jingle, isVisible: (o) => o.source === 'jingle' },
+				{ type: 'colorpicker', id: 'color', label: 'Couleur', default: combineRgb(255, 255, 255) },
+				{ type: 'number', id: 'height', label: 'Épaisseur (pixels)', default: 8, min: 2, max: 72 },
+			],
+			callback: (fb) => {
+				const mm = m(fb)
+				const p =
+					fb.options.source === 'playlist'
+						? mm?.playlist?.progress
+						: fb.options.source === 'cue'
+							? mm?.cue?.progress
+							: j(fb)?.progress
+				if (typeof p !== 'number') return {}
+				const width = fb.image?.width ?? 72
+				const full = fb.image?.height ?? 72
+				const height = Math.min(full, Math.max(2, Number(fb.options.height) || 8))
+				return {
+					imageBuffer: progressBar(width, height, p, Number(fb.options.color)),
+					imageBufferEncoding: { pixelFormat: 'RGBA' },
+					imageBufferPosition: { x: 0, y: full - height, width, height },
+				}
+			},
+		},
+		module_meter: {
+			type: 'advanced',
+			name: 'Module : vumètre',
+			description: 'Niveau de sortie du module (gauche et droite), envoyé en continu par JingleStar',
+			options: [
+				mod,
+				{
+					type: 'dropdown',
+					id: 'layout',
+					label: 'Place',
+					default: 'side',
+					choices: [
+						{ id: 'side', label: 'Bande sur le bord droit' },
+						{ id: 'full', label: 'Toute la touche' },
+					],
+				},
+			],
+			callback: (fb) => {
+				const width = fb.image?.width ?? 72
+				const height = fb.image?.height ?? 72
+				const w = fb.options.layout === 'full' ? width : Math.max(8, Math.round(width / 5))
+				return {
+					imageBuffer: stereoMeter(w, height, self.meter(Number(fb.options.module))),
+					imageBufferEncoding: { pixelFormat: 'RGBA' },
+					imageBufferPosition: { x: width - w, y: 0, width: w, height },
+				}
+			},
+		},
 
 		playlist_playing: bool('Playlist : en lecture', 'La playlist joue (hors pause)', GREEN, [mod], (fb) => {
 			const p = m(fb)?.playlist

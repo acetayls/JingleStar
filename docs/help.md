@@ -71,7 +71,8 @@ The module frame turns green while something is playing in it.
 - **Change type**: switch to edit mode (✏), pick **Jingles**, **Playlist**, **Cuelist** or **Text** in the **Type** menu, then click **Apply** (**Cancel** otherwise). The type cannot change by mistake during the show. If the module is playing, a red warning says its sound will be cut. The jingles, the playlist, the cue list and the text are all kept: switch back to find them again.
 - **Rename**: **double-click the module name**, type the new name and press Enter (Escape cancels). In edit mode (✏) the name is also directly editable.
 - **Text module**: a large free text field to write your running order, saved with the project. Escape still stops the jingles from there; the space bar types a space (no GO).
-  - **Formatting**: select text, then click **G** (bold), **I** (italic), **S** (underline), **B** (strikethrough) or a colour dot (red, blue, green, pink), or use Ctrl+B / Ctrl+I / Ctrl+U. The buttons of the styles of the selected text (or the text at the cursor) light up. A second click removes the style; **Clear style** removes all formatting from the selection (or the line if nothing is selected). Only the formatted text shows: the tags saved in the project (`**bold**`, `*italic*`, `__underline__`, `~~strike~~`, `{rouge}…{/rouge}`, `{bleu}`, `{vert}`, `{rose}`) stay invisible. The cursor goes through them: at the edge of a style, an arrow key may need one more press.
+  - **Formatting**: select text, then click **G** (bold), **I** (italic), **S** (underline), **B** (strikethrough) or a colour dot (red, blue, green, pink), or use Ctrl+B / Ctrl+I / Ctrl+U. The buttons of the styles of the selected text (or the text at the cursor) light up. A second click removes the style. With nothing selected, the style applies to the word at the cursor. Only the formatted text shows: the tags saved in the project (`{b}`, `{i}`, `{u}`, `{s}`, `{rouge}`, `{bleu}`, `{vert}`, `{rose}`, closed by `{/b}`, `{/rouge}`…) stay invisible. The cursor goes through them: at the edge of a style, an arrow key may need one more press.
+  - **Zoom**: the **−** and **+** toolbar buttons make the text smaller or larger (60 % to 300 %).
   - **Import…** appends a text file (.txt, .md) to the end of the running order.
 - **Delete**: in edit mode, click **🗑** then confirm with **Delete?**. The following modules move up one place. The last remaining module cannot be deleted.
 
@@ -397,7 +398,7 @@ default prefix.
 
 - Triggers (`play`, `stop`, `toggle`, `next`…) fire with no argument or a non-zero value: a button sending 1 on press and 0 on release triggers only once.
 - Booleans accept `T`/`F`, an int or a float (≥ 0.5 = true), or `true`/`false`/`on`/`off`.
-- **Bitfocus Companion / Stream Deck**: a ready-made module lives in the repository's `companion/` folder (see its README). For button feedback, OSCQuery also publishes each jingle's color and remaining time, the current track's title and remaining time, and the name and remaining time of the sounding cue.
+- **Bitfocus Companion / Stream Deck**: a ready-made module lives in the repository's `companion/` folder (see its README). For button feedback, OSCQuery also publishes each jingle's color and remaining time, the current track's title and remaining time, and the name and remaining time of the sounding cue, and each one's progress (`progress`, 0 to 1). `/jinglestar/subscribe` subscribes the sender for 5 s to module levels (`/jinglestar/module/<m>/meter`, left and right dB, about 20 times per second): renew it every 2 to 3 s.
 - Jingle commands only act on a module in Jingles mode, playlist commands on a module in Playlist mode. Bundles are accepted.
 
 ### OSCQuery

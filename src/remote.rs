@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 use crate::i18n::tr;
 use crate::osc::{OscCommand, JINGLE_DB, MODULE_DB};
+use crate::project::ModuleMode;
 
 /// Valeur « -∞ » des niveaux de la console (centièmes de dB).
 pub const CONSOLE_MIN: i32 = -32768;
@@ -242,6 +243,18 @@ impl ActionKind {
 
     pub fn needs_module(self) -> bool {
         self != ActionKind::StopAll
+    }
+
+    /// Mode que le module doit avoir pour que l'action agisse (aucun : tous les modes).
+    pub fn required_mode(self) -> Option<ModuleMode> {
+        use ActionKind::*;
+        match self {
+            JingleToggle | JinglePlay | JingleStop | JingleVolume => Some(ModuleMode::Jingle),
+            PlaylistPlay | PlaylistStop | PlaylistPause | PlaylistNext | PlaylistPrevious | PlaylistTrack | PlaylistShuffle
+            | PlaylistLoop => Some(ModuleMode::Playlist),
+            CueGo | CueNext | CuePrevious | CuePause => Some(ModuleMode::Go),
+            ModuleStop | ModuleVolume | StopAll => None,
+        }
     }
 
     pub fn needs_jingle(self) -> bool {

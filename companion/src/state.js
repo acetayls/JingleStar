@@ -89,6 +89,7 @@ function parseTree(root) {
 					playing: Boolean(val(child(j, 'playing'))),
 					color: parseColor(val(child(j, 'color'))),
 					remaining: time(val(child(j, 'remaining'))),
+					progress: time(val(child(j, 'progress'))),
 				})
 			}
 		}
@@ -104,6 +105,7 @@ function parseTree(root) {
 				shuffle: Boolean(val(child(pl, 'shuffle'))),
 				loop: Boolean(val(child(pl, 'loop'))),
 				remaining: time(val(child(pl, 'remaining'))),
+				progress: time(val(child(pl, 'progress'))),
 			}
 		}
 		const cue = child(m, 'cue')
@@ -116,6 +118,7 @@ function parseTree(root) {
 				playing: num(val(child(cue, 'playing'))) ?? 0,
 				playingName: String(val(child(cue, 'playing_name')) ?? ''),
 				remaining: time(val(child(cue, 'remaining'))),
+				progress: time(val(child(cue, 'progress'))),
 				paused: Boolean(val(child(cue, 'paused'))),
 			}
 		}
