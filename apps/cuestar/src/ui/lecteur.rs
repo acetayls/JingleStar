@@ -107,6 +107,43 @@ impl Lecteur {
         self.confirm_clear = false;
     }
 
+    /// Commande OSC « lecteur/… ».
+    pub fn handle_osc(&mut self, cmd: &str, m: &crate::osc::Msg, out: &mut OutputLink) {
+        match cmd {
+            "go" => self.go(out),
+            "play" => out.send(Command::Play),
+            "pause" => out.send(Command::Pause),
+            "toggle" => out.send(if out.state.paused { Command::Play } else { Command::Pause }),
+            "stop" => self.stop(out),
+            "next" => self.step(1, out),
+            "prev" => self.step(-1, out),
+            "goto" => {
+                if let Some(i) = m.f64().filter(|v| *v >= 1.0) {
+                    self.play(i as usize - 1, out);
+                }
+            }
+            "shuffle" => {
+                self.shuffle = m.flag();
+                self.requeue();
+            }
+            "loop" => {
+                self.loop_all = m.flag();
+                self.requeue();
+            }
+            "transition" => {
+                match m.text().unwrap_or_default().to_lowercase().as_str() {
+                    "cut" | "coupe" => self.transition.kind = TransitionKind::Cut,
+                    "black" | "noir" => self.transition.kind = TransitionKind::Black,
+                    _ => {}
+                }
+                if let Some(rosc::OscType::Float(s)) = m.args.get(1) {
+                    self.transition.secs = (*s as f64).clamp(0.1, 10.0);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn add(&mut self, files: impl IntoIterator<Item = PathBuf>) {
         for f in files {
             if f.is_dir() {

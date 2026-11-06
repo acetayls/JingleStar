@@ -57,6 +57,11 @@ pub struct CueStarApp {
     missing: usize,
     status: Option<String>,
     window_title: String,
+    // ---- commande OSC
+    osc: crate::osc::OscServer,
+    osc_draft: crate::osc::OscSettings,
+    osc_open: bool,
+    osc_last: Option<String>,
 }
 
 impl CueStarApp {
@@ -89,6 +94,13 @@ impl CueStarApp {
             missing: 0,
             status: None,
             window_title: String::new(),
+            osc: {
+                let ctx = cc.egui_ctx.clone();
+                crate::osc::OscServer::start(&crate::osc::OscSettings::load(), std::sync::Arc::new(move || ctx.request_repaint()))
+            },
+            osc_draft: crate::osc::OscSettings::load(),
+            osc_open: false,
+            osc_last: None,
         };
         // Session restaurée au lancement (copie datée gardée), comme JingleStar.
         if let Some(p) = app.autosave.clone() {
@@ -287,6 +299,96 @@ impl CueStarApp {
         });
     }
 
+    /// Messages OSC reçus depuis la dernière image.
+    fn poll_osc(&mut self) {
+        while let Ok(m) = self.osc.rx.try_recv() {
+            self.osc_last = Some(format!("/{} {:?}", m.path, m.args));
+            let path = m.path.clone();
+            if path == "noir" || path == "black" {
+                self.out.send(Command::Stop);
+            } else if let Some(cmd) = path.strip_prefix("lecteur/") {
+                self.lecteur.handle_osc(cmd, &m, &mut self.out);
+            } else if let Some(cmd) = path.strip_prefix("diaporama/") {
+                self.diaporama.handle_osc(cmd, &m, &mut self.out);
+            }
+        }
+    }
+
+    /// Fenêtre flottante « Commande OSC ».
+    fn osc_window(&mut self, ctx: &egui::Context) {
+        if !self.osc_open {
+            return;
+        }
+        let vp = egui::ViewportBuilder::default().with_title("CueStar — Commande OSC").with_inner_size([560.0, 520.0]);
+        let mut close = false;
+        let mut apply = false;
+        ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("cuestar-osc"), vp, |ui, _| {
+            close = ui.ctx().input(|i| i.viewport().close_requested());
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(12)).show(ui, |ui| {
+                let d = &mut self.osc_draft;
+                egui::Grid::new("osc").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
+                    ui.label("Commande OSC");
+                    ui.checkbox(&mut d.enabled, "Activer");
+                    ui.end_row();
+                    ui.label("Accès");
+                    ui.horizontal(|ui| {
+                        ui.radio_value(&mut d.network, false, "Local (ce PC)");
+                        ui.radio_value(&mut d.network, true, "Réseau");
+                    });
+                    ui.end_row();
+                    ui.label("Port (UDP)");
+                    ui.add(egui::DragValue::new(&mut d.port).range(1024..=65535));
+                    ui.end_row();
+                    ui.label("Préfixe");
+                    ui.add(egui::TextEdit::singleline(&mut d.prefix).desired_width(160.0));
+                    ui.end_row();
+                });
+                let changed = *d != self.osc.settings;
+                ui.horizontal(|ui| {
+                    let b = egui::Button::new(RichText::new("Appliquer").color(if changed { PLAYING_INK } else { TEXT_DIM })).fill(if changed { ACCENT } else { PANEL_HI });
+                    apply = ui.add_enabled(changed, b).clicked();
+                    match (&self.osc.error, self.osc.settings.enabled) {
+                        (Some(e), _) => {
+                            ui.label(RichText::new(e).color(STOP));
+                        }
+                        (None, true) => {
+                            ui.label(RichText::new(format!("● À l'écoute sur le port {}", self.osc.settings.port)).color(GO));
+                        }
+                        (None, false) => {
+                            ui.label(RichText::new("Désactivée").color(TEXT_DIM));
+                        }
+                    }
+                });
+                if let Some(l) = &self.osc_last {
+                    ui.label(RichText::new(format!("Dernier message : {l}")).monospace().color(TEXT_DIM));
+                }
+                ui.separator();
+                let prefix = self.osc.settings.prefix.trim_end_matches('/').to_string();
+                ui.label(RichText::new(format!("Adresses (préfixe {prefix} ; /diaporama/… est aussi accepté)")).strong());
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    egui::Grid::new("osc-help").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                        for (a, t) in crate::osc::HELP {
+                            ui.label(RichText::new(format!("{prefix}/{a}")).monospace());
+                            ui.label(RichText::new(*t).color(TEXT_DIM));
+                            ui.end_row();
+                        }
+                    });
+                });
+            });
+        });
+        if apply {
+            self.osc_draft.save();
+            let ctx2 = ctx.clone();
+            // L'ancien serveur s'arrête avant que le nouveau prenne le port.
+            self.osc = crate::osc::OscServer::start(&crate::osc::OscSettings::default(), std::sync::Arc::new(|| {}));
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            self.osc = crate::osc::OscServer::start(&self.osc_draft, std::sync::Arc::new(move || ctx2.request_repaint()));
+        }
+        if close {
+            self.osc_open = false;
+        }
+    }
+
     /// Bandeau d'alerte en haut : message important, médias introuvables.
     fn alerts(&mut self, ui: &mut egui::Ui) {
         let banner = |ui: &mut egui::Ui, fill: Color32, text: String, add: &mut dyn FnMut(&mut egui::Ui)| {
@@ -369,6 +471,13 @@ impl CueStarApp {
                     self.out.send(Command::Stop);
                 }
                 ui.add_space(8.0);
+                if ui
+                    .selectable_label(self.osc_open, "OSC")
+                    .on_hover_text("Commande OSC : réglages et liste des adresses")
+                    .clicked()
+                {
+                    self.osc_open = !self.osc_open;
+                }
                 if ui
                     .selectable_label(self.monitor.open, "Monitoring")
                     .on_hover_text("Fenêtre flottante : retour de l'image envoyée sur la sortie")
@@ -466,6 +575,7 @@ impl eframe::App for CueStarApp {
             self.pattern = Some(PatternKind::Bars);
         }
 
+        self.poll_osc();
         if let Some((pick, files)) = self.dialogs.take() {
             self.on_picked(pick, files);
         }
@@ -512,6 +622,7 @@ impl eframe::App for CueStarApp {
         });
 
         self.monitor.show(&ctx, &mut self.out);
+        self.osc_window(&ctx);
         if let output_view::Action::Restart = self.output_view.show(&ctx, &mut self.prefs, &mut self.out, &mut self.pattern) {
             self.restart_output();
         }

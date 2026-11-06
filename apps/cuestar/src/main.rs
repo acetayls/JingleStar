@@ -7,6 +7,7 @@
 //!   Il possède la fenêtre plein écran et libmpv ; si la régie rame, l'image continue.
 
 mod link;
+mod osc;
 mod output;
 mod prefs;
 mod project;

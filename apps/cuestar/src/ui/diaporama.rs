@@ -56,6 +56,69 @@ impl Diaporama {
         self.rescan();
     }
 
+    /// Commande OSC « diaporama/… » (mêmes adresses que le Diaporama d'origine).
+    pub fn handle_osc(&mut self, cmd: &str, m: &crate::osc::Msg, out: &mut OutputLink) {
+        let running = out.state.slide.is_some();
+        match cmd {
+            "play" => {
+                if running {
+                    out.send(Command::Play)
+                } else {
+                    self.start(out)
+                }
+            }
+            "pause" => out.send(Command::Pause),
+            "toggle" => {
+                if !running {
+                    self.start(out)
+                } else {
+                    out.send(if out.state.paused { Command::Play } else { Command::Pause })
+                }
+            }
+            "stop" => out.send(Command::Stop),
+            "next" => out.send(Command::Next),
+            "prev" => out.send(Command::Prev),
+            "goto" => {
+                if let Some(i) = m.f64().filter(|v| *v >= 1.0) {
+                    out.send(Command::Goto { index: i as usize - 1 });
+                }
+            }
+            "settings/shuffle" => self.s.shuffle = m.flag(),
+            "settings/loop" => self.s.looping = m.flag(),
+            "settings/recursive" => {
+                self.s.recursive = m.flag();
+                self.rescan();
+            }
+            "settings/video_sound" => self.s.video_sound = m.flag(),
+            "settings/photo_duration" => {
+                if let Some(v) = m.f64() {
+                    self.s.photo_seconds = v.clamp(1.0, 60.0);
+                }
+            }
+            "settings/fit" => {
+                let fit = match m.text().unwrap_or_default().to_lowercase().as_str() {
+                    "contain" => Some(Fit::Contain),
+                    "cover" => Some(Fit::Cover),
+                    "auto" => Some(Fit::Auto),
+                    _ => None,
+                };
+                if let Some(f) = fit {
+                    self.s.fit = f;
+                    if running {
+                        out.send(Command::SetFit { fit: f });
+                    }
+                }
+            }
+            "settings/folder" => {
+                if let Some(p) = m.text() {
+                    self.s.folder = Some(p.into());
+                    self.rescan();
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn rescan(&mut self) {
         self.files.clear();
         if let Some(f) = self.s.folder.clone() {
