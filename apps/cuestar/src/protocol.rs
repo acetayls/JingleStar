@@ -28,6 +28,10 @@ pub enum Command {
     Warp { corners: Option<[[f32; 2]; 4]> },
     /// Lance un diaporama : le moteur de sortie tient le minutage et l'enchaînement.
     Slideshow { items: Vec<String>, photo_seconds: f64, looping: bool, shuffle: bool, fit: Fit, video_sound: bool },
+    /// Réglages du diaporama en cours, appliqués à chaud (sans recharger le média affiché).
+    SlideshowSettings { photo_seconds: f64, looping: bool, shuffle: bool, video_sound: bool },
+    /// Sortie audio (nom mpv `audio-device` ; None = automatique), à chaud.
+    AudioDevice { name: Option<String> },
     /// Change l'ajustement des images en cours de diaporama.
     SetFit { fit: Fit },
     Next,
@@ -175,5 +179,7 @@ pub enum Event {
     Idle,
     /// Position dans le diaporama (index à partir de 0). `count` = 0 : diaporama terminé.
     Slide { index: usize, count: usize, path: String },
+    /// Sorties audio disponibles : (nom mpv, description).
+    AudioDevices { list: Vec<(String, String)> },
     Error { message: String },
 }

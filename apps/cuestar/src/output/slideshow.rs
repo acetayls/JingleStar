@@ -26,6 +26,8 @@ pub struct Show {
     pub deadline: Option<Instant>,
     /// Temps restant de la photo pendant une pause.
     remaining: Option<Duration>,
+    /// Début d'affichage de la photo en cours (hors pauses), pour changer sa durée à chaud.
+    shown_since: Option<Instant>,
     /// Échecs de lecture consécutifs (évite de tourner en rond sur un dossier illisible).
     pub failures: usize,
     rng: u64,
@@ -45,6 +47,7 @@ impl Show {
             video_sound,
             deadline: None,
             remaining: None,
+            shown_since: None,
             failures: 0,
             rng: seed,
         };
@@ -113,11 +116,45 @@ impl Show {
         let photo = self.current().map(|p| !is_video(p)).unwrap_or(false);
         self.deadline = None;
         self.remaining = None;
+        self.shown_since = photo.then(Instant::now);
         if photo {
             if paused {
                 self.remaining = Some(self.photo);
             } else {
                 self.deadline = Some(Instant::now() + self.photo);
+            }
+        }
+    }
+
+    /// Réglages modifiés pendant la lecture : le média affiché reste à l'écran.
+    pub fn update(&mut self, photo_seconds: f64, looping: bool, shuffle: bool, video_sound: bool) {
+        let photo = Duration::from_secs_f64(photo_seconds.clamp(0.5, 3600.0));
+        if photo != self.photo {
+            // La photo affichée prend la nouvelle durée, comptée depuis son apparition.
+            if let (Some(since), Some(_)) = (self.shown_since, self.deadline) {
+                self.deadline = Some(since + photo);
+            }
+            if let Some(r) = self.remaining {
+                let shown = self.photo.saturating_sub(r);
+                self.remaining = Some(photo.saturating_sub(shown));
+            }
+            self.photo = photo;
+        }
+        self.looping = looping;
+        self.video_sound = video_sound;
+        if shuffle != self.shuffle {
+            self.shuffle = shuffle;
+            let cur = self.order.get(self.pos).copied();
+            if shuffle {
+                // La suite est mélangée, le média courant ne bouge pas.
+                let rest = self.pos + 1;
+                for i in (rest + 1..self.order.len()).rev() {
+                    let j = rest + (self.rand() % (i - rest + 1) as u64) as usize;
+                    self.order.swap(i, j);
+                }
+            } else {
+                self.order = (0..self.items.len()).collect();
+                self.pos = cur.unwrap_or(0);
             }
         }
     }
@@ -131,6 +168,8 @@ impl Show {
     pub fn resume(&mut self) {
         if let Some(r) = self.remaining.take() {
             self.deadline = Some(Instant::now() + r);
+            // Le temps de pause ne compte pas dans la durée affichée.
+            self.shown_since = self.deadline.and_then(|d| d.checked_sub(self.photo));
         }
     }
 }

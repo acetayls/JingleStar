@@ -117,6 +117,14 @@ impl Diaporama {
             }
             _ => {}
         }
+        if running && cmd.starts_with("settings/") {
+            out.send(Command::SlideshowSettings {
+                photo_seconds: self.s.photo_seconds,
+                looping: self.s.looping,
+                shuffle: self.s.shuffle,
+                video_sound: self.s.video_sound,
+            });
+        }
     }
 
     fn rescan(&mut self) {
@@ -239,10 +247,20 @@ impl Diaporama {
                 ui.end_row();
             });
             ui.add_space(4.0);
-            ui.label(RichText::new("Durée, ordre et son s'appliquent au prochain lancement ; l'ajustement change tout de suite.").color(TEXT_DIM));
+            ui.label(RichText::new("Les changements s'appliquent tout de suite, sans relancer le diaporama.").color(TEXT_DIM));
         });
         if self.s.fit != before.1 && running {
             out.send(Command::SetFit { fit: self.s.fit });
+        }
+        let b = &before.0;
+        let live = (self.s.photo_seconds, self.s.looping, self.s.shuffle, self.s.video_sound) != (b.photo_seconds, b.looping, b.shuffle, b.video_sound);
+        if live && running {
+            out.send(Command::SlideshowSettings {
+                photo_seconds: self.s.photo_seconds,
+                looping: self.s.looping,
+                shuffle: self.s.shuffle,
+                video_sound: self.s.video_sound,
+            });
         }
 
         ui.add_space(10.0);

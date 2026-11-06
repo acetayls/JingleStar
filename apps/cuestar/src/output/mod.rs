@@ -153,6 +153,7 @@ impl OutputApp {
         };
         let monitor = chosen.map(|m| describe(&m, &primary)).unwrap_or_default();
         emit(&Event::Ready { mpv: mpv_version, monitor, fullscreen, monitors: monitors.iter().map(|m| describe(m, &primary)).collect() });
+        self.emit_audio_devices();
         window.request_redraw();
         Ok(())
     }
@@ -173,6 +174,10 @@ impl OutputApp {
             m.set_option("gpu-api", api)?;
         }
         m.set_option("hwdec", p.decode.mpv_hwdec())?;
+        if let Some(dev) = &p.audio_device {
+            let _ = m.set_option("audio-device", dev);
+        }
+        let _ = m.set_option("volume", &format!("{:.1}", p.volume.clamp(0.0, 100.0)));
         // Réglages « régie » : pas d'interface mpv, pas de clavier, fenêtre toujours là.
         for (k, v) in [
             ("terminal", "no"),
@@ -336,6 +341,17 @@ impl OutputApp {
                     Ok(())
                 }
             }
+            Command::SlideshowSettings { photo_seconds, looping, shuffle, video_sound } => {
+                if let Some(s) = &mut self.show {
+                    s.update(photo_seconds, looping, shuffle, video_sound);
+                    let video = s.current().map(slideshow::is_video).unwrap_or(false);
+                    if video {
+                        let _ = self.m().set_property("mute", if video_sound { "no" } else { "yes" });
+                    }
+                }
+                Ok(())
+            }
+            Command::AudioDevice { name } => self.m().set_property("audio-device", name.as_deref().unwrap_or("auto")),
             Command::SetFit { fit } => {
                 if let Some(s) = &mut self.show {
                     s.fit = fit;
@@ -453,6 +469,19 @@ impl OutputApp {
             Some((w, h, stride, px)) => feed.send(w, h, stride, &px),
             None => feed.send_black(),
         }
+    }
+
+    /// Sorties audio vues par mpv, pour le choix dans la régie.
+    fn emit_audio_devices(&self) {
+        let Some(m) = &self.mpv else { return };
+        let list = m
+            .get_property("audio-device-list")
+            .and_then(|s| serde_json::from_str::<Vec<serde_json::Value>>(&s).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|d| Some((d.get("name")?.as_str()?.to_string(), d.get("description").and_then(|x| x.as_str()).unwrap_or("").to_string())))
+            .collect();
+        emit(&Event::AudioDevices { list });
     }
 
     fn end_show(&mut self) {
