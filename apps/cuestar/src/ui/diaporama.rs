@@ -7,9 +7,9 @@
 
 use crate::link::OutputLink;
 use crate::protocol::{Command, Fit};
-use egui::{vec2, Key, RichText};
+use egui::{vec2, Color32, Key, Rect, RichText, Sense};
 use star_commun::theme::*;
-use star_commun::widgets;
+use star_commun::widgets::{mode_chip, pressed, transport_button, TransportIcon};
 use std::path::{Path, PathBuf};
 
 const MEDIA_EXT: &[&str] = &[
@@ -163,42 +163,91 @@ impl Diaporama {
             }
         }
 
-        // Transport.
-        ui.horizontal(|ui| {
-            let go = if running { "⟲  RELANCER" } else { "▶  LANCER" };
-            if widgets::big_button(ui, go, GO, vec2(150.0, 48.0)).on_hover_text("Lance le diaporama sur la sortie (Espace)").clicked() {
-                self.start(out);
-            }
-            ui.add_enabled_ui(running, |ui| {
-                if ui.add(egui::Button::new("⏮").min_size(vec2(48.0, 48.0))).on_hover_text("Précédent (←)").clicked() {
-                    out.send(Command::Prev);
-                }
-                let paused = out.state.paused;
-                if ui.add(egui::Button::new(if paused { "⏵" } else { "⏸" }).min_size(vec2(48.0, 48.0))).on_hover_text("Pause / reprise (Espace)").clicked() {
-                    out.send(if paused { Command::Play } else { Command::Pause });
-                }
-                if ui.add(egui::Button::new("⏭").min_size(vec2(48.0, 48.0))).on_hover_text("Suivant (→)").clicked() {
-                    out.send(Command::Next);
-                }
-                if ui.add(egui::Button::new("■").min_size(vec2(48.0, 48.0))).on_hover_text("Arrêter : écran noir (Échap)").clicked() {
-                    out.send(Command::Stop);
-                }
-            });
-            ui.add_space(12.0);
-            ui.vertical(|ui| match &out.state.slide {
-                Some((i, n, p)) => {
-                    let name = Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                    ui.label(RichText::new(name).size(16.0).strong());
-                    let state = if out.state.paused { "  (pause)" } else { "" };
-                    ui.label(RichText::new(format!("{} / {}{state}", i + 1, n)).color(TEXT_DIM));
-                }
-                None => {
-                    ui.label(RichText::new("Diaporama arrêté").size(16.0).color(TEXT_DIM));
-                    ui.label(RichText::new(format!("{} médias prêts", self.files.len())).color(TEXT_DIM));
-                }
+        // En cours et transport, avec les boutons de la playlist de JingleStar (comme le Lecteur).
+        let width = ui.available_width().min(640.0);
+        let paused = running && out.state.paused;
+        egui::Frame::new().fill(Color32::from_rgb(0x1c, 0x1c, 0x20)).corner_radius(4).inner_margin(6).show(ui, |ui| {
+            ui.set_width(width - 12.0);
+            let col = if paused { ACCENT } else if running { GO } else { TEXT_DIM };
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if paused {
+                        ui.label(RichText::new("EN PAUSE").strong().small().color(ACCENT));
+                    }
+                    let count = match &out.state.slide {
+                        Some((i, n, _)) => format!("{} / {}", i + 1, n),
+                        None => format!("{} médias", self.files.len()),
+                    };
+                    ui.label(RichText::new(count).monospace().color(TEXT_DIM));
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        let name = match &out.state.slide {
+                            Some((_, _, p)) => Path::new(p).file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+                            None => "Diaporama arrêté".into(),
+                        };
+                        ui.add(egui::Label::new(RichText::new(name).strong().size(15.0).color(col)).truncate());
+                    });
+                });
             });
         });
-        ui.add_space(10.0);
+        let (row, _) = ui.allocate_exact_size(vec2(width, 38.0), Sense::hover());
+        let gap = 4.0;
+        let k = ((row.width() - 4.0 * gap) / (2.0 * 40.0 + 2.0 * 48.0 + 64.0)).min(1.0);
+        let (side, stop_w) = (40.0 * k, 48.0 * k);
+        let go_w = row.width() - 2.0 * side - 2.0 * stop_w - 4.0 * gap;
+        let mut x = row.left();
+        let mut cell = |w: f32| {
+            let r = Rect::from_min_size(egui::pos2(x, row.top()), vec2(w, row.height()));
+            x += w + gap;
+            r
+        };
+        let (prev_r, go_r, pause_r, stop_r, next_r) = (cell(side), cell(go_w), cell(stop_w), cell(stop_w), cell(side));
+        if transport_button(ui, prev_r, "dia-prev", TransportIcon::Prev, None, PANEL_HI, TEXT).on_hover_text("Média précédent (←)").clicked() && running {
+            out.send(Command::Prev);
+        }
+        let go_label = if paused { "REPRENDRE" } else if running { "RELANCER" } else { "LANCER" };
+        let go = transport_button(ui, go_r, "dia-go", TransportIcon::Play, Some(go_label), GO, Color32::from_rgb(0x0c, 0x1a, 0x0e))
+            .on_hover_text(if paused { "Reprendre le diaporama" } else if running { "Relancer le diaporama depuis le début" } else { "Lancer le diaporama sur la sortie (Espace)" });
+        if pressed(ui, &go) {
+            if paused {
+                out.send(Command::Play);
+            } else {
+                self.start(out);
+            }
+        }
+        let (pause_fill, pause_fg) = if paused { (ACCENT, Color32::BLACK) } else { (PANEL_HI, if running { TEXT } else { TEXT_DIM }) };
+        let pause = transport_button(ui, pause_r, "dia-pause", TransportIcon::Pause, None, pause_fill, pause_fg).on_hover_text("Pause / reprise (Espace)");
+        if pressed(ui, &pause) && running {
+            out.send(if paused { Command::Play } else { Command::Pause });
+        }
+        let stop = transport_button(ui, stop_r, "dia-stop", TransportIcon::Stop, None, STOP.gamma_multiply(0.75), Color32::WHITE).on_hover_text("Arrêter : écran noir (Échap)");
+        if pressed(ui, &stop) {
+            out.send(Command::Stop);
+        }
+        if transport_button(ui, next_r, "dia-next", TransportIcon::Next, None, PANEL_HI, TEXT).on_hover_text("Média suivant (→)").clicked() && running {
+            out.send(Command::Next);
+        }
+        // Modes, comme dans le Lecteur : aléatoire et boucle.
+        let (row, _) = ui.allocate_exact_size(vec2(width, 26.0), Sense::hover());
+        let half = (row.width() - 4.0) / 2.0;
+        let shuffle_r = Rect::from_min_size(row.min, vec2(half, row.height()));
+        let loop_r = Rect::from_min_size(egui::pos2(row.left() + half + 4.0, row.top()), vec2(half, row.height()));
+        let mut modes_changed = false;
+        if mode_chip(ui, shuffle_r, "dia-shuffle", self.s.shuffle, "Aléatoire").on_hover_text("Ordre aléatoire, remélangé à chaque tour").clicked() {
+            self.s.shuffle = !self.s.shuffle;
+            modes_changed = true;
+        }
+        if mode_chip(ui, loop_r, "dia-loop", self.s.looping, "Tout boucler").on_hover_text("Reprendre au début à la fin du dossier").clicked() {
+            self.s.looping = !self.s.looping;
+            modes_changed = true;
+        }
+        if modes_changed && running {
+            out.send(Command::SlideshowSettings {
+                photo_seconds: self.s.photo_seconds,
+                looping: self.s.looping,
+                shuffle: self.s.shuffle,
+                video_sound: self.s.video_sound,
+            });
+        }        ui.add_space(10.0);
 
         let before = (self.s.clone(), self.s.fit);
         egui::Frame::new().fill(PANEL).corner_radius(4).inner_margin(12).show(ui, |ui| {
@@ -225,8 +274,6 @@ impl Diaporama {
                     if ui.checkbox(&mut self.s.recursive, "Inclure les sous-dossiers").changed() {
                         self.rescan();
                     }
-                    ui.checkbox(&mut self.s.shuffle, "Ordre aléatoire");
-                    ui.checkbox(&mut self.s.looping, "Boucler");
                 });
                 ui.end_row();
 
