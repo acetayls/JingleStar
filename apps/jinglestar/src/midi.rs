@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crossbeam_channel::{unbounded, Receiver};
 use midir::{Ignore, MidiInput, MidiInputConnection};
 
-use crate::i18n::tr;
+use star_core::i18n::tr;
 use crate::remote::InputEvent;
 
 const CLIENT: &str = "JingleStar";

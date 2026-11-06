@@ -8,7 +8,7 @@ use crate::midi::MidiListener;
 use crate::osc::Msg;
 use crate::remote::{ActionKind, ConsoleSettings, Flag, InputEvent, M32Settings, Mapping, RemoteSettings, Trigger};
 use egui::{RichText, Ui};
-use star_commun::theme::*;
+use star_ui::theme::*;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

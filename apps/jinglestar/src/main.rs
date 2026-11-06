@@ -4,7 +4,6 @@
 mod audio;
 mod console;
 mod controller;
-mod i18n;
 mod log;
 mod m32;
 mod midi;

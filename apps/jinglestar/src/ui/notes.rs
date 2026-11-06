@@ -20,7 +20,7 @@ use egui::{vec2, Color32, FontFamily, FontId, Id, Key, Modifiers, Rect, RichText
 use super::dialogs::{Kind, Pick};
 use super::theme;
 use super::JingleStarApp;
-use crate::i18n::tr;
+use star_core::i18n::tr;
 
 /// Taille du texte de la conduite.
 const TEXT_SIZE: f32 = 15.0;

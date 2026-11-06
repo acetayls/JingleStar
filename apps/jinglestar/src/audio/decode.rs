@@ -11,7 +11,7 @@ use symphonia::core::probe::Hint;
 
 use super::buffer::AudioBuffer;
 use super::loudness::{Loudness, Meter};
-use crate::i18n::tr;
+use star_core::i18n::tr;
 
 pub const AUDIO_EXTENSIONS: &[&str] = &[
     "wav", "wave", "aif", "aiff", "mp3", "flac", "ogg", "oga", "m4a", "aac", "mp4", "caf",

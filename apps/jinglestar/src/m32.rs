@@ -16,7 +16,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use rosc::{OscMessage, OscPacket, OscType};
 
 use crate::console::ConsoleStatus;
-use crate::i18n::tr;
+use star_core::i18n::tr;
 use crate::project::M32Settings;
 use crate::remote::{InputEvent, CONSOLE_MIN};
 

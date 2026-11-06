@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::audio::decode::is_audio_file;
 use crate::audio::eq::EqSettings;
 use crate::audio::loudness::NormalizeSettings;
-use crate::i18n::Lang;
+use star_core::i18n::Lang;
 use crate::remote::Mapping;
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 
@@ -635,7 +635,7 @@ pub struct SessionLoad {
 /// Charge la session sans jamais perdre le fichier : une session illisible est mise de côté
 /// (« session-illisible-<date>.json ») au lieu d'être écrasée, et la copie `.bak` prend le relais.
 pub fn load_session(path: &Path) -> SessionLoad {
-    use crate::i18n::tr;
+    use star_core::i18n::tr;
     let bak = with_suffix(path, ".bak");
     if !path.exists() {
         // Arrêt brutal entre les deux renommages de la sauvegarde : la copie est complète.

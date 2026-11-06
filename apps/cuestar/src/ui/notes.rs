@@ -17,7 +17,7 @@ use std::sync::{Arc, OnceLock};
 use egui::text::{CCursor, CCursorRange, LayoutJob, TextFormat};
 use egui::{vec2, Color32, FontFamily, FontId, Id, Key, Modifiers, Rect, RichText, Stroke};
 
-use star_commun::theme;
+use star_ui::theme;
 
 /// Textes de JingleStar en deux langues : CueStar est en français.
 fn tr<'a>(fr: &'a str, _en: &'a str) -> &'a str {

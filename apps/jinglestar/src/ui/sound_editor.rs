@@ -10,7 +10,7 @@ use super::eq_view;
 use super::theme::*;
 use super::widgets::*;
 use crate::audio::buffer::AudioBuffer;
-use crate::i18n::tr;
+use star_core::i18n::tr;
 use crate::project::SoundSettings;
 
 /// Bouton Écouter / Stop en haut des éditeurs, avec une icône dessinée (nette à toute taille).
@@ -70,7 +70,7 @@ pub fn sound_waveform_and_eq(
         let rate = buf.sample_rate as f64;
         let playhead = playhead.map(|p| p as f64 / rate);
         let mut seek = None;
-        let edited = waveform_editor(ui, |a, b, n| buf.peaks(a, b, n), dur, &mut mk, s.looping, &mut s.fade_in, &mut s.fade_out, playhead, &mut seek);
+        let edited = waveform_editor(ui, peaks_background(|a, b, n| buf.peaks(a, b, n)), dur, &mut mk, s.looping, &mut s.fade_in, &mut s.fade_out, playhead, &mut seek);
         seek_to = seek.map(|t| (t * rate) as usize);
         if edited {
             set_markers(s, &mk);

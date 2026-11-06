@@ -17,8 +17,8 @@ use dialogs::{Dialogs, Kind, Pick};
 use std::path::PathBuf;
 use std::time::Instant;
 use egui::{Align, Color32, Key, Layout, RichText};
-use star_commun::theme::{self, *};
-use star_commun::widgets;
+use star_ui::theme::{self, *};
+use star_ui::widgets;
 use std::time::Duration;
 
 #[derive(Clone, Copy, PartialEq, Eq)]

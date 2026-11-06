@@ -5,7 +5,7 @@ use egui::{RichText, Ui};
 use super::theme::*;
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 use crate::controller::Controller;
-use crate::i18n::tr;
+use star_core::i18n::tr;
 use crate::project::{ConsoleSettings, M32Settings, OscSettings};
 use crate::remote::{ActionKind, Mapping, Trigger};
 

@@ -7,11 +7,9 @@ use std::sync::OnceLock;
 
 use egui::{vec2, Align, Color32, CornerRadius, FontId, RichText, Stroke};
 
-use super::theme::*;
-use crate::i18n::{is_en, tr};
+use crate::theme::*;
+use star_core::i18n::{is_en, tr};
 
-const AIDE_FR: &str = include_str!("../../docs/aide.md");
-const HELP_EN: &str = include_str!("../../docs/help.md");
 
 #[derive(Debug, Clone, PartialEq)]
 enum Span {
@@ -32,10 +30,16 @@ enum Block {
     Code(String),
 }
 
-/// État de la fenêtre d'aide.
-#[derive(Default)]
+/// Fenêtre d'aide : le manuel de l'appli (Markdown, en français et en anglais), avec sommaire,
+/// recherche et liens internes.
 pub struct HelpWindow {
     pub open: bool,
+    /// Manuels bruts, français et anglais.
+    src_fr: &'static str,
+    src_en: &'static str,
+    /// Manuels interprétés à la première ouverture.
+    fr: OnceLock<Vec<Block>>,
+    en: OnceLock<Vec<Block>>,
     /// Titre vers lequel faire défiler (index dans les blocs).
     jump: Option<usize>,
     /// Texte recherché ; vide = manuel complet.
@@ -43,6 +47,11 @@ pub struct HelpWindow {
 }
 
 impl HelpWindow {
+    /// `fr` et `en` : le manuel en Markdown, en général lu avec `include_str!`.
+    pub fn new(fr: &'static str, en: &'static str) -> Self {
+        Self { open: false, src_fr: fr, src_en: en, fr: OnceLock::new(), en: OnceLock::new(), jump: None, query: String::new() }
+    }
+
     pub fn toggle(&mut self) {
         self.open = !self.open;
     }
@@ -51,7 +60,11 @@ impl HelpWindow {
         if !self.open {
             return;
         }
-        let blocks = doc();
+        let blocks: &[Block] = if is_en() {
+            self.en.get_or_init(|| parse(self.src_en))
+        } else {
+            self.fr.get_or_init(|| parse(self.src_fr))
+        };
         let mut open = true;
         egui::Window::new(tr("Aide", "Help"))
             .id(egui::Id::unique("help-window"))
@@ -123,15 +136,24 @@ impl HelpWindow {
     }
 }
 
-/// Manuel de la langue courante, interprété une seule fois.
-fn doc() -> &'static [Block] {
-    static FR: OnceLock<Vec<Block>> = OnceLock::new();
-    static EN: OnceLock<Vec<Block>> = OnceLock::new();
-    if is_en() {
-        EN.get_or_init(|| parse(HELP_EN))
-    } else {
-        FR.get_or_init(|| parse(AIDE_FR))
+/// Liens internes du manuel `src` qui ne mènent à aucun titre (pour les tests des applis).
+pub fn broken_links(src: &str) -> Vec<String> {
+    let blocks = parse(src);
+    let mut out = Vec::new();
+    for b in &blocks {
+        let spans: &[Span] = match b {
+            Block::Paragraph(s) | Block::Item(_, s) => s,
+            _ => continue,
+        };
+        for s in spans {
+            if let Span::Link(_, target) = s {
+                if find_anchor(&blocks, target).is_none() {
+                    out.push(target.clone());
+                }
+            }
+        }
     }
+    out
 }
 
 /// Mots recherchés, en minuscules et sans accents.
@@ -553,22 +575,8 @@ mod tests {
         assert_eq!(blocks[5], Block::Code("code".into()));
     }
 
-    /// Les liens internes des deux manuels mènent tous à un titre.
     #[test]
-    fn manual_links_resolve() {
-        for src in [AIDE_FR, HELP_EN] {
-            let blocks = parse(src);
-            for b in &blocks {
-                let spans: &[Span] = match b {
-                    Block::Paragraph(s) | Block::Item(_, s) => s,
-                    _ => continue,
-                };
-                for s in spans {
-                    if let Span::Link(_, target) = s {
-                        assert!(find_anchor(&blocks, target).is_some(), "lien sans titre : {target}");
-                    }
-                }
-            }
-        }
+    fn broken_links_are_found() {
+        assert_eq!(broken_links("## Debut\n\nVoir [ici](#debut) et [là](#nulle-part).\n"), vec!["#nulle-part".to_string()]);
     }
 }

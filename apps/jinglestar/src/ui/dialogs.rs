@@ -62,7 +62,7 @@ impl Dialogs {
         let ctx = ctx.clone();
         let spawned = std::thread::Builder::new().name("dialogue".into()).spawn(move || {
             let audio = || rfd::AsyncFileDialog::new().add_filter("Audio", crate::audio::decode::AUDIO_EXTENSIONS);
-            let project = crate::i18n::tr("Projet JingleStar", "JingleStar project");
+            let project = star_core::i18n::tr("Projet JingleStar", "JingleStar project");
             let one = |f: Option<rfd::FileHandle>| f.map(|f| vec![f.path().to_path_buf()]).unwrap_or_default();
             let many = |f: Option<Vec<rfd::FileHandle>>| f.map(|v| v.iter().map(|f| f.path().to_path_buf()).collect()).unwrap_or_default();
             let files = match kind {
@@ -70,7 +70,7 @@ impl Dialogs {
                 Kind::AudioMany => many(block_on(audio().pick_files())),
                 Kind::Folder => one(block_on(rfd::AsyncFileDialog::new().pick_folder())),
                 Kind::OpenProject => one(block_on(rfd::AsyncFileDialog::new().add_filter(project, &["jinglestar", "json"]).pick_file())),
-                Kind::Text => one(block_on(rfd::AsyncFileDialog::new().add_filter(crate::i18n::tr("Texte", "Text"), &["txt", "md", "text"]).pick_file())),
+                Kind::Text => one(block_on(rfd::AsyncFileDialog::new().add_filter(star_core::i18n::tr("Texte", "Text"), &["txt", "md", "text"]).pick_file())),
                 Kind::SaveProject => one(block_on(
                     rfd::AsyncFileDialog::new().add_filter(project, &["jinglestar"]).set_file_name("projet.jinglestar").save_file(),
                 )),

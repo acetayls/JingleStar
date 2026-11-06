@@ -5,7 +5,7 @@ use crate::output::warp::map_point;
 use crate::prefs::{Cadence, Decode, MachinePrefs, RenderApi, Warp};
 use crate::protocol::{Command, PatternKind};
 use egui::{pos2, vec2, Color32, Key, Pos2, Rect, RichText, Sense, Stroke};
-use star_commun::theme::*;
+use star_ui::theme::*;
 use std::time::{Duration, Instant};
 
 const CORNER_NAMES: [&str; 4] = ["Haut gauche", "Haut droit", "Bas droit", "Bas gauche"];

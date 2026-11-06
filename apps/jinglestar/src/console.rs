@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
-use crate::i18n::tr;
+use star_core::i18n::tr;
 use crate::project::ConsoleSettings;
 use crate::remote::InputEvent;
 

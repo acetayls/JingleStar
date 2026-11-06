@@ -16,7 +16,7 @@ use crate::audio::loudness::{Loudness, LoudnessCache};
 use crate::audio::engine::{AudioEngine, DeviceInfo};
 use crate::audio::eq::{EqCoeffs, EqSettings};
 use crate::audio::mixer::{is_playlist_slot, Command, Event, Queued, Region, MAX_MODULES, PLAYLIST_SLOTS};
-use crate::i18n::{set_lang, tr, Lang};
+use star_core::i18n::{set_lang, tr, Lang};
 use crate::console::ConsoleClient;
 use crate::m32::M32Client;
 use crate::midi::MidiListener;

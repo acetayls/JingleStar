@@ -7,7 +7,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-star-commun.workspace = true
+star-core.workspace = true
+star-ui.workspace = true
 eframe.workspace = true
 egui.workspace = true
 rfd = "0.17"

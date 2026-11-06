@@ -14,7 +14,7 @@ use rosc::{OscMessage, OscPacket, OscType};
 use serde_json::{json, Map, Value};
 
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
-use crate::i18n::tr;
+use star_core::i18n::tr;
 use crate::project::{ModuleMode, OscSettings};
 
 pub const MODULE_DB: (f32, f32) = (-60.0, 10.0);

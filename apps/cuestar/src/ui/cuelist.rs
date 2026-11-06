@@ -6,8 +6,8 @@ use crate::link::OutputLink;
 use crate::project::{CueData, CueFollow, CuelistData};
 use crate::protocol::{Command, TransitionKind};
 use egui::{pos2, vec2, Align2, Color32, CornerRadius, FontId, Id, Key, Rect, RichText, Sense, Stroke, StrokeKind};
-use star_commun::theme::*;
-use star_commun::widgets::{add_button, fmt_time, loop_icon, transport_button, TransportIcon};
+use star_ui::theme::*;
+use star_ui::widgets::{add_button, fmt_time, loop_icon, transport_button, TransportIcon};
 use std::path::{Path, PathBuf};
 
 const ROW_H: f32 = 26.0;

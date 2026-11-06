@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
-use crate::i18n::tr;
+use star_core::i18n::tr;
 use crate::osc::{OscCommand, JINGLE_DB, MODULE_DB};
 use crate::project::ModuleMode;
 

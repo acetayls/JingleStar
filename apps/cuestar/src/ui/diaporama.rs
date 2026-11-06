@@ -8,8 +8,8 @@
 use crate::link::OutputLink;
 use crate::protocol::{Command, Fit};
 use egui::{vec2, Color32, Key, Rect, RichText, Sense};
-use star_commun::theme::*;
-use star_commun::widgets::{mode_chip, pressed, transport_button, TransportIcon};
+use star_ui::theme::*;
+use star_ui::widgets::{mode_chip, pressed, transport_button, TransportIcon};
 use std::path::{Path, PathBuf};
 
 const MEDIA_EXT: &[&str] = &[
