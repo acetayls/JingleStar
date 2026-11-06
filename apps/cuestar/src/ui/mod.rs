@@ -478,15 +478,18 @@ impl CueStarApp {
                     self.tab = t;
                 }
             }
+            // Texte : panneau latéral, affiché en plus de l'onglet en cours.
+            let txt = RichText::new("Texte").size(15.0).color(if self.show_notes { PLAYING_INK } else { TEXT });
+            let b = egui::Button::new(txt).fill(if self.show_notes { ACCENT } else { PANEL_HI }).min_size(egui::vec2(96.0, 30.0));
+            if ui.add(b).on_hover_text("Module Texte : la conduite écrite, sur le côté (clic : afficher / masquer)").clicked() {
+                self.show_notes = !self.show_notes;
+            }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let stop = egui::Button::new(RichText::new("■  NOIR").strong().color(Color32::WHITE)).fill(STOP).min_size(egui::vec2(110.0, 32.0));
                 if ui.add(stop).on_hover_text("Coupe l'image : écran de sortie au noir (Échap)").clicked() {
                     self.out.send(Command::Stop);
                 }
                 ui.add_space(8.0);
-                if ui.selectable_label(self.show_notes, "Texte").on_hover_text("Module Texte : la conduite écrite, sur le côté").clicked() {
-                    self.show_notes = !self.show_notes;
-                }
                 if ui
                     .selectable_label(self.osc_open, "OSC")
                     .on_hover_text("Commande OSC : réglages et liste des adresses")
