@@ -28,9 +28,9 @@ fn build_info() {
         hash.push('+');
     }
     // On relance quand le commit courant change.
-    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=../../.git/HEAD");
     if let Some(r) = git(&["symbolic-ref", "-q", "HEAD"]) {
-        println!("cargo:rerun-if-changed=.git/{r}");
+        println!("cargo:rerun-if-changed=../../.git/{r}");
     }
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let (y, m, d) = civil_from_days((secs / 86_400) as i64);

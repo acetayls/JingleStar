@@ -1,7 +1,8 @@
-name: Build
+name: Build JingleStar
 
 # Les builds se font en local sur le PC de Pierrick : ce workflow ne part qu'à la demande
-# (onglet Actions → Build → Run workflow).
+# (onglet Actions → Build JingleStar → Run workflow).
+# Dépôt MediaStar : ce workflow ne construit que JingleStar (apps/jinglestar).
 on:
   workflow_dispatch:
     inputs:
@@ -14,7 +15,7 @@ on:
           - macos
           - tout
       release:
-        description: "Tag de la release GitHub à créer et remplir (ex. v0.1.3) ; vide = simple build"
+        description: "Tag de la release GitHub à créer et remplir (ex. jinglestar-v0.1.4) ; vide = simple build"
         required: false
         default: ""
 
@@ -42,9 +43,9 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libxkbcommon-dev libgtk-3-dev
       - name: Tests
-        run: cargo test
+        run: cargo test -p jinglestar
       - name: Build release
-        run: cargo build --release
+        run: cargo build --release -p jinglestar
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -53,7 +54,7 @@ jobs:
         if: runner.os == 'Windows' && inputs.release != ''
         shell: bash
         run: |
-          VERSION="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
+          VERSION="$(grep -m1 '^version' apps/jinglestar/Cargo.toml | cut -d'"' -f2)"
           mkdir -p dist
           cp target/release/jinglestar.exe "dist/JingleStar-$VERSION-windows-x64.exe"
       - name: Publier dans la release (Windows)
@@ -86,13 +87,13 @@ jobs:
           key: ${{ matrix.target }}
       - name: Tests
         if: matrix.target == 'aarch64-apple-darwin'
-        run: cargo test
+        run: cargo test -p jinglestar
       - name: Build release
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release -p jinglestar --target ${{ matrix.target }}
       - name: Vérifier l'architecture
         run: lipo -info target/${{ matrix.target }}/release/jinglestar
       - name: Bundle .app et .dmg
-        run: packaging/macos/bundle.sh ${{ matrix.target }} dist
+        run: apps/jinglestar/packaging/macos/bundle.sh ${{ matrix.target }} dist
       - uses: actions/upload-artifact@v4
         with:
           name: jinglestar-macos-${{ matrix.arch }}
