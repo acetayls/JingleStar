@@ -40,11 +40,18 @@ fn invert(m: M3) -> Option<M3> {
 }
 
 /// Source GLSL du shader : pour chaque pixel de l'écran, va chercher le point de l'image d'origine.
-pub fn shader(corners: [[f32; 2]; 4]) -> Option<String> {
+/// Avec `fade`, un paramètre réglable à chaud (`glsl-shader-opts=fade=…`, vo gpu-next) assombrit
+/// l'image jusqu'au noir : il sert aux transitions.
+pub fn shader(corners: [[f32; 2]; 4], fade: bool) -> Option<String> {
     let m = invert(square_to_quad(corners))?;
     let f = |v: f64| format!("{v:.9}");
+    let (param, mul) = if fade {
+        ("//!PARAM fade\n//!DESC Niveau de l'image (0 = noir)\n//!TYPE float\n//!MINIMUM 0.0\n//!MAXIMUM 1.0\n1.0\n\n", " * vec4(vec3(fade), 1.0)")
+    } else {
+        ("", "")
+    };
     Some(format!(
-        "//!HOOK OUTPUT
+        "{param}//!HOOK OUTPUT
 //!BIND HOOKED
 //!DESC CueStar mapping 4 coins
 vec4 hook() {{
@@ -53,7 +60,7 @@ vec4 hook() {{
     vec2 uv = vec2({a} * p.x + {b} * p.y + {c}, {d} * p.x + {e} * p.y + {ff}) / w;
     if (w <= 0.0 || uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0)
         return vec4(0.0, 0.0, 0.0, 1.0);
-    return HOOKED_tex(uv);
+    return HOOKED_tex(uv){mul};
 }}
 ",
         a = f(m[0][0]),

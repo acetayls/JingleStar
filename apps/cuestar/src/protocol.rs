@@ -7,7 +7,14 @@ use serde::{Deserialize, Serialize};
 pub enum Command {
     /// Charge un média (vidéo, image, son) et le lance, ou le met en attente sur sa première image.
     /// `looping` : en boucle ; `hold` : garde la dernière image à la fin (sinon fin = Ended).
-    Load { path: String, paused: bool, looping: bool, hold: bool },
+    Load {
+        path: String,
+        paused: bool,
+        looping: bool,
+        hold: bool,
+        #[serde(default)]
+        transition: Transition,
+    },
     Play,
     Pause,
     /// Arrête la lecture : écran noir.
@@ -30,6 +37,32 @@ pub enum Command {
     /// Retour image vers la régie, à la cadence de la vidéo.
     Monitor { on: bool },
     Quit,
+}
+
+/// Passage d'un média au suivant.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Transition {
+    pub kind: TransitionKind,
+    /// Durée totale en secondes (pour « Noir » : moitié en fondu sortant, moitié en entrant).
+    pub secs: f64,
+}
+
+impl Default for Transition {
+    fn default() -> Self {
+        Self { kind: TransitionKind::Cut, secs: 1.0 }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TransitionKind {
+    /// Coupe franche.
+    #[default]
+    Cut,
+    /// Fondu au noir puis fondu d'ouverture.
+    Black,
+    /// Fondu enchaîné (demande le moteur de composition).
+    Crossfade,
 }
 
 /// Mires de test de la sortie.

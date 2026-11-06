@@ -36,6 +36,7 @@ pub struct LecteurData {
     pub items: Vec<LecteurItem>,
     pub loop_all: bool,
     pub shuffle: bool,
+    pub transition: crate::protocol::Transition,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

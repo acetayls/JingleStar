@@ -4,7 +4,7 @@
 //! et chaque élément peut tourner en boucle. À droite, l'aperçu de l'élément suivant.
 
 use crate::link::OutputLink;
-use crate::protocol::Command;
+use crate::protocol::{Command, Transition, TransitionKind};
 use crate::thumb::Thumbs;
 use egui::{pos2, vec2, Align, Color32, CornerRadius, Key, Layout, Rect, RichText, Sense};
 use star_commun::theme::*;
@@ -35,6 +35,7 @@ pub struct Lecteur {
     queued: Option<usize>,
     loop_all: bool,
     shuffle: bool,
+    transition: Transition,
     confirm_clear: bool,
     /// Dernière fin de média traitée.
     seen_end: u64,
@@ -52,6 +53,7 @@ impl Default for Lecteur {
             queued: None,
             loop_all: false,
             shuffle: false,
+            transition: Transition::default(),
             confirm_clear: false,
             seen_end: 0,
             rng: seed,
@@ -84,6 +86,7 @@ impl Lecteur {
             items: self.items.iter().map(|i| crate::project::LecteurItem { path: i.path.clone(), looping: i.looping }).collect(),
             loop_all: self.loop_all,
             shuffle: self.shuffle,
+            transition: self.transition,
         }
     }
 
@@ -92,6 +95,7 @@ impl Lecteur {
         self.items = d.items.iter().map(|i| Item { path: i.path.clone(), looping: i.looping }).collect();
         self.loop_all = d.loop_all;
         self.shuffle = d.shuffle;
+        self.transition = d.transition;
         self.selected = (!self.items.is_empty()).then_some(0);
         self.playing = None;
         self.queued = None;
@@ -155,7 +159,7 @@ impl Lecteur {
         // La liste s'enchaîne : la fin du média est signalée ; le dernier garde son image.
         let (path, looping) = (it.path.to_string_lossy().into_owned(), it.looping);
         self.queued = self.next_after(i);
-        out.send(Command::Load { path, paused: false, looping, hold: self.queued.is_none() });
+        out.send(Command::Load { path, paused: false, looping, hold: self.queued.is_none(), transition: self.transition });
         self.playing = Some(i);
         self.seen_end = out.state.ended;
         self.selected = self.queued.or(Some(i));
@@ -372,6 +376,20 @@ impl Lecteur {
                 self.loop_all = !self.loop_all;
                 self.requeue();
             }
+
+            // Transition entre deux éléments.
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("Transition").color(TEXT_DIM));
+                ui.radio_value(&mut self.transition.kind, TransitionKind::Cut, "Coupe").on_hover_text("Passage direct au média suivant");
+                ui.radio_value(&mut self.transition.kind, TransitionKind::Black, "Noir").on_hover_text("Fondu au noir, puis fondu d'ouverture");
+                ui.add_enabled_ui(false, |ui| {
+                    ui.radio_value(&mut self.transition.kind, TransitionKind::Crossfade, "Fondu enchaîné")
+                        .on_disabled_hover_text("Arrive avec le moteur de composition de la sortie");
+                });
+                if self.transition.kind != TransitionKind::Cut {
+                    ui.add(egui::DragValue::new(&mut self.transition.secs).range(0.1..=10.0).speed(0.05).suffix(" s").max_decimals(1));
+                }
+            });
 
             // Liste des éléments, avec la boucle de chacun à droite.
             let row_w = (area.right() - ui.cursor().left()).max(40.0);

@@ -11,7 +11,7 @@ mod slideshow;
 pub mod warp;
 
 use crate::prefs::MachinePrefs;
-use crate::protocol::{Command, Event, Fit, Monitor};
+use crate::protocol::{Command, Event, Fit, Monitor, TransitionKind};
 use slideshow::Show;
 use mpv::Mpv;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -57,6 +57,20 @@ const P_DELAYED: u64 = 6;
 const P_VFPS: u64 = 7;
 const P_DFPS: u64 = 8;
 
+struct FadeAnim {
+    from: f64,
+    to: f64,
+    start: Instant,
+    secs: f64,
+}
+
+struct PendingLoad {
+    path: String,
+    paused: bool,
+    looping: bool,
+    hold: bool,
+}
+
 struct OutputApp {
     prefs: MachinePrefs,
     // Ordre des champs = ordre de destruction : mpv avant le proxy qu'il référence.
@@ -67,6 +81,16 @@ struct OutputApp {
     pattern_on: bool,
     show: Option<Show>,
     shaders: warp::ShaderFiles,
+    /// Coins du mapping en cours (None : image droite).
+    warp_corners: Option<[[f32; 2]; 4]>,
+    /// Le shader porte le réglage de niveau (fondu au noir possible).
+    fade_ok: bool,
+    fade_level: f64,
+    anim: Option<FadeAnim>,
+    /// Média à charger une fois le fondu sortant terminé.
+    pending: Option<PendingLoad>,
+    /// Durée du fondu d'ouverture à lancer dès la première image du média chargé.
+    fade_in_after: Option<f64>,
     monitor_port: Option<u16>,
     feed: Option<monitor::MonitorFeed>,
     monitor_every: Option<Duration>,
@@ -188,7 +212,8 @@ impl OutputApp {
         m.set_wakeup(mpv_wakeup, &*self.proxy as *const EventLoopProxy<UserEv> as *mut c_void);
         let version = m.get_property("mpv-version").unwrap_or_else(|| format!("mpv (API {})", m.api_version()));
         self.mpv = Some(m);
-        self.apply_warp(self.prefs.warp.active());
+        self.warp_corners = self.prefs.warp.active();
+        self.apply_warp();
         Ok(version)
     }
 
@@ -223,7 +248,8 @@ impl OutputApp {
             return;
         }
         if let Command::Warp { corners } = cmd {
-            self.apply_warp(corners);
+            self.warp_corners = corners;
+            self.apply_warp();
             return;
         }
         if let Command::Pattern { kind } = cmd {
@@ -252,17 +278,31 @@ impl OutputApp {
             return;
         }
         let res = match cmd {
-            Command::Load { path, paused, looping, hold } => {
+            Command::Load { path, paused, looping, hold, transition } => {
                 self.end_show();
-                self.current = Some(path.clone());
-                let m = self.m();
-                // Lecteur : la dernière image reste à l'écran en fin de média.
-                let _ = m.set_property("keep-open", if hold { "yes" } else { "no" });
-                let _ = m.set_property("loop-file", if looping { "inf" } else { "no" });
-                let _ = m.set_property("panscan", "0");
-                let _ = m.set_property("mute", "no");
-                let _ = m.set_property("pause", if paused { "yes" } else { "no" });
-                m.command(&["loadfile", &path, "replace"])
+                let load = PendingLoad { path, paused, looping, hold };
+                let black = transition.kind != TransitionKind::Cut && self.fade_ok && transition.secs > 0.0;
+                if !black {
+                    self.anim = None;
+                    self.pending = None;
+                    self.fade_in_after = None;
+                    self.set_fade(1.0);
+                    self.do_load(load)
+                } else {
+                    let half = transition.secs / 2.0;
+                    if self.current.is_some() && self.fade_level > 0.0 {
+                        // Fondu sortant, puis chargement, puis fondu d'ouverture.
+                        self.anim = Some(FadeAnim { from: self.fade_level, to: 0.0, start: Instant::now(), secs: half });
+                        self.pending = Some(load);
+                        self.fade_in_after = Some(half);
+                        Ok(())
+                    } else {
+                        self.anim = None;
+                        self.set_fade(0.0);
+                        self.fade_in_after = Some(half);
+                        self.do_load(load)
+                    }
+                }
             }
             Command::Play => {
                 if let Some(s) = &mut self.show {
@@ -278,6 +318,10 @@ impl OutputApp {
             }
             Command::Stop => {
                 self.end_show();
+                self.anim = None;
+                self.pending = None;
+                self.fade_in_after = None;
+                self.set_fade(1.0);
                 self.m().command(&["stop"])
             }
             Command::Seek { seconds } => self.m().command(&["seek", &format!("{seconds:.3}"), "absolute+exact"]),
@@ -330,17 +374,69 @@ impl OutputApp {
         self.mpv.as_ref().expect("mpv chargé")
     }
 
-    fn apply_warp(&mut self, corners: Option<[[f32; 2]; 4]>) {
+    fn do_load(&mut self, l: PendingLoad) -> Result<(), String> {
+        self.current = Some(l.path.clone());
+        let m = self.m();
+        // Lecteur : la dernière image reste à l'écran en fin de média.
+        let _ = m.set_property("keep-open", if l.hold { "yes" } else { "no" });
+        let _ = m.set_property("loop-file", if l.looping { "inf" } else { "no" });
+        let _ = m.set_property("panscan", "0");
+        let _ = m.set_property("mute", "no");
+        let _ = m.set_property("pause", if l.paused { "yes" } else { "no" });
+        m.command(&["loadfile", &l.path, "replace"])
+    }
+
+    /// Niveau de l'image (1 = normal, 0 = noir), via le paramètre du shader.
+    fn set_fade(&mut self, v: f64) {
+        self.fade_level = v.clamp(0.0, 1.0);
+        if self.fade_ok {
+            if let Some(m) = &self.mpv {
+                let _ = m.set_property("glsl-shader-opts", &format!("fade={:.4}", self.fade_level));
+            }
+        }
+    }
+
+    /// Avance le fondu en cours. Vrai tant qu'il faut continuer à se réveiller.
+    fn step_fade(&mut self) -> bool {
+        let Some(a) = &self.anim else { return false };
+        let k = if a.secs <= 0.0 { 1.0 } else { (a.start.elapsed().as_secs_f64() / a.secs).min(1.0) };
+        let v = a.from + (a.to - a.from) * k;
+        self.set_fade(v);
+        if k < 1.0 {
+            return true;
+        }
+        self.anim = None;
+        if let Some(l) = self.pending.take() {
+            if let Err(e) = self.do_load(l) {
+                emit(&Event::Error { message: e });
+            }
+        }
+        false
+    }
+
+    /// Shader de sortie : mapping 4 coins, et réglage de niveau pour les fondus (vo gpu-next).
+    fn apply_warp(&mut self) {
+        let with_fade = !self.prefs.light;
+        let corners = if with_fade { Some(self.warp_corners.unwrap_or(crate::prefs::Warp::IDENTITY)) } else { self.warp_corners };
         let Some(m) = &self.mpv else { return };
-        let res = match corners.and_then(warp::shader) {
+        self.fade_ok = false;
+        let res = match corners.and_then(|c| warp::shader(c, with_fade)) {
             Some(src) => match self.shaders.write(&src) {
-                Ok(p) => m.set_property("glsl-shaders", &p.to_string_lossy()),
+                Ok(p) => {
+                    let r = m.set_property("glsl-shaders", &p.to_string_lossy());
+                    self.fade_ok = with_fade && r.is_ok();
+                    r
+                }
                 Err(e) => Err(format!("mapping 4 coins : {e}")),
             },
             None => m.set_property("glsl-shaders", ""),
         };
         if let Err(e) = res {
             emit(&Event::Error { message: e });
+        }
+        if self.fade_ok {
+            let v = self.fade_level;
+            self.set_fade(v);
         }
     }
 
@@ -425,6 +521,14 @@ impl OutputApp {
                     started = true;
                 }
                 mpv::EVENT_VIDEO_RECONFIG => refit = true,
+                mpv::EVENT_PLAYBACK_RESTART => {
+                    // Première image du nouveau média : fondu d'ouverture.
+                    if self.pending.is_none() {
+                        if let Some(secs) = self.fade_in_after.take() {
+                            self.anim = Some(FadeAnim { from: self.fade_level, to: 1.0, start: Instant::now(), secs });
+                        }
+                    }
+                }
                 mpv::EVENT_END_FILE => {
                     let end = unsafe { &*(ev.data as *const mpv::RawEndFile) };
                     if end.reason == mpv::END_FILE_ERROR {
@@ -544,6 +648,7 @@ impl ApplicationHandler<UserEv> for OutputApp {
 
     /// Minutage des photos : on se réveille pile à l'échéance.
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+        let fading = self.step_fade();
         let now = Instant::now();
         if let Some(d) = self.show.as_ref().and_then(|s| s.deadline) {
             if d <= now {
@@ -564,7 +669,9 @@ impl ApplicationHandler<UserEv> for OutputApp {
             }
         }
         // Prochain réveil : fin de photo ou prochaine vignette.
-        let next = [self.show.as_ref().and_then(|s| s.deadline), self.monitor_every.map(|_| self.monitor_next)].into_iter().flatten().min();
+        // Pendant un fondu, on se réveille à chaque image (~120 Hz) ; sinon fin de photo ou prochaine vignette.
+        let fade_tick = (fading || self.anim.is_some()).then(|| now + Duration::from_millis(8));
+        let next = [self.show.as_ref().and_then(|s| s.deadline), self.monitor_every.map(|_| self.monitor_next), fade_tick].into_iter().flatten().min();
         el.set_control_flow(match next {
             Some(d) => ControlFlow::WaitUntil(d),
             None => ControlFlow::Wait,
@@ -617,6 +724,12 @@ pub fn run(prefs: MachinePrefs, monitor_port: Option<u16>) {
         pattern_on: false,
         show: None,
         shaders: warp::ShaderFiles::new(),
+        warp_corners: None,
+        fade_ok: false,
+        fade_level: 1.0,
+        anim: None,
+        pending: None,
+        fade_in_after: None,
         monitor_port,
         feed: None,
         monitor_every: None,
