@@ -139,6 +139,7 @@ impl Lecteur {
                 match m.text().unwrap_or_default().to_lowercase().as_str() {
                     "cut" | "coupe" => self.transition.kind = TransitionKind::Cut,
                     "black" | "noir" => self.transition.kind = TransitionKind::Black,
+                    "fade" | "crossfade" | "fondu" => self.transition.kind = TransitionKind::Crossfade,
                     _ => {}
                 }
                 if let Some(rosc::OscType::Float(s)) = m.args.get(1) {
@@ -454,10 +455,7 @@ impl Lecteur {
                 ui.label(RichText::new("Transition").color(TEXT_DIM));
                 ui.radio_value(&mut self.transition.kind, TransitionKind::Cut, "Coupe").on_hover_text("Passage direct au média suivant");
                 ui.radio_value(&mut self.transition.kind, TransitionKind::Black, "Noir").on_hover_text("Fondu au noir, puis fondu d'ouverture");
-                ui.add_enabled_ui(false, |ui| {
-                    ui.radio_value(&mut self.transition.kind, TransitionKind::Crossfade, "Fondu enchaîné")
-                        .on_disabled_hover_text("Arrive avec le moteur de composition de la sortie");
-                });
+                ui.radio_value(&mut self.transition.kind, TransitionKind::Crossfade, "Fondu enchaîné").on_hover_text("Fondu enchaîné : le média suivant apparaît pendant que le précédent disparaît");
                 if self.transition.kind != TransitionKind::Cut {
                     ui.add(egui::DragValue::new(&mut self.transition.secs).range(0.1..=10.0).speed(0.05).suffix(" s").max_decimals(1));
                 }

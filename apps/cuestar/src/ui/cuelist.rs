@@ -448,7 +448,7 @@ impl Cuelist {
                 }
                 right = lr.left() - 6.0;
                 if c.transition.kind != TransitionKind::Cut {
-                    let txt = format!("Noir {:.1} s", c.transition.secs);
+                    let txt = format!("{} {:.1} s", if c.transition.kind == TransitionKind::Crossfade { "Fondu" } else { "Noir" }, c.transition.secs);
                     let g = p.layout_no_wrap(txt, FontId::proportional(11.0), TEXT_DIM);
                     p.galley(pos2(right - g.size().x, rect.center().y - g.size().y / 2.0), g.clone(), TEXT_DIM);
                     right -= g.size().x + 8.0;
@@ -603,10 +603,7 @@ impl Cuelist {
                 ui.horizontal(|ui| {
                     ui.radio_value(&mut c.transition.kind, TransitionKind::Cut, "Coupe");
                     ui.radio_value(&mut c.transition.kind, TransitionKind::Black, "Noir");
-                    ui.add_enabled_ui(false, |ui| {
-                        ui.radio_value(&mut c.transition.kind, TransitionKind::Crossfade, "Fondu enchaîné")
-                            .on_disabled_hover_text("Arrive avec le moteur de composition de la sortie");
-                    });
+                    ui.radio_value(&mut c.transition.kind, TransitionKind::Crossfade, "Fondu enchaîné").on_hover_text("Fondu enchaîné : le média suivant apparaît pendant que le précédent disparaît");
                     if c.transition.kind != TransitionKind::Cut {
                         ui.add(egui::DragValue::new(&mut c.transition.secs).range(0.1..=10.0).speed(0.05).suffix(" s").max_decimals(1));
                     }
