@@ -41,6 +41,9 @@ pub struct Lecteur {
     seen_end: u64,
     rng: u64,
     thumbs: Thumbs,
+    /// Aperçu SUIVANT affiché, et sa largeur en points.
+    show_preview: bool,
+    preview_w: f32,
 }
 
 impl Default for Lecteur {
@@ -58,6 +61,8 @@ impl Default for Lecteur {
             seen_end: 0,
             rng: seed,
             thumbs: Thumbs::default(),
+            show_preview: true,
+            preview_w: 420.0,
         }
     }
 }
@@ -216,9 +221,27 @@ impl Lecteur {
         }
 
         let full = ui.available_rect_before_wrap();
-        let list_w = (full.width() * 0.55).clamp(360.0, 640.0);
-        let left = Rect::from_min_size(full.min, vec2(list_w, full.height()));
-        let right = Rect::from_min_max(pos2(left.right() + 14.0, full.top()), full.max);
+        if !self.show_preview {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(full), |ui| self.playlist(ui, out, full));
+            ui.allocate_rect(full, Sense::hover());
+            return;
+        }
+        // Aperçu à droite, largeur réglable avec la poignée entre les deux.
+        let gap = 12.0;
+        let max_w = (full.width() - 320.0 - gap).max(140.0);
+        self.preview_w = self.preview_w.clamp(140.0, max_w);
+        let right = Rect::from_min_max(pos2(full.right() - self.preview_w, full.top()), full.max);
+        let left = Rect::from_min_max(full.min, pos2(right.left() - gap, full.bottom()));
+        let handle = Rect::from_min_max(pos2(left.right(), full.top()), pos2(right.left(), full.bottom()));
+        let h = ui.interact(handle, ui.make_persistent_id("lec-split"), Sense::drag());
+        if h.dragged() {
+            self.preview_w -= h.drag_delta().x;
+        }
+        if h.hovered() || h.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        }
+        let grip = if h.hovered() || h.dragged() { ACCENT } else { BORDER };
+        ui.painter().rect_filled(Rect::from_center_size(handle.center(), vec2(3.0, 40.0)), 2, grip);
         ui.scope_builder(egui::UiBuilder::new().max_rect(left), |ui| self.playlist(ui, out, left));
         ui.scope_builder(egui::UiBuilder::new().max_rect(right), |ui| self.next_preview(ui, right));
         ui.allocate_rect(full, Sense::hover());
@@ -261,8 +284,15 @@ impl Lecteur {
                         self.confirm_clear = true;
                     }
                 }
-                let label = if self.items.is_empty() { "Aucun média".to_string() } else { format!("{} médias", self.items.len()) };
-                ui.add(egui::Label::new(RichText::new(label).color(TEXT_DIM)).truncate());
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.selectable_label(self.show_preview, "Aperçu").on_hover_text("Afficher ou masquer l'aperçu de l'élément suivant").clicked() {
+                        self.show_preview = !self.show_preview;
+                    }
+                    let label = if self.items.is_empty() { "Aucun média".to_string() } else { format!("{} médias", self.items.len()) };
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        ui.add(egui::Label::new(RichText::new(label).color(TEXT_DIM)).truncate());
+                    });
+                });
             });
 
             // Élément en cours.
@@ -462,7 +492,14 @@ impl Lecteur {
         egui::Frame::new().fill(PANEL).corner_radius(6).inner_margin(10).show(ui, |ui| {
             let w = (area.width() - 20.0).max(80.0);
             ui.set_width(w);
-            ui.label(RichText::new("SUIVANT").strong().color(ACCENT));
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("SUIVANT").strong().color(ACCENT));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.small_button("✕").on_hover_text("Masquer l'aperçu (bouton « Aperçu » pour le réafficher)").clicked() {
+                        self.show_preview = false;
+                    }
+                });
+            });
             let size = vec2(w, w * 9.0 / 16.0);
             let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
             ui.painter().rect_filled(rect, 3, Color32::BLACK);
