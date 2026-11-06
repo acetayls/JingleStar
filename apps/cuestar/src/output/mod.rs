@@ -214,9 +214,9 @@ impl OutputApp {
             el.exit();
             return;
         }
-        if let Command::Monitor { fps } = cmd {
-            self.monitor_every = (fps > 0).then(|| Duration::from_secs_f64(1.0 / fps.min(30) as f64));
-            if fps > 0 && !self.feed.as_ref().is_some_and(|f| f.alive()) {
+        if let Command::Monitor { on } = cmd {
+            self.monitor_every = on.then(|| self.monitor_interval());
+            if on && !self.feed.as_ref().is_some_and(|f| f.alive()) {
                 self.feed = self.monitor_port.map(monitor::MonitorFeed::connect);
             }
             self.monitor_next = Instant::now();
@@ -342,6 +342,12 @@ impl OutputApp {
         if let Err(e) = res {
             emit(&Event::Error { message: e });
         }
+    }
+
+    /// Intervalle du monitoring : celui des images de la vidéo (25 i/s sans vidéo, 60 au plus).
+    fn monitor_interval(&self) -> Duration {
+        let fps = if self.fps.0 > 1.0 { self.fps.0.min(60.0) } else { 25.0 };
+        Duration::from_secs_f64(1.0 / fps)
     }
 
     /// Envoie une vignette de l'image en cours à la régie.
@@ -550,6 +556,10 @@ impl ApplicationHandler<UserEv> for OutputApp {
         if let Some(every) = self.monitor_every {
             if self.monitor_next <= now {
                 self.capture();
+                // Même cadence que la vidéo affichée.
+                let _ = every;
+                let every = self.monitor_interval();
+                self.monitor_every = Some(every);
                 self.monitor_next = now + every;
             }
         }

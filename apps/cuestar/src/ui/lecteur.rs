@@ -78,6 +78,26 @@ fn scan(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 impl Lecteur {
+    /// Contenu enregistré dans le projet.
+    pub fn to_data(&self) -> crate::project::LecteurData {
+        crate::project::LecteurData {
+            items: self.items.iter().map(|i| crate::project::LecteurItem { path: i.path.clone(), looping: i.looping }).collect(),
+            loop_all: self.loop_all,
+            shuffle: self.shuffle,
+        }
+    }
+
+    /// Projet ouvert : la liste est remplacée.
+    pub fn load_data(&mut self, d: &crate::project::LecteurData) {
+        self.items = d.items.iter().map(|i| Item { path: i.path.clone(), looping: i.looping }).collect();
+        self.loop_all = d.loop_all;
+        self.shuffle = d.shuffle;
+        self.selected = (!self.items.is_empty()).then_some(0);
+        self.playing = None;
+        self.queued = None;
+        self.confirm_clear = false;
+    }
+
     fn add(&mut self, files: impl IntoIterator<Item = PathBuf>) {
         for f in files {
             if f.is_dir() {

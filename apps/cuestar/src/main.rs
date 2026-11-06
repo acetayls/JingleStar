@@ -9,6 +9,7 @@
 mod link;
 mod output;
 mod prefs;
+mod project;
 mod protocol;
 mod stats;
 mod thumb;

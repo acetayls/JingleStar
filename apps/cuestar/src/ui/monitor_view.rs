@@ -1,23 +1,18 @@
-//! Fenêtre flottante de monitoring : retour de l'image envoyée sur la sortie.
+//! Fenêtre flottante de monitoring : retour de l'image envoyée sur la sortie, à la cadence
+//! de la vidéo, dans un cadre noir au format de l'écran de sortie.
 
 use crate::link::OutputLink;
 use crate::protocol::Command;
-use egui::{vec2, RichText};
+use egui::{pos2, vec2, Color32, Rect, RichText};
 use star_commun::theme::*;
 use star_commun::widgets::fmt_time;
 use std::path::Path;
 
+#[derive(Default)]
 pub struct MonitorView {
     pub open: bool,
-    fps: u32,
     texture: Option<egui::TextureHandle>,
     serial: u64,
-}
-
-impl Default for MonitorView {
-    fn default() -> Self {
-        Self { open: false, fps: 10, texture: None, serial: 0 }
-    }
 }
 
 impl MonitorView {
@@ -26,16 +21,16 @@ impl MonitorView {
         self.sync(out);
     }
 
-    /// Dit à la sortie s'il faut envoyer des vignettes (aussi après une relance de la sortie).
+    /// Dit à la sortie s'il faut envoyer des images (aussi après une relance de la sortie).
     pub fn sync(&self, out: &mut OutputLink) {
-        out.send(Command::Monitor { fps: if self.open { self.fps } else { 0 } });
+        out.send(Command::Monitor { on: self.open });
     }
 
     pub fn show(&mut self, ctx: &egui::Context, out: &mut OutputLink) {
         if !self.open {
             return;
         }
-        // Nouvelle vignette ? On remplace la texture.
+        // Nouvelle image ? On remplace la texture.
         if let Ok(f) = out.monitor.lock() {
             if f.serial != self.serial && f.w > 0 {
                 self.serial = f.serial;
@@ -47,27 +42,29 @@ impl MonitorView {
             }
         }
         let mut open = self.open;
-        let mut fps_changed = false;
         // Vraie fenêtre du système : elle peut sortir de la régie (autre écran, par exemple).
-        let vp = egui::ViewportBuilder::default().with_title("CueStar — Monitoring").with_inner_size([480.0, 340.0]).with_min_inner_size([200.0, 150.0]);
+        let vp = egui::ViewportBuilder::default().with_title("CueStar — Monitoring").with_inner_size([480.0, 300.0]).with_min_inner_size([160.0, 110.0]);
         ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("cuestar-monitoring"), vp, |ui, _| {
             if ui.ctx().input(|i| i.viewport().close_requested()) {
                 open = false;
             }
-            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(8)).show(ui, |ui| {
-                let aspect = self.texture.as_ref().map(|t| t.size_vec2()).map(|s| s.y / s.x.max(1.0)).unwrap_or(9.0 / 16.0);
-                let w = ui.available_width().min((ui.available_height() - 56.0).max(40.0) / aspect).max(80.0);
-                let size = vec2(w, w * aspect);
-                match &self.texture {
-                    Some(t) => {
-                        ui.add(egui::Image::new((t.id(), size)));
-                    }
-                    None => {
-                        let (r, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-                        ui.painter().rect_filled(r, 2, egui::Color32::BLACK);
-                    }
-                }
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(6)).show(ui, |ui| {
                 let s = &out.state;
+                // Cadre noir au format de l'écran de sortie, centré dans la place disponible.
+                let screen = s.monitor.as_ref().filter(|m| m.width > 0 && m.height > 0).map(|m| m.height as f32 / m.width as f32).unwrap_or(9.0 / 16.0);
+                let avail = ui.available_rect_before_wrap();
+                let area = Rect::from_min_max(avail.min, pos2(avail.right(), (avail.bottom() - 24.0).max(avail.top() + 20.0)));
+                let w = area.width().min(area.height() / screen);
+                let frame = Rect::from_center_size(area.center(), vec2(w, w * screen));
+                ui.painter().rect_filled(frame, 0, Color32::BLACK);
+                if let Some(t) = &self.texture {
+                    // L'image garde son propre format à l'intérieur du cadre.
+                    let ts = t.size_vec2();
+                    let k = (frame.width() / ts.x).min(frame.height() / ts.y);
+                    let r = Rect::from_center_size(frame.center(), ts * k);
+                    ui.painter().image(t.id(), r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                }
+                ui.allocate_rect(area, egui::Sense::hover());
                 ui.horizontal(|ui| {
                     let name = s
                         .current
@@ -77,20 +74,13 @@ impl MonitorView {
                         .unwrap_or_else(|| "—".into());
                     let col = if s.current.is_some() { if s.paused { ACCENT } else { GO } } else { TEXT_DIM };
                     ui.label(RichText::new("●").color(col));
-                    ui.label(name);
+                    ui.add(egui::Label::new(name).truncate());
                     if s.duration > 0.0 {
                         ui.label(RichText::new(format!("{} / {}", fmt_time(s.time), fmt_time(s.duration))).monospace().color(TEXT_DIM));
                     }
                 });
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Images/s").color(TEXT_DIM));
-                    fps_changed = ui.add(egui::Slider::new(&mut self.fps, 1..=25)).changed();
-                });
             });
         });
-        if fps_changed {
-            self.sync(out);
-        }
         if open != self.open {
             self.open = open;
             self.sync(out);

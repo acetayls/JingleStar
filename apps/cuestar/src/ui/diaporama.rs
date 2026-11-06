@@ -8,7 +8,6 @@
 use crate::link::OutputLink;
 use crate::protocol::{Command, Fit};
 use egui::{vec2, Key, RichText};
-use serde::{Deserialize, Serialize};
 use star_commun::theme::*;
 use star_commun::widgets;
 use std::path::{Path, PathBuf};
@@ -18,27 +17,7 @@ const MEDIA_EXT: &[&str] = &[
     "ts", "wmv",
 ];
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(default)]
-struct Settings {
-    folder: Option<PathBuf>,
-    recursive: bool,
-    shuffle: bool,
-    looping: bool,
-    photo_seconds: f64,
-    fit: Fit,
-    video_sound: bool,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self { folder: None, recursive: true, shuffle: false, looping: true, photo_seconds: 5.0, fit: Fit::Auto, video_sound: false }
-    }
-}
-
-fn settings_path() -> Option<PathBuf> {
-    directories::ProjectDirs::from("com", "acetayls", "CueStar").map(|d| d.config_dir().join("diaporama.json"))
-}
+type Settings = crate::project::DiaporamaData;
 
 pub struct Diaporama {
     s: Settings,
@@ -47,13 +26,7 @@ pub struct Diaporama {
 
 impl Default for Diaporama {
     fn default() -> Self {
-        let s: Settings = settings_path()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
-        let mut d = Self { s, files: Vec::new() };
-        d.rescan();
-        d
+        Self { s: Settings::default(), files: Vec::new() }
     }
 }
 
@@ -73,13 +46,14 @@ fn scan(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) {
 }
 
 impl Diaporama {
-    fn save(&self) {
-        if let Some(p) = settings_path() {
-            if let Some(d) = p.parent() {
-                let _ = std::fs::create_dir_all(d);
-            }
-            let _ = std::fs::write(p, serde_json::to_string_pretty(&self.s).unwrap_or_default());
-        }
+    pub fn to_data(&self) -> Settings {
+        self.s.clone()
+    }
+
+    /// Projet ouvert : réglages remplacés, dossier relu.
+    pub fn load_data(&mut self, d: &Settings) {
+        self.s = d.clone();
+        self.rescan();
     }
 
     fn rescan(&mut self) {
@@ -206,9 +180,6 @@ impl Diaporama {
         });
         if self.s.fit != before.1 && running {
             out.send(Command::SetFit { fit: self.s.fit });
-        }
-        if serde_json::to_string(&self.s).ok() != serde_json::to_string(&before.0).ok() {
-            self.save();
         }
 
         ui.add_space(10.0);

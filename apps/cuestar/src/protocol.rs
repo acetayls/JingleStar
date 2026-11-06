@@ -27,8 +27,8 @@ pub enum Command {
     Prev,
     /// Va au média n° `index` (0 = premier) du diaporama.
     Goto { index: usize },
-    /// Retour image vers la régie : images par seconde (0 = arrêt).
-    Monitor { fps: u32 },
+    /// Retour image vers la régie, à la cadence de la vidéo.
+    Monitor { on: bool },
     Quit,
 }
 
