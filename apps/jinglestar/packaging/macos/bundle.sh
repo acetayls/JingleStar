@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Construit JingleStar.app et JingleStar-<version>-<arch>.dmg (à lancer sur macOS).
-# Usage : packaging/macos/bundle.sh <cible rust> [dossier de sortie]
-#   ex. : packaging/macos/bundle.sh x86_64-apple-darwin dist
+# Usage : apps/jinglestar/packaging/macos/bundle.sh <cible rust> [dossier de sortie]
+#   ex. : apps/jinglestar/packaging/macos/bundle.sh x86_64-apple-darwin dist
 set -euo pipefail
 
 TARGET="${1:-x86_64-apple-darwin}"
 OUT="${2:-dist}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$HERE/../.." && pwd)"
+ROOT="$(cd "$HERE/../.." && pwd)"          # apps/jinglestar
+WORKSPACE="$(cd "$ROOT/../.." && pwd)"  # racine du dépôt MediaStar (dossier target/)
 VERSION="$(grep -m1 '^version' "$ROOT/Cargo.toml" | cut -d'"' -f2)"
 case "$TARGET" in
   x86_64-*) ARCH=intel ;;
@@ -15,7 +16,7 @@ case "$TARGET" in
   *) ARCH="$TARGET" ;;
 esac
 
-BIN="$ROOT/target/$TARGET/release/jinglestar"
+BIN="$WORKSPACE/target/$TARGET/release/jinglestar"
 [ -x "$BIN" ] || { echo "Binaire introuvable : $BIN (lancer cargo build --release --target $TARGET)"; exit 1; }
 
 mkdir -p "$OUT"

@@ -1,2 +1,4 @@
 /target
 *.tmp
+# libmpv pour CueStar en développement (cherché à la racine du dépôt, au-dessus de target/)
+/mpv/

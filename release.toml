@@ -1,0 +1,9 @@
+# Configuration de cargo-release (https://github.com/crate-ci/cargo-release).
+# Une application à la fois, au calendrier voulu :
+#   cargo release -p jinglestar patch --execute
+#   cargo release -p cuestar minor --execute
+tag-name = "{{crate_name}}-v{{version}}"
+tag-message = "{{crate_name}} {{version}}"
+pre-release-commit-message = "{{crate_name}} {{version}}"
+publish = false
+push = true

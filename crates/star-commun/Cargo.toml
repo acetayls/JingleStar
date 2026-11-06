@@ -1,0 +1,11 @@
+[package]
+name = "star-commun"
+version = "0.1.0"
+description = "Briques communes à JingleStar et CueStar : charte graphique, widgets"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+egui.workspace = true
