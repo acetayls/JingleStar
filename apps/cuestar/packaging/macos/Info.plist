@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>CueStar</string>
+	<key>CFBundleDisplayName</key>
+	<string>CueStar</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.acetayls.CueStar</string>
+	<key>CFBundleExecutable</key>
+	<string>cuestar</string>
+	<key>CFBundleIconFile</key>
+	<string>CueStar</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>fr</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>@MINOS@</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.video</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>CueStar reçoit des commandes OSC et dialogue avec les consoles du réseau local pour être piloté à distance.</string>
+</dict>
+</plist>

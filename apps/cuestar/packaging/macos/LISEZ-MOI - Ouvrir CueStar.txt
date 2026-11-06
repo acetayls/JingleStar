@@ -1,0 +1,40 @@
+OUVRIR CUESTAR SUR MAC (version non signée)
+===========================================
+
+1. Glissez CueStar dans le dossier Applications.
+
+2. Lancez CueStar une première fois. macOS le bloque, car cette version
+   n'est pas signée par un compte développeur Apple.
+
+3. macOS 15 (Sequoia) et suivants :
+   Réglages Système > Confidentialité et sécurité, tout en bas :
+   cliquez « Ouvrir quand même », puis saisissez le mot de passe
+   administrateur. (Le clic droit > Ouvrir ne suffit plus.)
+
+   macOS 14 et antérieurs : clic droit sur CueStar > Ouvrir > Ouvrir.
+
+C'est à faire une seule fois par version.
+
+Variante pour les techniciens, dans le Terminal :
+    xattr -dr com.apple.quarantine /Applications/CueStar.app
+
+
+OPENING CUESTAR ON A MAC (unsigned build)
+=========================================
+
+1. Drag CueStar to the Applications folder.
+
+2. Launch CueStar once. macOS blocks it, because this build is not
+   signed with an Apple developer account.
+
+3. macOS 15 (Sequoia) and later:
+   System Settings > Privacy & Security, at the bottom:
+   click "Open Anyway", then enter an administrator password.
+   (Right-click > Open no longer works.)
+
+   macOS 14 and earlier: right-click CueStar > Open > Open.
+
+This is needed only once per version.
+
+For technicians, in Terminal:
+    xattr -dr com.apple.quarantine /Applications/CueStar.app

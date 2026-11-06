@@ -1,0 +1,44 @@
+Composants tiers livrés avec CueStar
+====================================
+
+CueStar lui-même est sous licence MIT (LICENCE-CueStar.txt). Il n'est pas lié à
+libmpv à la compilation : la bibliothèque est chargée au démarrage, depuis le
+dossier de l'application.
+
+libmpv (lecteur vidéo mpv) et ses dépendances
+---------------------------------------------
+Site : https://mpv.io
+Sources : https://github.com/mpv-player/mpv
+Licence : mpv est sous LGPL 2.1 ou ultérieure, ou sous GPL 2 ou ultérieure
+quand il est compilé avec ses parties GPL (voir mpv-Copyright.txt,
+mpv-LICENSE.LGPL.txt et mpv-LICENSE.GPL.txt). Les versions livrées ici
+incluent des composants GPL, notamment FFmpeg compilé avec --enable-gpl :
+l'ensemble est donc distribué sous les termes de la GPL (version 3 pour la
+version Windows, dont FFmpeg est compilé avec --enable-version3 ; voir
+GPL-3.0.txt). La licence MIT de CueStar est compatible avec la GPL, et le
+code source de CueStar est public : https://github.com/acetayls/mediastar
+
+Provenance des bibliothèques, par système :
+- Windows : libmpv-2.dll, build « mpv-dev » de shinchiro
+  (https://github.com/shinchiro/mpv-winbuild-cmake). Le nom exact du build
+  utilisé, qui donne la date et le commit de mpv, est dans
+  mpv-build.txt quand il est présent. Les scripts de compilation et les
+  sources de chaque dépendance sont indiqués dans ce dépôt.
+- macOS : libmpv et ses dépendances Homebrew (formule « mpv »,
+  https://formulae.brew.sh/formula/mpv), copiées dans
+  CueStar.app/Contents/Frameworks. Sources indiquées par chaque formule.
+- Linux (AppImage) : libmpv et ses dépendances du paquet libmpv d'Ubuntu
+  (https://packages.ubuntu.com, paquet source « mpv »), copiées dans
+  usr/lib de l'AppImage.
+
+Sur simple demande à l'auteur de CueStar (via
+https://github.com/acetayls/mediastar/issues), une copie du code source
+correspondant à ces bibliothèques est fournie, pendant au moins trois ans
+après la distribution de cette version.
+
+Bibliothèques Rust
+------------------
+CueStar est compilé avec des bibliothèques Rust (egui, winit, image, etc.)
+sous licences libres : MIT, Apache 2.0, BSD, Zlib, ISC, Boost, Unicode, et
+OFL / Ubuntu Font Licence pour les polices d'egui. La liste, avec la licence
+de chacune, est dans crates-rust.txt.
