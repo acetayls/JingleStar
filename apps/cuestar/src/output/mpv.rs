@@ -8,7 +8,7 @@ use libloading::Library;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::path::PathBuf;
 
-type Handle = *mut c_void;
+pub type Handle = *mut c_void;
 
 pub const EVENT_NONE: c_int = 0;
 pub const EVENT_SHUTDOWN: c_int = 1;
@@ -86,6 +86,55 @@ struct Api {
     set_wakeup_callback: unsafe extern "C" fn(Handle, Option<unsafe extern "C" fn(*mut c_void)>, *mut c_void),
     error_string: unsafe extern "C" fn(c_int) -> *const c_char,
     free: unsafe extern "C" fn(*mut c_void),
+    get_time_us: unsafe extern "C" fn(Handle) -> i64,
+    render: Option<RenderApi>,
+}
+
+/// Fonctions de l'API de rendu (`render.h`) : CueStar dessine lui-même l'image.
+#[derive(Clone, Copy)]
+pub struct RenderApi {
+    pub create: unsafe extern "C" fn(*mut Handle, Handle, *mut RenderParam) -> c_int,
+    pub set_update_callback: unsafe extern "C" fn(Handle, Option<unsafe extern "C" fn(*mut c_void)>, *mut c_void),
+    pub update: unsafe extern "C" fn(Handle) -> u64,
+    pub render: unsafe extern "C" fn(Handle, *mut RenderParam) -> c_int,
+    pub get_info: unsafe extern "C" fn(Handle, RenderParam) -> c_int,
+    pub report_swap: unsafe extern "C" fn(Handle),
+    pub free: unsafe extern "C" fn(Handle),
+    /// Horloge de mpv (µs), celle des heures d'affichage des images.
+    pub time_us: unsafe extern "C" fn(Handle) -> i64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct RenderParam {
+    pub kind: c_int,
+    pub data: *mut c_void,
+}
+
+impl RenderParam {
+    pub const END: RenderParam = RenderParam { kind: 0, data: std::ptr::null_mut() };
+}
+
+pub const RENDER_PARAM_API_TYPE: c_int = 1;
+pub const RENDER_PARAM_OPENGL_INIT_PARAMS: c_int = 2;
+pub const RENDER_PARAM_OPENGL_FBO: c_int = 3;
+pub const RENDER_PARAM_FLIP_Y: c_int = 4;
+pub const RENDER_PARAM_X11_DISPLAY: c_int = 8;
+pub const RENDER_PARAM_WL_DISPLAY: c_int = 9;
+pub const RENDER_PARAM_ADVANCED_CONTROL: c_int = 10;
+pub const RENDER_PARAM_NEXT_FRAME_INFO: c_int = 11;
+pub const RENDER_PARAM_BLOCK_FOR_TARGET_TIME: c_int = 12;
+pub const RENDER_PARAM_D3D11_INIT_PARAMS: c_int = 21;
+pub const RENDER_PARAM_D3D11_FBO: c_int = 22;
+pub const RENDER_UPDATE_FRAME: u64 = 1;
+pub const FRAME_INFO_PRESENT: u64 = 1;
+
+#[repr(C)]
+#[derive(Default)]
+pub struct FrameInfo {
+    pub flags: u64,
+    /// Heure d'affichage voulue, en microsecondes (horloge `mpv_get_time_us`).
+    pub target_time: i64,
 }
 
 pub struct Mpv {
@@ -174,6 +223,20 @@ impl Mpv {
             set_wakeup_callback: sym!("mpv_set_wakeup_callback"),
             error_string: sym!("mpv_error_string"),
             free: sym!("mpv_free"),
+            get_time_us: sym!("mpv_get_time_us"),
+            render: (|| -> Result<RenderApi, String> {
+                Ok(RenderApi {
+                    create: sym!("mpv_render_context_create"),
+                    set_update_callback: sym!("mpv_render_context_set_update_callback"),
+                    update: sym!("mpv_render_context_update"),
+                    render: sym!("mpv_render_context_render"),
+                    get_info: sym!("mpv_render_context_get_info"),
+                    report_swap: sym!("mpv_render_context_report_swap"),
+                    free: sym!("mpv_render_context_free"),
+                    time_us: sym!("mpv_get_time_us"),
+                })
+            })()
+            .ok(),
         };
         let handle = unsafe { (api.create)() };
         if handle.is_null() {
@@ -189,6 +252,24 @@ impl Mpv {
             let msg = unsafe { CStr::from_ptr((self.api.error_string)(code)) }.to_string_lossy().into_owned();
             Err(format!("{what} : {msg}"))
         }
+    }
+
+    /// Fonctions de l'API de rendu, si la libmpv chargée les propose.
+    pub fn render_api(&self) -> Option<RenderApi> {
+        self.api.render
+    }
+
+    pub fn raw(&self) -> Handle {
+        self.handle
+    }
+
+    /// Horloge de mpv (microsecondes), celle des heures d'affichage des images.
+    pub fn time_us(&self) -> i64 {
+        unsafe { (self.api.get_time_us)(self.handle) }
+    }
+
+    pub fn error_text(&self, code: c_int) -> String {
+        unsafe { CStr::from_ptr((self.api.error_string)(code)) }.to_string_lossy().into_owned()
     }
 
     pub fn api_version(&self) -> String {

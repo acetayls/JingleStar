@@ -78,6 +78,29 @@ impl RenderApi {
     }
 }
 
+/// Façon de caler les images de la vidéo sur les rafraîchissements de l'écran.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Cadence {
+    /// Choix par fichier : recalage de vitesse quand l'écran tombe presque juste, sinon synchro audio.
+    #[default]
+    Auto,
+    /// Minutage sur l'horloge du son, sans correction.
+    Audio,
+    /// Vidéo très légèrement accélérée ou ralentie (moins de 1 %) pour tomber juste sur l'écran.
+    Resample,
+}
+
+impl Cadence {
+    pub const ALL: [Cadence; 3] = [Cadence::Auto, Cadence::Audio, Cadence::Resample];
+    pub fn label(self) -> &'static str {
+        match self {
+            Cadence::Auto => "Automatique (selon la vidéo et l'écran)",
+            Cadence::Audio => "Synchro audio",
+            Cadence::Resample => "Recalage de vitesse",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MachinePrefs {
@@ -89,8 +112,12 @@ pub struct MachinePrefs {
     pub screen: Option<String>,
     /// Avec un seul écran : sortie dans une fenêtre plutôt qu'en plein écran sur la régie.
     pub windowed_if_single: bool,
-    /// Synchronisation sur la fréquence de l'écran (lecture fluide à 50, 59,94, 60 Hz…).
-    pub display_sync: bool,
+    /// Calage des images sur l'écran.
+    pub cadence: Cadence,
+    /// Interpolation : fond deux images voisines pour lisser un rythme irrégulier (24 i/s sur 60 Hz…).
+    pub interpolation: bool,
+    /// Passe l'écran de sortie sur une fréquence qui tombe juste pour la vidéo, rétablie en quittant.
+    pub adapt_refresh: bool,
     /// Mapping 4 coins de l'image sur l'écran de sortie.
     pub warp: Warp,
 }
@@ -120,7 +147,7 @@ impl Default for Warp {
 
 impl Default for MachinePrefs {
     fn default() -> Self {
-        Self { decode: Decode::Auto, render: RenderApi::Auto, light: false, screen: None, windowed_if_single: true, display_sync: true, warp: Warp::default() }
+        Self { decode: Decode::Auto, render: RenderApi::Auto, light: false, screen: None, windowed_if_single: true, cadence: Cadence::Auto, interpolation: false, adapt_refresh: false, warp: Warp::default() }
     }
 }
 
