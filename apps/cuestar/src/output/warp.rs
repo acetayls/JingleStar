@@ -39,6 +39,13 @@ fn invert(m: M3) -> Option<M3> {
     ])
 }
 
+/// Homographie inverse (point de l'écran vers point de l'image), pour le compositeur.
+/// None : mapping neutre.
+pub fn inverse(corners: Option<[[f32; 2]; 4]>) -> [[f32; 3]; 3] {
+    let id = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    corners.and_then(|c| invert(square_to_quad(c))).map(|m| m.map(|r| r.map(|v| v as f32))).unwrap_or(id)
+}
+
 /// Source GLSL du shader : pour chaque pixel de l'écran, va chercher le point de l'image d'origine.
 /// Avec `fade`, un paramètre réglable à chaud (`glsl-shader-opts=fade=…`, vo gpu-next) assombrit
 /// l'image jusqu'au noir : il sert aux transitions.

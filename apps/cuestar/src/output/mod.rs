@@ -1,20 +1,31 @@
 //! Moteur de sortie : processus séparé de la régie.
 //!
-//! Il ouvre la fenêtre de sortie (plein écran sur l'écran choisi) et y fait rendre libmpv
-//! directement au GPU. Les commandes arrivent sur l'entrée standard, les événements repartent
-//! sur la sortie standard (voir `protocol`). Une régie qui rame ne retarde aucune image.
+//! Il ouvre la fenêtre de sortie (plein écran sur l'écran choisi) et y affiche l'image au GPU.
+//! Les commandes arrivent sur l'entrée standard, les événements repartent sur la sortie
+//! standard (voir `protocol`). Une régie qui rame ne retarde aucune image.
+//!
+//! Affichage normal : CueStar compose lui-même l'image (`screen`) à partir de deux lecteurs
+//! mpv, ce qui permet le fondu enchaîné, le fondu au noir, le mapping et un monitoring sans
+//! perte. Si l'API de rendu manque, affichage de secours (`embed`) : mpv seul dans la fenêtre.
 
+mod embed;
 mod monitor;
 pub mod mpv;
 mod pattern;
+mod refresh;
+mod screen;
+#[cfg(windows)]
+mod screen_d3d11;
+#[cfg(not(windows))]
+mod screen_gl;
 mod slideshow;
 pub mod warp;
 
-use crate::prefs::MachinePrefs;
+use crate::prefs::{Cadence, MachinePrefs};
 use crate::protocol::{Command, Event, Fit, Monitor, TransitionKind};
-use slideshow::Show;
 use mpv::Mpv;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use slideshow::Show;
 use std::ffi::{c_char, c_int, c_void, CStr};
 use std::io::{BufRead, Write};
 use std::num::NonZeroU32;
@@ -28,8 +39,8 @@ use winit::window::{Fullscreen, Window, WindowId};
 
 enum UserEv {
     Cmd(Command),
-    /// mpv a des événements à lire.
-    Mpv,
+    /// Le lecteur n° … a des événements à lire.
+    Mpv(usize),
     /// La régie a fermé le lien (fermeture ou plantage).
     Detached,
 }
@@ -42,10 +53,19 @@ fn emit(ev: &Event) {
     }
 }
 
-unsafe extern "C" fn mpv_wakeup(data: *mut c_void) {
-    let proxy = unsafe { &*(data as *const EventLoopProxy<UserEv>) };
-    let _ = proxy.send_event(UserEv::Mpv);
+/// Réveil d'un lecteur : mpv nous prévient depuis un de ses fils.
+struct Wake {
+    proxy: EventLoopProxy<UserEv>,
+    deck: usize,
 }
+
+unsafe extern "C" fn mpv_wakeup(data: *mut c_void) {
+    let w = unsafe { &*(data as *const Wake) };
+    let _ = w.proxy.send_event(UserEv::Mpv(w.deck));
+}
+
+/// Silence sans fin : garde la sortie son d'un lecteur en attente ouverte.
+const SILENCE: &str = "av://lavfi:anullsrc=r=48000:cl=stereo";
 
 // Identifiants des propriétés observées.
 const P_TIME: u64 = 1;
@@ -57,9 +77,67 @@ const P_DELAYED: u64 = 6;
 const P_VFPS: u64 = 7;
 const P_DFPS: u64 = 8;
 
+/// Affichage de la sortie.
+enum Out {
+    /// CueStar compose l'image (deux lecteurs).
+    Composite(screen::Screen),
+    /// Secours : mpv seul dans la fenêtre (un lecteur).
+    Embedded(embed::Embedded),
+}
+
+impl Out {
+    fn deck(&self, i: usize) -> &Mpv {
+        match self {
+            Out::Composite(s) => s.deck(i.min(s.deck_count() - 1)),
+            Out::Embedded(e) => e.deck(),
+        }
+    }
+    fn decks(&self) -> usize {
+        match self {
+            Out::Composite(s) => s.deck_count(),
+            Out::Embedded(_) => 1,
+        }
+    }
+    fn can_fade(&self) -> bool {
+        match self {
+            Out::Composite(_) => true,
+            Out::Embedded(e) => e.fade_ok(),
+        }
+    }
+    fn set_level(&mut self, v: f64) {
+        match self {
+            Out::Composite(s) => s.set_level(v),
+            Out::Embedded(e) => e.set_level(v),
+        }
+    }
+    fn set_mix(&self, v: f64) {
+        if let Out::Composite(s) = self {
+            s.set_mix(v);
+        }
+    }
+    fn show(&self, deck: usize, on: bool) {
+        if let Out::Composite(s) = self {
+            s.show(deck, on);
+        }
+    }
+    fn reveal(&self, deck: usize) {
+        if let Out::Composite(s) = self {
+            s.reveal(deck);
+        }
+    }
+}
+
 struct FadeAnim {
     from: f64,
     to: f64,
+    start: Instant,
+    secs: f64,
+}
+
+/// Fondu enchaîné en cours : de `from` vers `to` (lecteurs).
+struct Xfade {
+    from: usize,
+    to: usize,
     start: Instant,
     secs: f64,
 }
@@ -73,18 +151,28 @@ struct PendingLoad {
 
 struct OutputApp {
     prefs: MachinePrefs,
-    // Ordre des champs = ordre de destruction : mpv avant le proxy qu'il référence.
-    mpv: Option<Mpv>,
-    proxy: Box<EventLoopProxy<UserEv>>,
+    // Ordre des champs = ordre de destruction : l'affichage (et ses mpv) avant les réveils
+    // qu'ils référencent, et avant la fenêtre.
+    out: Option<Out>,
+    wakes: Vec<Box<Wake>>,
+    proxy: EventLoopProxy<UserEv>,
     window: Option<Arc<Window>>,
     surface: Option<softbuffer::Surface<Arc<Window>, Arc<Window>>>,
     pattern_on: bool,
     show: Option<Show>,
-    shaders: warp::ShaderFiles,
-    /// Coins du mapping en cours (None : image droite).
     warp_corners: Option<[[f32; 2]; 4]>,
-    /// Le shader porte le réglage de niveau (fondu au noir possible).
-    fade_ok: bool,
+    /// Lecteur à l'antenne.
+    active: usize,
+    /// Lecteur qui sort pendant un fondu enchaîné (ses événements sont ignorés).
+    outgoing: Option<usize>,
+    /// Fondu enchaîné à lancer dès la première image du lecteur actif.
+    xfade_after: Option<f64>,
+    xfade: Option<Xfade>,
+    /// Lecteurs en cours de préchauffage (événements ignorés).
+    warming: Vec<u8>,
+    /// Fins de média à taire (préchauffage interrompu par un vrai chargement).
+    skip_end: Vec<bool>,
+    volume: f64,
     fade_level: f64,
     anim: Option<FadeAnim>,
     /// Média à charger une fois le fondu sortant terminé.
@@ -93,6 +181,7 @@ struct OutputApp {
     fade_in_after: Option<f64>,
     monitor_port: Option<u16>,
     feed: Option<monitor::MonitorFeed>,
+    /// Monitoring par capture (affichage de secours seulement).
     monitor_every: Option<Duration>,
     monitor_next: Instant,
     duration: f64,
@@ -101,6 +190,12 @@ struct OutputApp {
     fps: (f64, f64),
     last_fps: Instant,
     current: Option<String>,
+    /// Écran de sortie : nom système, fréquence actuelle, fréquences possibles.
+    device: Option<String>,
+    refresh_hz: f64,
+    modes: Vec<f64>,
+    /// Fréquence changée par CueStar (à rétablir en quittant).
+    refresh_changed: bool,
 }
 
 fn describe(m: &MonitorHandle, primary: &Option<MonitorHandle>) -> Monitor {
@@ -112,6 +207,13 @@ fn describe(m: &MonitorHandle, primary: &Option<MonitorHandle>) -> Monitor {
         refresh_hz: m.refresh_rate_millihertz().map(|r| r as f64 / 1000.0).unwrap_or(0.0),
         primary: primary.as_ref() == Some(m),
     }
+}
+
+/// Dossier du cache des shaders compilés (premier chargement plus rapide).
+fn shader_cache() -> Option<String> {
+    let d = directories::ProjectDirs::from("com", "acetayls", "CueStar")?.cache_dir().join("shaders");
+    std::fs::create_dir_all(&d).ok()?;
+    Some(d.to_string_lossy().into_owned())
 }
 
 impl OutputApp {
@@ -140,8 +242,11 @@ impl OutputApp {
             window.set_cursor_visible(false);
         }
         self.window = Some(window.clone());
+        self.refresh_hz = chosen.as_ref().and_then(|m| m.refresh_rate_millihertz()).map(|r| r as f64 / 1000.0).unwrap_or(60.0);
+        self.device = chosen.as_ref().and_then(|m| m.name());
+        self.modes = self.device.as_deref().map(refresh::modes).unwrap_or_default();
 
-        let mpv_version = match self.start_mpv(&window) {
+        let mpv_version = match self.start_output(&window, chosen.as_ref()) {
             Ok(v) => Some(v),
             Err(e) => {
                 emit(&Event::MpvMissing { detail: e });
@@ -158,68 +263,216 @@ impl OutputApp {
         Ok(())
     }
 
-    fn start_mpv(&mut self, window: &Window) -> Result<String, String> {
+    /// Crée un lecteur mpv avec les réglages communs (pas encore initialisé).
+    fn new_deck(&self, composite: bool) -> Result<Mpv, String> {
         let m = Mpv::create()?;
-        let wid: i64 = match window.window_handle().map_err(|e| e.to_string())?.as_raw() {
-            RawWindowHandle::Win32(h) => h.hwnd.get() as i64,
-            RawWindowHandle::Xlib(h) => h.window as i64,
-            RawWindowHandle::Xcb(h) => h.window.get() as i64,
-            RawWindowHandle::AppKit(h) => h.ns_view.as_ptr() as i64,
-            other => return Err(format!("type de fenêtre non géré pour l'incrustation mpv : {other:?}")),
-        };
         let p = &self.prefs;
-        m.set_option("wid", &wid.to_string())?;
-        m.set_option("vo", if p.light { "gpu" } else { "gpu-next" })?;
-        if let Some(api) = p.render.mpv_gpu_api() {
-            m.set_option("gpu-api", api)?;
-        }
-        m.set_option("hwdec", p.decode.mpv_hwdec())?;
+        let hwdec = if composite {
+            // Décodeurs qui livrent directement au moteur graphique, sans copie.
+            match p.decode {
+                crate::prefs::Decode::Auto => "auto-safe",
+                crate::prefs::Decode::Cpu => "no",
+                crate::prefs::Decode::Gpu => {
+                    if cfg!(windows) {
+                        "d3d11va"
+                    } else if cfg!(target_os = "macos") {
+                        "videotoolbox"
+                    } else {
+                        "vaapi,nvdec"
+                    }
+                }
+            }
+        } else {
+            p.decode.mpv_hwdec()
+        };
+        m.set_option("hwdec", hwdec)?;
         if let Some(dev) = &p.audio_device {
             let _ = m.set_option("audio-device", dev);
         }
         let _ = m.set_option("volume", &format!("{:.1}", p.volume.clamp(0.0, 100.0)));
-        // Réglages « régie » : pas d'interface mpv, pas de clavier, fenêtre toujours là.
+        // Réglages « régie » : pas d'interface mpv, pas de clavier.
         for (k, v) in [
             ("terminal", "no"),
             ("idle", "yes"),
-            ("force-window", "yes"),
             ("keep-open", "yes"),
             ("osc", "no"),
             ("osd-level", "0"),
             ("input-default-bindings", "no"),
             ("input-vo-keyboard", "no"),
             ("input-cursor", "no"),
-            ("cursor-autohide", "always"),
             ("image-display-duration", "inf"),
             ("audio-display", "no"),
             ("hr-seek", "yes"),
             ("stop-screensaver", "yes"),
             ("background-color", "#000000"),
+            // Les vidéos de téléphone (H.264 « Baseline ») passent aussi par le GPU.
+            ("vd-lavc-check-hw-profile", "no"),
+            ("video-sync", "audio"),
+            // Format de sortie son fixe : le son ouvert sert à tous les médias, sans réouverture.
+            ("audio-samplerate", "48000"),
+            ("audio-channels", "stereo"),
         ] {
             let _ = m.set_option(k, v);
         }
-        if p.display_sync {
-            // Cale la lecture sur la fréquence réelle de l'écran : pas de saccade 24/25/50/60.
-            let _ = m.set_option("video-sync", "display-resample");
+        // CUESTAR_MPV_LOG=<dossier> : journal détaillé de chaque lecteur (diagnostic).
+        if let Some(dir) = std::env::var_os("CUESTAR_MPV_LOG") {
+            static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let _ = m.set_option("log-file", &std::path::Path::new(&dir).join(format!("mpv-{n}.log")).to_string_lossy());
+        }
+        if let Some(dir) = shader_cache() {
+            let _ = m.set_option("gpu-shader-cache-dir", &dir);
         }
         if p.light {
             let _ = m.set_option("profile", "fast");
         }
-        m.initialize()?;
-        m.observe(P_TIME, "time-pos", mpv::FORMAT_DOUBLE);
-        m.observe(P_DURATION, "duration", mpv::FORMAT_DOUBLE);
-        m.observe(P_PAUSE, "pause", mpv::FORMAT_FLAG);
-        m.observe(P_HWDEC, "hwdec-current", mpv::FORMAT_STRING);
-        m.observe(P_DROPS, "frame-drop-count", mpv::FORMAT_INT64);
-        m.observe(P_DELAYED, "vo-delayed-frame-count", mpv::FORMAT_INT64);
-        m.observe(P_VFPS, "estimated-vf-fps", mpv::FORMAT_DOUBLE);
-        m.observe(P_DFPS, "display-fps", mpv::FORMAT_DOUBLE);
-        m.set_wakeup(mpv_wakeup, &*self.proxy as *const EventLoopProxy<UserEv> as *mut c_void);
-        let version = m.get_property("mpv-version").unwrap_or_else(|| format!("mpv (API {})", m.api_version()));
-        self.mpv = Some(m);
+        if composite {
+            m.set_option("vo", "libmpv")?;
+            // mpv ne voit pas l'écran : on lui donne sa fréquence (calage des images).
+            let _ = m.set_option("display-fps-override", &format!("{:.3}", self.refresh_hz));
+        }
+        Ok(m)
+    }
+
+    /// Branche les observations et le réveil d'un lecteur initialisé.
+    fn watch(&mut self, m: &Mpv, deck: usize) {
+        let base = deck as u64 * 100;
+        m.observe(base + P_TIME, "time-pos", mpv::FORMAT_DOUBLE);
+        m.observe(base + P_DURATION, "duration", mpv::FORMAT_DOUBLE);
+        m.observe(base + P_PAUSE, "pause", mpv::FORMAT_FLAG);
+        m.observe(base + P_HWDEC, "hwdec-current", mpv::FORMAT_STRING);
+        m.observe(base + P_DROPS, "frame-drop-count", mpv::FORMAT_INT64);
+        m.observe(base + P_DELAYED, "vo-delayed-frame-count", mpv::FORMAT_INT64);
+        m.observe(base + P_VFPS, "estimated-vf-fps", mpv::FORMAT_DOUBLE);
+        m.observe(base + P_DFPS, "display-fps", mpv::FORMAT_DOUBLE);
+        let w = Box::new(Wake { proxy: self.proxy.clone(), deck });
+        m.set_wakeup(mpv_wakeup, &*w as *const Wake as *mut c_void);
+        self.wakes.push(w);
+    }
+
+    fn start_output(&mut self, window: &Arc<Window>, chosen: Option<&MonitorHandle>) -> Result<String, String> {
+        let size = window.inner_size();
+        let size = (size.width.max(1), size.height.max(1));
+        // 1. Affichage composé par CueStar.
+        let composite = (|| -> Result<screen::Screen, String> {
+            let mut decks = Vec::new();
+            for _ in 0..screen::DECKS {
+                let m = self.new_deck(true)?;
+                m.initialize()?;
+                decks.push(m);
+            }
+            #[cfg(windows)]
+            {
+                let hwnd = match window.window_handle().map_err(|e| e.to_string())?.as_raw() {
+                    RawWindowHandle::Win32(h) => h.hwnd.get(),
+                    other => return Err(format!("fenêtre non gérée : {other:?}")),
+                };
+                use winit::platform::windows::MonitorHandleExtWindows;
+                let hmon = chosen.map(|m| m.hmonitor()).unwrap_or(0);
+                screen_d3d11::open(hwnd, hmon, size, self.refresh_hz, decks)
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = chosen;
+                screen_gl::open(window, size, self.refresh_hz, decks)
+            }
+        })();
+        let out = match composite {
+            Ok(s) => Out::Composite(s),
+            Err(e) => {
+                emit(&Event::Error { message: format!("affichage composé indisponible ({e}) : affichage de secours") });
+                // 2. Secours : mpv dessine seul dans la fenêtre.
+                let m = self.new_deck(false)?;
+                let wid: i64 = match window.window_handle().map_err(|e| e.to_string())?.as_raw() {
+                    RawWindowHandle::Win32(h) => h.hwnd.get() as i64,
+                    RawWindowHandle::Xlib(h) => h.window as i64,
+                    RawWindowHandle::Xcb(h) => h.window.get() as i64,
+                    RawWindowHandle::AppKit(h) => h.ns_view.as_ptr() as i64,
+                    other => return Err(format!("type de fenêtre non géré pour l'incrustation mpv : {other:?}")),
+                };
+                m.set_option("wid", &wid.to_string())?;
+                m.set_option("vo", if self.prefs.light { "gpu" } else { "gpu-next" })?;
+                if let Some(api) = self.prefs.render.mpv_gpu_api() {
+                    m.set_option("gpu-api", api)?;
+                }
+                let _ = m.set_option("force-window", "yes");
+                let _ = m.set_option("cursor-autohide", "always");
+                m.initialize()?;
+                Out::Embedded(embed::Embedded::new(m, self.prefs.light))
+            }
+        };
+        let version = {
+            let m = out.deck(0);
+            m.get_property("mpv-version").unwrap_or_else(|| format!("mpv (API {})", m.api_version()))
+        };
+        let n = out.decks();
+        // Les réveils pointent vers des boîtes gardées dans `self.wakes`.
+        let raw: Vec<*const Mpv> = (0..n).map(|i| out.deck(i) as *const Mpv).collect();
+        self.out = Some(out);
+        for (i, m) in raw.into_iter().enumerate() {
+            self.watch(unsafe { &*m }, i);
+        }
+        self.warming = vec![0; n];
+        self.skip_end = vec![false; n];
         self.warp_corners = self.prefs.warp.active();
         self.apply_warp();
+        self.prewarm();
         Ok(version)
+    }
+
+    /// Préchauffage : ouvre le son et prépare le rendu de chaque lecteur avant le premier GO.
+    /// Le rendu est préparé par une image noire, puis le lecteur se met en attente.
+    fn prewarm(&mut self) {
+        let Some(out) = &self.out else { return };
+        for i in 0..out.decks() {
+            let m = out.deck(i);
+            let _ = m.set_property("keep-open", "no");
+            let _ = m.set_property("loop-file", "no");
+            let ok = m.command(&["loadfile", "av://lavfi:color=c=black:s=64x36:r=25:d=0.1", "replace"]).is_ok()
+                && m.command(&["loadfile", SILENCE, "append-play"]).is_ok();
+            // En attente tant qu'un vrai média ne remplace pas le silence.
+            self.warming[i] = if ok { 100 } else { 0 };
+        }
+    }
+
+    /// Lecteur en attente : il joue du silence pour garder la sortie son ouverte. Ouvrir le son
+    /// prend jusqu'à 1,6 s sous Windows ; un son déjà ouvert repart en quelques ms.
+    fn park(&mut self, deck: usize) {
+        let Some(out) = &self.out else { return };
+        let m = out.deck(deck);
+        let _ = m.set_property("keep-open", "no");
+        let _ = m.set_property("loop-file", "no");
+        let _ = m.set_property("pause", "no");
+        let _ = m.set_property("volume", &format!("{:.1}", self.volume));
+        out.show(deck, false);
+        // En attente : ses événements (fin du média remplacé, silence) ne remontent pas à la régie.
+        if m.command(&["loadfile", SILENCE, "replace"]).is_ok() {
+            self.warming[deck] = 100;
+        }
+    }
+
+    /// Charge un média tout de suite : sur le lecteur en attente quand il y en a deux (son déjà
+    /// ouvert, image précédente gardée jusqu'à la première image du nouveau média).
+    fn load_now(&mut self, l: PendingLoad) -> Result<(), String> {
+        if self.out().decks() > 1 {
+            self.switch_load(l, 0.0)
+        } else {
+            self.do_load(l, true)
+        }
+    }
+
+    /// Charge sur l'autre lecteur ; à sa première image, passage en `secs` secondes (0 : coupe).
+    fn switch_load(&mut self, l: PendingLoad, secs: f64) -> Result<(), String> {
+        self.finish_xfade();
+        let from = self.active;
+        let to = (from + 1) % self.out().decks();
+        self.outgoing = Some(from);
+        self.active = to;
+        self.xfade_after = Some(secs);
+        if secs > 0.0 {
+            let _ = self.out().deck(to).set_property("volume", "0");
+        }
+        self.do_load(l, secs <= 0.0)
     }
 
     fn paint_cpu(&mut self) {
@@ -245,11 +498,7 @@ impl OutputApp {
             return;
         }
         if let Command::Monitor { on } = cmd {
-            self.monitor_every = on.then(|| self.monitor_interval());
-            if on && !self.feed.as_ref().is_some_and(|f| f.alive()) {
-                self.feed = self.monitor_port.map(monitor::MonitorFeed::connect);
-            }
-            self.monitor_next = Instant::now();
+            self.set_monitor(on);
             return;
         }
         if let Command::Warp { corners } = cmd {
@@ -259,16 +508,25 @@ impl OutputApp {
         }
         if let Command::Pattern { kind } = cmd {
             self.end_show();
+            self.cancel_transitions();
             self.pattern_on = kind.is_some();
-            if let Some(m) = &self.mpv {
+            if self.out.is_some() {
+                let (w, h) = self.window.as_ref().map(|w| (w.inner_size().width, w.inner_size().height)).unwrap_or((1920, 1080));
+                let a = self.active;
+                self.stop_warming(a);
+                let m = self.m();
                 let res = if let Some(k) = kind {
-                    let (w, h) = self.window.as_ref().map(|w| (w.inner_size().width, w.inner_size().height)).unwrap_or((1920, 1080));
                     let _ = m.set_property("panscan", "0");
                     let _ = m.set_property("loop-file", "no");
+                    let _ = m.set_property("keep-open", "yes");
                     let _ = m.set_property("pause", "no");
-                    m.command(&["loadfile", &k.lavfi(w, h), "replace"])
+                    let r = m.command(&["loadfile", &k.lavfi(w, h), "replace"]);
+                    self.out().reveal(a);
+                    r
                 } else {
-                    m.command(&["stop"])
+                    let r = m.command(&["stop"]);
+                    self.out().show(a, false);
+                    r
                 };
                 if let Err(e) = res {
                     emit(&Event::Error { message: e });
@@ -278,34 +536,42 @@ impl OutputApp {
             }
             return;
         }
-        if self.mpv.is_none() {
+        if self.out.is_none() {
             emit(&Event::Error { message: "lecture impossible : libmpv n'est pas chargé".into() });
             return;
         }
         let res = match cmd {
             Command::Load { path, paused, looping, hold, transition } => {
                 self.end_show();
+                self.pattern_on = false;
                 let load = PendingLoad { path, paused, looping, hold };
-                let black = transition.kind != TransitionKind::Cut && self.fade_ok && transition.secs > 0.0;
-                if !black {
+                let on_air = self.current.is_some();
+                let cross = transition.kind == TransitionKind::Crossfade && transition.secs > 0.0 && self.out().decks() > 1 && on_air;
+                let black = transition.kind != TransitionKind::Cut && transition.secs > 0.0 && self.out().can_fade() && !cross;
+                if cross {
+                    // Fondu enchaîné : le média part sur l'autre lecteur, le mélange commence à sa première image.
                     self.anim = None;
                     self.pending = None;
                     self.fade_in_after = None;
                     self.set_fade(1.0);
-                    self.do_load(load)
+                    self.switch_load(load, transition.secs)
+                } else if !black {
+                    self.cancel_transitions();
+                    self.set_fade(1.0);
+                    self.load_now(load)
                 } else {
+                    self.cancel_transitions();
                     let half = transition.secs / 2.0;
-                    if self.current.is_some() && self.fade_level > 0.0 {
+                    if on_air && self.fade_level > 0.0 {
                         // Fondu sortant, puis chargement, puis fondu d'ouverture.
                         self.anim = Some(FadeAnim { from: self.fade_level, to: 0.0, start: Instant::now(), secs: half });
                         self.pending = Some(load);
                         self.fade_in_after = Some(half);
                         Ok(())
                     } else {
-                        self.anim = None;
                         self.set_fade(0.0);
                         self.fade_in_after = Some(half);
-                        self.do_load(load)
+                        self.load_now(load)
                     }
                 }
             }
@@ -323,18 +589,37 @@ impl OutputApp {
             }
             Command::Stop => {
                 self.end_show();
-                self.anim = None;
-                self.pending = None;
-                self.fade_in_after = None;
+                self.cancel_transitions();
                 self.set_fade(1.0);
-                self.m().command(&["stop"])
+                self.current = None;
+                let n = self.out().decks();
+                if matches!(self.out(), Out::Composite(_)) {
+                    for i in 0..n {
+                        self.park(i);
+                    }
+                    emit(&Event::Idle);
+                    Ok(())
+                } else {
+                    self.stop_warming(0);
+                    self.m().command(&["stop"])
+                }
             }
             Command::Seek { seconds } => self.m().command(&["seek", &format!("{seconds:.3}"), "absolute+exact"]),
-            Command::Volume { value } => self.m().set_property("volume", &format!("{value:.1}")),
+            Command::Volume { value } => {
+                self.volume = value;
+                if self.xfade.is_some() || self.xfade_after.is_some() {
+                    // Le fondu enchaîné reprend la main sur les volumes.
+                    Ok(())
+                } else {
+                    self.m().set_property("volume", &format!("{value:.1}"))
+                }
+            }
             Command::Slideshow { items, photo_seconds, looping, shuffle, fit, video_sound } => {
                 if items.is_empty() {
                     Err("diaporama vide : aucun média dans le dossier".into())
                 } else {
+                    self.cancel_transitions();
+                    self.set_fade(1.0);
                     let _ = self.m().set_property("pause", "no");
                     self.show = Some(Show::new(items, photo_seconds, looping, shuffle, fit, video_sound));
                     self.show_current();
@@ -351,7 +636,12 @@ impl OutputApp {
                 }
                 Ok(())
             }
-            Command::AudioDevice { name } => self.m().set_property("audio-device", name.as_deref().unwrap_or("auto")),
+            Command::AudioDevice { name } => {
+                // Les deux lecteurs changent de sortie son (le fondu enchaîné passe de l'un à l'autre).
+                let dev = name.as_deref().unwrap_or("auto").to_string();
+                let out = self.out();
+                (0..out.decks()).map(|i| out.deck(i).set_property("audio-device", &dev)).collect::<Result<Vec<_>, _>>().map(|_| ())
+            }
             Command::SetFit { fit } => {
                 if let Some(s) = &mut self.show {
                     s.fit = fit;
@@ -386,95 +676,214 @@ impl OutputApp {
         }
     }
 
-    fn m(&self) -> &Mpv {
-        self.mpv.as_ref().expect("mpv chargé")
+    fn out(&self) -> &Out {
+        self.out.as_ref().expect("sortie ouverte")
     }
 
-    fn do_load(&mut self, l: PendingLoad) -> Result<(), String> {
+    /// Un vrai média remplace le préchauffage : ses dernières fins de média sont tues.
+    fn stop_warming(&mut self, deck: usize) {
+        if self.warming.get(deck).copied().unwrap_or(0) > 0 {
+            self.warming[deck] = 0;
+            self.skip_end[deck] = true;
+            if let Some(out) = &self.out {
+                let _ = out.deck(deck).set_property("mute", "no");
+            }
+        }
+    }
+
+    /// Lecteur à l'antenne.
+    fn m(&self) -> &Mpv {
+        self.out().deck(self.active)
+    }
+
+    /// Charge un média sur le lecteur actif. `set_volume` : volume normal tout de suite
+    /// (faux pendant un fondu enchaîné, qui monte le son lui-même).
+    fn do_load(&mut self, l: PendingLoad, set_volume: bool) -> Result<(), String> {
         self.current = Some(l.path.clone());
+        let a = self.active;
+        self.stop_warming(a);
+        let vol = format!("{:.1}", self.volume);
         let m = self.m();
         // Lecteur : la dernière image reste à l'écran en fin de média.
         let _ = m.set_property("keep-open", if l.hold { "yes" } else { "no" });
         let _ = m.set_property("loop-file", if l.looping { "inf" } else { "no" });
         let _ = m.set_property("panscan", "0");
         let _ = m.set_property("mute", "no");
+        if set_volume {
+            let _ = m.set_property("volume", &vol);
+        }
         let _ = m.set_property("pause", if l.paused { "yes" } else { "no" });
-        m.command(&["loadfile", &l.path, "replace"])
+        let r = m.command(&["loadfile", &l.path, "replace"]);
+        // L'image précédente reste jusqu'à la première image du nouveau média (pas de noir).
+        self.out().reveal(a);
+        r
     }
 
-    /// Niveau de l'image (1 = normal, 0 = noir), via le paramètre du shader.
+    /// Arrête net les fondus en cours (le lecteur actif reste seul à l'antenne).
+    fn cancel_transitions(&mut self) {
+        self.anim = None;
+        self.pending = None;
+        self.fade_in_after = None;
+        self.xfade_after = None;
+        if let Some(x) = self.xfade.take() {
+            self.end_outgoing(x.from);
+        } else if let Some(o) = self.outgoing.take() {
+            self.end_outgoing(o);
+        }
+        self.outgoing = None;
+        let a = self.active as f64;
+        if let Some(out) = &self.out {
+            out.set_mix(a);
+            let _ = out.deck(self.active).set_property("volume", &format!("{:.1}", self.volume));
+        }
+    }
+
+    /// Termine tout de suite un fondu enchaîné en cours (avant d'en lancer un autre).
+    fn finish_xfade(&mut self) {
+        if self.xfade.is_some() || self.outgoing.is_some() {
+            self.cancel_transitions();
+        }
+    }
+
+    /// Le lecteur sorti s'arrête et redevient disponible.
+    fn end_outgoing(&mut self, deck: usize) {
+        if deck != self.active {
+            self.park(deck);
+        }
+    }
+
+    /// Niveau de l'image (1 = normal, 0 = noir).
     fn set_fade(&mut self, v: f64) {
         self.fade_level = v.clamp(0.0, 1.0);
-        if self.fade_ok {
-            if let Some(m) = &self.mpv {
-                let _ = m.set_property("glsl-shader-opts", &format!("fade={:.4}", self.fade_level));
-            }
+        let v = self.fade_level;
+        if let Some(out) = &mut self.out {
+            out.set_level(v);
         }
     }
 
-    /// Avance le fondu en cours. Vrai tant qu'il faut continuer à se réveiller.
-    fn step_fade(&mut self) -> bool {
-        let Some(a) = &self.anim else { return false };
-        let k = if a.secs <= 0.0 { 1.0 } else { (a.start.elapsed().as_secs_f64() / a.secs).min(1.0) };
-        let v = a.from + (a.to - a.from) * k;
-        self.set_fade(v);
-        if k < 1.0 {
-            return true;
-        }
-        self.anim = None;
-        if let Some(l) = self.pending.take() {
-            if let Err(e) = self.do_load(l) {
-                emit(&Event::Error { message: e });
-            }
-        }
-        false
-    }
-
-    /// Shader de sortie : mapping 4 coins, et réglage de niveau pour les fondus (vo gpu-next).
-    fn apply_warp(&mut self) {
-        let with_fade = !self.prefs.light;
-        let corners = if with_fade { Some(self.warp_corners.unwrap_or(crate::prefs::Warp::IDENTITY)) } else { self.warp_corners };
-        let Some(m) = &self.mpv else { return };
-        self.fade_ok = false;
-        let res = match corners.and_then(|c| warp::shader(c, with_fade)) {
-            Some(src) => match self.shaders.write(&src) {
-                Ok(p) => {
-                    let r = m.set_property("glsl-shaders", &p.to_string_lossy());
-                    self.fade_ok = with_fade && r.is_ok();
-                    r
-                }
-                Err(e) => Err(format!("mapping 4 coins : {e}")),
-            },
-            None => m.set_property("glsl-shaders", ""),
-        };
-        if let Err(e) = res {
-            emit(&Event::Error { message: e });
-        }
-        if self.fade_ok {
-            let v = self.fade_level;
+    /// Avance les fondus en cours. Vrai tant qu'il faut continuer à se réveiller.
+    fn step_anims(&mut self) -> bool {
+        let mut busy = false;
+        if let Some(a) = &self.anim {
+            let k = if a.secs <= 0.0 { 1.0 } else { (a.start.elapsed().as_secs_f64() / a.secs).min(1.0) };
+            let v = a.from + (a.to - a.from) * k;
             self.set_fade(v);
+            if k < 1.0 {
+                busy = true;
+            } else {
+                self.anim = None;
+                if let Some(l) = self.pending.take() {
+                    if let Err(e) = self.load_now(l) {
+                        emit(&Event::Error { message: e });
+                    }
+                }
+            }
+        }
+        if let Some(x) = &self.xfade {
+            let k = if x.secs <= 0.0 { 1.0 } else { (x.start.elapsed().as_secs_f64() / x.secs).min(1.0) };
+            // Courbe douce au départ et à l'arrivée.
+            let s = k * k * (3.0 - 2.0 * k);
+            let (from, to) = (x.from, x.to);
+            if let Some(out) = &self.out {
+                out.set_mix(from as f64 + (to as f64 - from as f64) * s);
+                // Son : puissance constante, pas de creux au milieu.
+                let a = (s * std::f64::consts::FRAC_PI_2).cos();
+                let b = (s * std::f64::consts::FRAC_PI_2).sin();
+                let _ = out.deck(from).set_property("volume", &format!("{:.1}", self.volume * a));
+                let _ = out.deck(to).set_property("volume", &format!("{:.1}", self.volume * b));
+            }
+            if k < 1.0 {
+                busy = true;
+            } else {
+                self.xfade = None;
+                self.outgoing = None;
+                self.end_outgoing(from);
+            }
+        }
+        busy
+    }
+
+    fn apply_warp(&mut self) {
+        let corners = self.warp_corners;
+        match &mut self.out {
+            Some(Out::Composite(s)) => s.set_warp(corners),
+            Some(Out::Embedded(e)) => {
+                if let Err(e) = e.set_warp(corners) {
+                    emit(&Event::Error { message: e });
+                }
+            }
+            None => {}
         }
     }
 
-    /// Intervalle du monitoring : celui des images de la vidéo (25 i/s sans vidéo, 60 au plus).
-    fn monitor_interval(&self) -> Duration {
-        let fps = if self.fps.0 > 1.0 { self.fps.0.min(60.0) } else { 25.0 };
-        Duration::from_secs_f64(1.0 / fps)
+    fn set_monitor(&mut self, on: bool) {
+        if on && !self.feed.as_ref().is_some_and(|f| f.alive()) {
+            self.feed = self.monitor_port.map(monitor::MonitorFeed::connect);
+        }
+        match &self.out {
+            Some(Out::Composite(s)) => {
+                // Le compositeur fabrique les vignettes lui-même (60 par seconde au plus).
+                let feed = if on { self.feed.take() } else { None };
+                s.monitor(feed.map(|f| (f, Duration::from_secs_f64(1.0 / 60.0))));
+                if !on {
+                    self.feed = None;
+                }
+            }
+            _ => {
+                // Secours : capture par mpv, cadence réduite (elle bloque la lecture).
+                self.monitor_every = on.then(|| Duration::from_millis(200));
+                self.monitor_next = Instant::now();
+            }
+        }
     }
 
-    /// Envoie une vignette de l'image en cours à la régie.
-    fn capture(&mut self) {
-        let Some(feed) = &mut self.feed else { return };
-        match self.mpv.as_ref().and_then(|m| m.screenshot_rgba()) {
-            Some((w, h, stride, px)) => feed.send(w, h, stride, &px),
-            None => feed.send_black(),
+    /// Calage des images sur l'écran, pour le fichier qui vient d'être chargé sur `deck`.
+    fn apply_cadence(&mut self, deck: usize) {
+        let Some(out) = &self.out else { return };
+        let m = out.deck(deck);
+        let fps = m.get_property("container-fps").and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+        // Fréquence de l'écran adaptée à la vidéo (si demandé et possible).
+        if self.prefs.adapt_refresh && fps > 1.0 && deck == self.active {
+            if let (Some(dev), Some(hz)) = (self.device.clone(), refresh::best(fps, &self.modes)) {
+                if (hz - self.refresh_hz).abs() > 0.5 && !refresh::fits(fps, self.refresh_hz) {
+                    match refresh::set(&dev, hz) {
+                        Ok(()) => {
+                            self.refresh_changed = true;
+                            self.refresh_hz = refresh::current(&dev).unwrap_or(hz);
+                            if let Some(Out::Composite(s)) = &self.out {
+                                s.set_refresh(self.refresh_hz);
+                                for i in 0..s.deck_count() {
+                                    let _ = s.deck(i).set_property("display-fps-override", &format!("{:.3}", self.refresh_hz));
+                                }
+                            }
+                        }
+                        Err(e) => emit(&Event::Error { message: e }),
+                    }
+                }
+            }
+        }
+        let Some(out) = &self.out else { return };
+        let m = out.deck(deck);
+        let interp = self.prefs.interpolation;
+        let resample = match self.prefs.cadence {
+            Cadence::Audio => false,
+            Cadence::Resample => true,
+            Cadence::Auto => refresh::fits(fps, self.refresh_hz),
+        };
+        // L'interpolation demande le calage sur l'écran.
+        let sync = if resample || interp { "display-resample" } else { "audio" };
+        let _ = m.set_property("video-sync", sync);
+        let _ = m.set_property("interpolation", if interp { "yes" } else { "no" });
+        if interp {
+            let _ = m.set_property("tscale", "oversample");
         }
     }
 
     /// Sorties audio vues par mpv, pour le choix dans la régie.
     fn emit_audio_devices(&self) {
-        let Some(m) = &self.mpv else { return };
-        let list = m
+        let Some(out) = &self.out else { return };
+        let list = out
+            .deck(0)
             .get_property("audio-device-list")
             .and_then(|s| serde_json::from_str::<Vec<serde_json::Value>>(&s).ok())
             .unwrap_or_default()
@@ -490,26 +899,37 @@ impl OutputApp {
         }
     }
 
-    /// Envoie à mpv le média courant du diaporama.
+    /// Envoie au lecteur actif le média courant du diaporama.
     fn show_current(&mut self) {
-        let (Some(m), Some(s)) = (&self.mpv, &mut self.show) else { return };
-        let Some(path) = s.current().map(str::to_string) else { return };
-        s.deadline = None;
+        let Some(path) = self.show.as_mut().and_then(|s| {
+            s.deadline = None;
+            s.current().map(str::to_string)
+        }) else {
+            return;
+        };
         let video = slideshow::is_video(&path);
+        let sound = self.show.as_ref().map(|s| s.video_sound).unwrap_or(false);
+        let (pos, len) = self.show.as_ref().map(|s| (s.pos, s.len())).unwrap_or((0, 0));
+        let a = self.active;
+        self.stop_warming(a);
+        let m = self.m();
         // Diaporama : une vidéo finie passe la main au média suivant.
         let _ = m.set_property("keep-open", "no");
         let _ = m.set_property("loop-file", "no");
-        let _ = m.set_property("mute", if video && !s.video_sound { "yes" } else { "no" });
+        let _ = m.set_property("mute", if video && !sound { "yes" } else { "no" });
+        let r = m.command(&["loadfile", &path, "replace"]);
+        self.out().reveal(a);
         self.current = Some(path.clone());
-        emit(&Event::Slide { index: s.pos, count: s.len(), path: path.clone() });
-        if let Err(e) = m.command(&["loadfile", &path, "replace"]) {
+        emit(&Event::Slide { index: pos, count: len, path });
+        if let Err(e) = r {
             emit(&Event::Error { message: e });
         }
     }
 
     /// Ajustement de l'image courante (panscan 1 = remplir en recadrant).
     fn apply_fit(&self) {
-        let (Some(m), Some(s)) = (&self.mpv, &self.show) else { return };
+        let (Some(_), Some(s)) = (&self.out, &self.show) else { return };
+        let m = self.m();
         let fill = match s.fit {
             Fit::Contain => false,
             Fit::Cover => true,
@@ -533,62 +953,109 @@ impl OutputApp {
         }
     }
 
-    fn mpv_events(&mut self, el: &ActiveEventLoop) {
-        // On sort mpv le temps de vider sa file : `property` a besoin de `&mut self`.
-        let Some(m) = self.mpv.take() else { return };
-        // Actions du diaporama, faites une fois mpv rendu.
+    fn mpv_events(&mut self, el: &ActiveEventLoop, deck: usize) {
+        let Some(out) = self.out.take() else { return };
+        // Seul le lecteur actif parle à la régie ; le lecteur qui sort et le préchauffage se taisent.
+        let mine = deck == self.active;
         let mut next = false;
         let mut started = false;
         let mut refit = false;
-        while let Some(ev) = m.next_event() {
-            match ev.event_id {
-                mpv::EVENT_SHUTDOWN => el.exit(),
-                mpv::EVENT_FILE_LOADED => {
-                    if !self.pattern_on {
-                        emit(&Event::Loaded { path: self.current.clone().unwrap_or_default() });
-                    }
-                    started = true;
-                }
-                mpv::EVENT_VIDEO_RECONFIG => refit = true,
-                mpv::EVENT_PLAYBACK_RESTART => {
-                    // Première image du nouveau média : fondu d'ouverture.
-                    if self.pending.is_none() {
-                        if let Some(secs) = self.fade_in_after.take() {
-                            self.anim = Some(FadeAnim { from: self.fade_level, to: 1.0, start: Instant::now(), secs });
+        let mut first_frame = false;
+        let mut loaded = false;
+        let mut audio_only = false;
+        let mut idle = false;
+        let mut park_after = false;
+        {
+            let m = out.deck(deck);
+            while let Some(ev) = m.next_event() {
+                if self.warming.get(deck).copied().unwrap_or(0) > 0 {
+                    // Chaque fin de média du préchauffage le rapproche de la fin.
+                    if ev.event_id == mpv::EVENT_END_FILE {
+                        self.warming[deck] -= 1;
+                        if self.warming[deck] == 0 {
+                            idle = true;
                         }
                     }
+                    continue;
                 }
-                mpv::EVENT_END_FILE => {
-                    let end = unsafe { &*(ev.data as *const mpv::RawEndFile) };
-                    if end.reason == mpv::END_FILE_ERROR {
-                        emit(&Event::Error { message: format!("lecture impossible ({})", self.current.clone().unwrap_or_default()) });
-                        if let Some(s) = &mut self.show {
-                            s.failures += 1;
-                            // Un média illisible est sauté, sauf si plus rien ne passe.
-                            if s.failures < s.len().max(1) {
-                                next = true;
+                match ev.event_id {
+                    mpv::EVENT_SHUTDOWN => el.exit(),
+                    mpv::EVENT_END_FILE if self.skip_end[deck] => {}
+                    mpv::EVENT_FILE_LOADED if mine => {
+                        loaded = true;
+                        self.skip_end[deck] = false;
+                        audio_only = m.get_property("current-tracks/video/id").is_none();
+                        started = true;
+                    }
+                    mpv::EVENT_VIDEO_RECONFIG if mine => refit = true,
+                    mpv::EVENT_PLAYBACK_RESTART if mine => first_frame = true,
+                    mpv::EVENT_END_FILE if mine => {
+                        let end = unsafe { &*(ev.data as *const mpv::RawEndFile) };
+                        if end.reason == mpv::END_FILE_ERROR {
+                            emit(&Event::Error { message: format!("lecture impossible ({})", self.current.clone().unwrap_or_default()) });
+                            if let Some(s) = &mut self.show {
+                                s.failures += 1;
+                                // Un média illisible est sauté, sauf si plus rien ne passe.
+                                if s.failures < s.len().max(1) {
+                                    next = true;
+                                }
                             }
                         }
-                    }
-                    if end.reason == mpv::END_FILE_EOF {
-                        if self.show.is_some() {
-                            next = true;
-                        } else {
-                            emit(&Event::Ended);
+                        if end.reason == mpv::END_FILE_EOF {
+                            if self.show.is_some() {
+                                next = true;
+                            } else {
+                                // Sans « garder la dernière image », l'écran passe au noir.
+                                if m.get_property("keep-open").as_deref() != Some("yes") {
+                                    out.show(deck, false);
+                                    park_after = true;
+                                }
+                                emit(&Event::Ended);
+                            }
+                        } else if self.show.is_none() {
+                            emit(&Event::Idle);
                         }
-                    } else if self.show.is_none() {
-                        emit(&Event::Idle);
                     }
+                    mpv::EVENT_PROPERTY_CHANGE if mine => {
+                        let p = unsafe { &*(ev.data as *const mpv::RawProperty) };
+                        self.property(ev.reply_userdata % 100, p);
+                    }
+                    _ => {}
                 }
-                mpv::EVENT_PROPERTY_CHANGE => {
-                    let p = unsafe { &*(ev.data as *const mpv::RawProperty) };
-                    self.property(ev.reply_userdata, p);
-                }
-                _ => {}
             }
         }
-        let paused = m.get_property("pause").as_deref() == Some("yes");
-        self.mpv = Some(m);
+        if idle {
+            // Préchauffage terminé : son ouvert, rendu prêt.
+            let m = out.deck(deck);
+            let _ = m.set_property("mute", "no");
+            out.show(deck, false);
+        }
+        let paused = mine && out.deck(deck).get_property("pause").as_deref() == Some("yes");
+        self.out = Some(out);
+        if park_after && matches!(self.out, Some(Out::Composite(_))) {
+            self.current = None;
+            self.park(deck);
+        }
+        if loaded {
+            if !self.pattern_on {
+                emit(&Event::Loaded { path: self.current.clone().unwrap_or_default() });
+            }
+            if audio_only {
+                self.out().show(deck, false);
+            }
+            self.apply_cadence(deck);
+        }
+        if first_frame {
+            // Première image du nouveau média : fondu d'ouverture, ou fondu enchaîné.
+            if self.pending.is_none() {
+                if let Some(secs) = self.fade_in_after.take() {
+                    self.anim = Some(FadeAnim { from: self.fade_level, to: 1.0, start: Instant::now(), secs });
+                }
+            }
+            if let (Some(secs), Some(from)) = (self.xfade_after.take(), self.outgoing) {
+                self.xfade = Some(Xfade { from, to: deck, start: Instant::now(), secs });
+            }
+        }
         if started {
             if let Some(s) = &mut self.show {
                 s.started(paused);
@@ -657,6 +1124,17 @@ impl OutputApp {
     }
 }
 
+impl Drop for OutputApp {
+    fn drop(&mut self) {
+        // L'écran retrouve sa fréquence d'origine.
+        if self.refresh_changed {
+            if let Some(d) = &self.device {
+                refresh::restore(d);
+            }
+        }
+    }
+}
+
 impl ApplicationHandler<UserEv> for OutputApp {
     fn resumed(&mut self, el: &ActiveEventLoop) {
         if self.window.is_none() {
@@ -670,14 +1148,14 @@ impl ApplicationHandler<UserEv> for OutputApp {
     fn user_event(&mut self, el: &ActiveEventLoop, ev: UserEv) {
         match ev {
             UserEv::Cmd(c) => self.command(el, c),
-            UserEv::Mpv => self.mpv_events(el),
+            UserEv::Mpv(deck) => self.mpv_events(el, deck),
             UserEv::Detached => el.exit(),
         }
     }
 
-    /// Minutage des photos : on se réveille pile à l'échéance.
+    /// Minutage des photos et des fondus : on se réveille pile à l'échéance.
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
-        let fading = self.step_fade();
+        let fading = self.step_anims();
         let now = Instant::now();
         if let Some(d) = self.show.as_ref().and_then(|s| s.deadline) {
             if d <= now {
@@ -689,17 +1167,14 @@ impl ApplicationHandler<UserEv> for OutputApp {
         }
         if let Some(every) = self.monitor_every {
             if self.monitor_next <= now {
-                self.capture();
-                // Même cadence que la vidéo affichée.
-                let _ = every;
-                let every = self.monitor_interval();
-                self.monitor_every = Some(every);
+                if let (Some(Out::Embedded(e)), Some(feed)) = (&self.out, &mut self.feed) {
+                    e.capture(feed);
+                }
                 self.monitor_next = now + every;
             }
         }
-        // Prochain réveil : fin de photo ou prochaine vignette.
         // Pendant un fondu, on se réveille à chaque image (~120 Hz) ; sinon fin de photo ou prochaine vignette.
-        let fade_tick = (fading || self.anim.is_some()).then(|| now + Duration::from_millis(8));
+        let fade_tick = fading.then(|| now + Duration::from_millis(8));
         let next = [self.show.as_ref().and_then(|s| s.deadline), self.monitor_every.map(|_| self.monitor_next), fade_tick].into_iter().flatten().min();
         el.set_control_flow(match next {
             Some(d) => ControlFlow::WaitUntil(d),
@@ -710,7 +1185,13 @@ impl ApplicationHandler<UserEv> for OutputApp {
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => el.exit(),
-            WindowEvent::RedrawRequested | WindowEvent::Resized(_) => self.paint_cpu(),
+            WindowEvent::Resized(s) => {
+                if let Some(Out::Composite(scr)) = &self.out {
+                    scr.resize(s.width, s.height);
+                }
+                self.paint_cpu();
+            }
+            WindowEvent::RedrawRequested => self.paint_cpu(),
             _ => {}
         }
     }
@@ -744,17 +1225,24 @@ pub fn run(prefs: MachinePrefs, monitor_port: Option<u16>) {
         })
         .ok();
 
+    let volume = prefs.volume.clamp(0.0, 100.0);
     let mut app = OutputApp {
         prefs,
-        mpv: None,
-        proxy: Box::new(proxy),
+        out: None,
+        wakes: Vec::new(),
+        proxy,
         window: None,
         surface: None,
         pattern_on: false,
         show: None,
-        shaders: warp::ShaderFiles::new(),
         warp_corners: None,
-        fade_ok: false,
+        active: 0,
+        outgoing: None,
+        xfade_after: None,
+        xfade: None,
+        warming: Vec::new(),
+        skip_end: Vec::new(),
+        volume,
         fade_level: 1.0,
         anim: None,
         pending: None,
@@ -769,6 +1257,10 @@ pub fn run(prefs: MachinePrefs, monitor_port: Option<u16>) {
         fps: (0.0, 0.0),
         last_fps: Instant::now(),
         current: None,
+        device: None,
+        refresh_hz: 60.0,
+        modes: Vec::new(),
+        refresh_changed: false,
     };
     let _ = event_loop.run_app(&mut app);
 }

@@ -19,6 +19,14 @@ eframe = "0.37"
 egui = "0.37"
 star-commun = { path = "crates/star-commun" }
 
+# Build de développement plus rapide à l'exécution : dépendances optimisées pour toutes les
+# applications, et CueStar lui-même en opt-level 1 (lecture vidéo, vignettes, régie).
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev.package.cuestar]
+opt-level = 1
+
 [profile.release]
 lto = true
 codegen-units = 1

@@ -2,7 +2,7 @@
 
 use crate::link::OutputLink;
 use crate::output::warp::map_point;
-use crate::prefs::{Decode, MachinePrefs, RenderApi, Warp};
+use crate::prefs::{Cadence, Decode, MachinePrefs, RenderApi, Warp};
 use crate::protocol::{Command, PatternKind};
 use egui::{pos2, vec2, Color32, Key, Pos2, Rect, RichText, Sense, Stroke};
 use star_commun::theme::*;
@@ -146,7 +146,7 @@ impl OutputView {
                 });
                 ui.end_row();
 
-                ui.label("Rendu");
+                ui.label("Rendu de secours");
                 egui::ComboBox::from_id_salt("render").selected_text(d.render.label()).width(280.0).show_ui(ui, |ui| {
                     for v in RenderApi::available() {
                         ui.selectable_value(&mut d.render, *v, v.label());
@@ -158,8 +158,24 @@ impl OutputView {
                 ui.checkbox(&mut d.light, "Rendu léger");
                 ui.end_row();
 
-                ui.label("Fluidité");
-                ui.checkbox(&mut d.display_sync, "Caler la lecture sur la fréquence de l'écran");
+                ui.label("Cadence");
+                egui::ComboBox::from_id_salt("cadence").selected_text(d.cadence.label()).width(280.0).show_ui(ui, |ui| {
+                    for v in Cadence::ALL {
+                        ui.selectable_value(&mut d.cadence, v, v.label());
+                    }
+                })
+                .response
+                .on_hover_text("Automatique : recalage de vitesse (moins de 1 %) quand l'écran tombe presque juste pour la vidéo, synchro audio sinon");
+                ui.end_row();
+
+                ui.label("");
+                ui.checkbox(&mut d.interpolation, "Interpolation (lisse le rythme, ex. 24 i/s sur 60 Hz)")
+                    .on_hover_text("Fond deux images voisines quand la cadence ne tombe pas juste. Demande un peu de GPU.");
+                ui.end_row();
+
+                ui.label("");
+                ui.checkbox(&mut d.adapt_refresh, "Adapter la fréquence de l'écran à la vidéo")
+                    .on_hover_text("Passe l'écran de sortie en 50, 60… Hz selon la vidéo (Windows), et rétablit sa fréquence en quittant. Noir un instant au changement.");
                 ui.end_row();
             });
             let dec = if s.hwdec.is_empty() || s.hwdec == "no" { "CPU".to_string() } else { format!("GPU ({})", s.hwdec) };

@@ -154,7 +154,7 @@ pub const HELP: &[(&str, &str)] = &[
     ("lecteur/goto <i>", "lance l'élément n° i (1 = premier)"),
     ("lecteur/shuffle <0|1>", "ordre aléatoire"),
     ("lecteur/loop <0|1>", "tout boucler"),
-    ("lecteur/transition <cut|black> [s]", "transition et durée"),
+    ("lecteur/transition <cut|black|fade> [s]", "transition et durée"),
     ("cuelist/go", "lance le cue en attente (ou reprend)"),
     ("cuelist/pause | play | toggle | stop", "transport de la Cuelist"),
     ("cuelist/next | prev", "cue en attente suivant / précédent"),
