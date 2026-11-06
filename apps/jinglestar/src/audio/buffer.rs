@@ -65,7 +65,7 @@ impl AudioBuffer {
                 self.stream = Some(s);
                 self.samples = Vec::new();
             }
-            Err(e) => crate::log::write(&format!("Son long gardé en mémoire (fichier temporaire impossible : {e})")),
+            Err(e) => star_core::log::write(&format!("Son long gardé en mémoire (fichier temporaire impossible : {e})")),
         }
     }
 

@@ -19,10 +19,7 @@ use egui::{vec2, Color32, FontFamily, FontId, Id, Key, Modifiers, Rect, RichText
 
 use star_ui::theme;
 
-/// Textes de JingleStar en deux langues : CueStar est en français.
-fn tr<'a>(fr: &'a str, _en: &'a str) -> &'a str {
-    fr
-}
+use star_core::i18n::tr;
 
 /// Taille du texte de la conduite.
 const TEXT_SIZE: f32 = 15.0;

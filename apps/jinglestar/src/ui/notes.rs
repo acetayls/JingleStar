@@ -742,7 +742,7 @@ impl JingleStarApp {
             }
             Err(e) => {
                 let msg = format!("{} « {name} » : {e}", tr("Import du texte impossible", "Could not import text"));
-                crate::log::write(&msg);
+                star_core::log::write(&msg);
                 self.ctrl.status = Some(msg);
             }
         }

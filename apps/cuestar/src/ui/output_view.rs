@@ -195,7 +195,8 @@ impl OutputView {
                 let b = egui::Button::new(RichText::new("Appliquer").color(if changed { PLAYING_INK } else { TEXT_DIM })).fill(if changed { ACCENT } else { PANEL_HI });
                 if ui.add_enabled(changed, b).clicked() {
                     let warp = prefs.warp;
-                    *prefs = d.clone();
+                    // La langue se règle ailleurs (menu du projet) : elle n'est pas dans le brouillon.
+                    *prefs = MachinePrefs { language: prefs.language, ..d.clone() };
                     prefs.warp = warp;
                     prefs.save();
                     restart = true;

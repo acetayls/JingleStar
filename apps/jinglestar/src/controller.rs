@@ -14,7 +14,7 @@ use crate::audio::buffer::{db_to_gain, AudioBuffer};
 use crate::audio::decode::{analyze_file, decode, Decoded};
 use crate::audio::loudness::{Loudness, LoudnessCache};
 use crate::audio::engine::{AudioEngine, DeviceInfo};
-use crate::audio::eq::{EqCoeffs, EqSettings};
+use star_core::eq::{EqCoeffs, EqSettings};
 use crate::audio::mixer::{is_playlist_slot, Command, Event, Queued, Region, MAX_MODULES, PLAYLIST_SLOTS};
 use star_core::i18n::{set_lang, tr, Lang};
 use crate::console::ConsoleClient;
@@ -398,7 +398,7 @@ impl Controller {
             }
         }
         while let Ok(err) = self.engine.stream_errors.try_recv() {
-            crate::log::write(&format!("Erreur du flux audio : {err}"));
+            star_core::log::write(&format!("Erreur du flux audio : {err}"));
             self.device_error = Some(err);
         }
         // Flux mort : le callback audio n'est plus appelé (carte débranchée, pilote arrêté).
@@ -409,7 +409,7 @@ impl Controller {
             self.device_lost = true;
             self.next_reconnect = Instant::now();
             let name = self.device.as_ref().map(|d| d.name.clone()).unwrap_or_default();
-            crate::log::write(&format!("Sortie audio perdue : {name}"));
+            star_core::log::write(&format!("Sortie audio perdue : {name}"));
             self.device_error.get_or_insert_with(|| format!("{} : {name}", tr("Sortie audio perdue", "Audio output lost")));
         }
         if self.opening.is_none() && Instant::now() >= self.next_reconnect {
@@ -431,7 +431,7 @@ impl Controller {
         match res {
             Ok(info) => {
                 if auto {
-                    crate::log::write(&format!("Sortie audio rétablie : {}", info.name));
+                    star_core::log::write(&format!("Sortie audio rétablie : {}", info.name));
                     if self.device_lost {
                         self.status = Some(format!("{} : {}", tr("Sortie audio rétablie", "Audio output restored"), info.name));
                     }
@@ -449,7 +449,7 @@ impl Controller {
                     }
                     return;
                 }
-                crate::log::write(&format!("Ouverture de la sortie audio impossible : {e}"));
+                star_core::log::write(&format!("Ouverture de la sortie audio impossible : {e}"));
                 self.device = None;
                 self.device_lost = false;
                 self.device_error = Some(e);
@@ -592,7 +592,7 @@ impl Controller {
                 "{dropped} {}",
                 tr("commande(s) audio perdue(s) : la sortie audio ne répond pas", "audio command(s) lost: the audio output is not responding")
             );
-            crate::log::write(&msg);
+            star_core::log::write(&msg);
             self.status = Some(msg);
         }
         let late = crate::audio::stream::take_underrun_frames();
@@ -603,7 +603,7 @@ impl Controller {
                 late as f64 * 1000.0 / self.rate().max(1) as f64,
                 tr("de silence (disque lent ou débranché ?)", "of silence (slow or unplugged drive?)")
             );
-            crate::log::write(&msg);
+            star_core::log::write(&msg);
             self.status = Some(msg);
         }
         for m in 0..self.project.module_count {
@@ -621,7 +621,7 @@ impl Controller {
             if let Some(p) = self.autosave.clone() {
                 if let Err(e) = self.save_session(&p) {
                     let msg = format!("{} : {e}", tr("Sauvegarde automatique impossible", "Autosave failed"));
-                    crate::log::write(&msg);
+                    star_core::log::write(&msg);
                     self.status = Some(msg);
                 }
             }
@@ -659,7 +659,7 @@ impl Controller {
             .cloned()
             .collect();
         for p in changed {
-            crate::log::write(&format!("Fichier modifié, relu : {}", p.display()));
+            star_core::log::write(&format!("Fichier modifié, relu : {}", p.display()));
             self.cache.remove(&p);
             self.stamps.remove(&p);
             self.request_jingle_load(&p);
@@ -717,7 +717,7 @@ impl Controller {
             self.on_analyzed(done.path.clone(), Ok(l));
         }
         if let Some(w) = &done.warning {
-            crate::log::write(&format!("{} : {w}", done.path.display()));
+            star_core::log::write(&format!("{} : {w}", done.path.display()));
         }
         if done.rate != self.rate() {
             // Périphérique changé entre-temps : on relance au bon taux.
@@ -809,7 +809,7 @@ impl Controller {
                             tr("Lecture impossible", "Cannot play"),
                             done.path.file_name().unwrap_or_default().to_string_lossy()
                         );
-                        crate::log::write(&msg);
+                        star_core::log::write(&msg);
                         self.status = Some(msg);
                         let rt = &mut self.playlists[module];
                         rt.failures += 1;
@@ -2125,7 +2125,7 @@ impl Controller {
     pub fn flush(&mut self) {
         if let Some(p) = self.autosave.clone() {
             if let Err(e) = self.save_session(&p) {
-                crate::log::write(&format!("Sauvegarde à la fermeture impossible : {e}"));
+                star_core::log::write(&format!("Sauvegarde à la fermeture impossible : {e}"));
             }
         }
         self.dirty = false;
@@ -2175,7 +2175,7 @@ struct MachinePrefs {
 
 impl MachinePrefs {
     fn load(path: &Path) -> Option<Self> {
-        let mut m: Self = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+        let mut m: Self = star_core::prefs::load(path)?;
         // Mêmes garde-fous que le projet (valeurs aberrantes).
         let mut p = Project { preferences: m.preferences, ..Project::default() };
         p.sanitize();
@@ -2184,14 +2184,7 @@ impl MachinePrefs {
     }
 
     fn save(&self, path: &Path) -> anyhow::Result<()> {
-        use std::io::Write;
-        let tmp = crate::project::with_suffix(path, ".tmp");
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(serde_json::to_string_pretty(self)?.as_bytes())?;
-        f.sync_all()?;
-        drop(f);
-        std::fs::rename(tmp, path)?;
-        Ok(())
+        star_core::prefs::save(path, self)
     }
 }
 

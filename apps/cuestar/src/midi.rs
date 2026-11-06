@@ -5,10 +5,7 @@ use std::sync::Arc;
 use crossbeam_channel::{unbounded, Receiver};
 use midir::{Ignore, MidiInput, MidiInputConnection};
 
-/// Textes de JingleStar en deux langues : CueStar est en français.
-fn tr<'a>(fr: &'a str, _en: &'a str) -> &'a str {
-    fr
-}
+use star_core::i18n::tr;
 use crate::remote::InputEvent;
 
 const CLIENT: &str = "CueStar";

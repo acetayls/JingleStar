@@ -15,10 +15,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
-/// Textes de CueStar en deux langues : CueStar est en français.
-fn tr<'a>(fr: &'a str, _en: &'a str) -> &'a str {
-    fr
-}
+use star_core::i18n::tr;
 use crate::remote::ConsoleSettings;
 use crate::remote::InputEvent;
 

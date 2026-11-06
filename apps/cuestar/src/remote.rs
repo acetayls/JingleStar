@@ -5,10 +5,7 @@ use crate::osc::Msg;
 use rosc::OscType;
 use serde::{Deserialize, Serialize};
 
-/// Textes de JingleStar en deux langues : CueStar est en français.
-fn tr<'a>(fr: &'a str, _en: &'a str) -> &'a str {
-    fr
-}
+use star_core::i18n::tr;
 /// Valeur « -∞ » des niveaux de la console (centièmes de dB).
 pub const CONSOLE_MIN: i32 = -32768;
 
@@ -347,19 +344,16 @@ pub struct RemoteSettings {
 }
 
 pub(crate) fn settings_path() -> Option<std::path::PathBuf> {
-    directories::ProjectDirs::from("com", "acetayls", "CueStar").map(|d| d.config_dir().join("remote.json"))
+    crate::project::APP.config_file("remote.json")
 }
 
 impl RemoteSettings {
     pub fn load() -> Self {
-        settings_path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+        settings_path().and_then(|p| star_core::prefs::load(&p)).unwrap_or_default()
     }
     pub fn save(&self) {
         if let Some(p) = settings_path() {
-            if let Some(d) = p.parent() {
-                let _ = std::fs::create_dir_all(d);
-            }
-            let _ = std::fs::write(p, serde_json::to_string_pretty(self).unwrap_or_default());
+            let _ = star_core::prefs::save(&p, self);
         }
     }
 }

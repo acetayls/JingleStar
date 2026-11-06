@@ -4086,7 +4086,10 @@ dependencies = [
 name = "star-core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "directories",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

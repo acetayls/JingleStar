@@ -2,7 +2,7 @@
 
 mod theme;
 mod dialogs;
-mod eq_view;
+
 mod go_view;
 mod hotkeys;
 mod notes;
@@ -1056,7 +1056,7 @@ impl JingleStarApp {
                     "S'applique à tout le module : jingles et playlist.",
                     "Applies to the whole module: jingles and playlist.",
                 )).small().color(TEXT_DIM));
-                if eq_view::eq_editor(ui, ("module", m), &mut eq, rate) {
+                if star_ui::eq_view::eq_editor(ui, ("module", m), &mut eq, rate) {
                     self.ctrl.set_module_eq(m, eq);
                 }
             });

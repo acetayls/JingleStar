@@ -124,6 +124,8 @@ pub struct MachinePrefs {
     pub audio_device: Option<String>,
     /// Volume général de la sortie (0 à 100).
     pub volume: f64,
+    /// Langue de l'interface.
+    pub language: star_core::i18n::Lang,
 }
 
 /// Mapping 4 coins : position des coins de l'image (haut-gauche, haut-droit, bas-droit,
@@ -151,12 +153,12 @@ impl Default for Warp {
 
 impl Default for MachinePrefs {
     fn default() -> Self {
-        Self { decode: Decode::Auto, render: RenderApi::Auto, light: false, screen: None, windowed_if_single: true, cadence: Cadence::Auto, interpolation: false, adapt_refresh: false, warp: Warp::default(), audio_device: None, volume: 100.0 }
+        Self { decode: Decode::Auto, render: RenderApi::Auto, light: false, screen: None, windowed_if_single: true, cadence: Cadence::Auto, interpolation: false, adapt_refresh: false, warp: Warp::default(), audio_device: None, volume: 100.0, language: star_core::i18n::Lang::Fr }
     }
 }
 
 pub(crate) fn path() -> Option<PathBuf> {
-    directories::ProjectDirs::from("com", "acetayls", "CueStar").map(|d| d.config_dir().join("machine.json"))
+    crate::project::APP.config_file("machine.json")
 }
 
 impl MachinePrefs {
@@ -170,14 +172,11 @@ impl MachinePrefs {
     }
 
     pub fn load() -> Self {
-        path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+        path().and_then(|p| star_core::prefs::load(&p)).unwrap_or_default()
     }
     pub fn save(&self) {
         if let Some(p) = path() {
-            if let Some(dir) = p.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            let _ = std::fs::write(p, serde_json::to_string_pretty(self).unwrap_or_default());
+            let _ = star_core::prefs::save(&p, self);
         }
     }
 }

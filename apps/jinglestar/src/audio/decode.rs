@@ -137,7 +137,7 @@ fn downmix_matrix(channels: Option<Channels>, count: usize) -> Vec<(f32, f32)> {
 fn decode_planar(path: &Path) -> Result<Planar> {
     let p = decode_planar_with(path, true)?;
     if p.trimmed > GAPLESS_MAX_TRIM {
-        crate::log::write(&format!("En-tête gapless ignoré ({} images à couper) : {}", p.trimmed, path.display()));
+        star_core::log::write(&format!("En-tête gapless ignoré ({} images à couper) : {}", p.trimmed, path.display()));
         return decode_planar_with(path, false);
     }
     Ok(p)

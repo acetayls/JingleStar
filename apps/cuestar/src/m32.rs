@@ -16,10 +16,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use rosc::{OscMessage, OscPacket, OscType};
 
 use crate::console::ConsoleStatus;
-/// Textes de CueStar en deux langues : CueStar est en français.
-fn tr<'a>(fr: &'a str, _en: &'a str) -> &'a str {
-    fr
-}
+use star_core::i18n::tr;
 use crate::remote::M32Settings;
 use crate::remote::{InputEvent, CONSOLE_MIN};
 

@@ -11,6 +11,7 @@ mod output_view;
 
 use crate::link::OutputLink;
 use crate::prefs::MachinePrefs;
+use star_core::i18n::tr;
 use crate::project::{self, Project};
 use crate::protocol::{Command, PatternKind};
 use dialogs::{Dialogs, Kind, Pick};
@@ -75,6 +76,7 @@ impl CueStarApp {
     pub fn new(cc: &eframe::CreationContext) -> Self {
         theme::apply(&cc.egui_ctx);
         let prefs = MachinePrefs::load();
+        star_core::i18n::set_lang(prefs.language);
         let mut app = Self {
             tab: Tab::Lecteur,
             prefs,
@@ -312,6 +314,18 @@ impl CueStarApp {
                     self.renaming = Some(self.display_name().unwrap_or_default());
                     ui.close();
                 }
+                ui.separator();
+                ui.horizontal(|ui| {
+                    use star_core::i18n::Lang;
+                    ui.label(tr("Langue", "Language"));
+                    let before = self.prefs.language;
+                    ui.selectable_value(&mut self.prefs.language, Lang::Fr, "Français");
+                    ui.selectable_value(&mut self.prefs.language, Lang::En, "English");
+                    if self.prefs.language != before {
+                        star_core::i18n::set_lang(self.prefs.language);
+                        self.prefs.save();
+                    }
+                });
             })
             .response
             .on_hover_text("Nouveau, Ouvrir, Enregistrer sous");

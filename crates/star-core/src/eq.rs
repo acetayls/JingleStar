@@ -91,6 +91,16 @@ impl Default for EqSettings {
 }
 
 impl EqSettings {
+    /// Remet les bandes dans leurs bornes (fréquence, gain, Q), valeurs aberrantes comprises.
+    pub fn sanitize(&mut self) {
+        use crate::num::clamp_f32 as num;
+        for b in [&mut self.low_cut, &mut self.low_shelf, &mut self.peak1, &mut self.peak2, &mut self.high_shelf] {
+            num(&mut b.freq, 1000.0, MIN_FREQ, MAX_FREQ);
+            num(&mut b.gain_db, 0.0, -GAIN_RANGE, GAIN_RANGE);
+            num(&mut b.q, 1.0, 0.1, 18.0);
+        }
+    }
+
     pub fn band(&self, k: BandKind) -> &Band {
         match k {
             BandKind::LowCut => &self.low_cut,
@@ -251,7 +261,6 @@ impl EqCoeffs {
     }
 
     /// Plus grand module des pôles : < 1 pour un filtre stable.
-    #[cfg(test)]
     pub fn max_pole_radius(&self) -> f64 {
         self.stages[..self.len]
             .iter()
