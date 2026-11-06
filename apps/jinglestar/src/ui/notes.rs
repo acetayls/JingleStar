@@ -626,8 +626,9 @@ impl JingleStarApp {
             .or_else(|| ui.data(|d| d.get_temp::<(usize, usize)>(sel_id)));
         let on = cur_sel.map(|(a, b)| active_style(&self.ctrl.project.modules[m].notes, a..b)).unwrap_or_default();
 
-        let zoom_id = edit_id.with("zoom");
-        let mut zoom: f32 = ui.data(|d| d.get_temp(zoom_id)).unwrap_or(1.0);
+        // Zoom enregistré dans le projet ; une valeur illisible (fichier modifié à la main) revient à 100 %.
+        let saved = self.ctrl.project.modules[m].notes_zoom;
+        let mut zoom = if saved.is_finite() { saved.clamp(ZOOM_MIN, ZOOM_MAX) } else { 1.0 };
 
         let top = ui.cursor().top();
         ui.horizontal(|ui| {
@@ -692,7 +693,9 @@ impl JingleStarApp {
             ui.memory_mut(|mem| mem.request_focus(edit_id));
         }
 
-        ui.data_mut(|d| d.insert_temp(zoom_id, zoom));
+        if zoom != saved {
+            self.ctrl.set_notes_zoom(m, zoom);
+        }
         let text_size = TEXT_SIZE * zoom;
         let height = (area.height() - (ui.cursor().top() - top)).max(40.0);
         let mut text = self.ctrl.project.modules[m].notes.clone();

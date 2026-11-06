@@ -34,7 +34,7 @@ Formats lus : WAV, AIFF, MP3, FLAC, OGG/Vorbis, AAC/M4A.
 - Les modules sont côte à côte sur une rangée. **Glissez la séparation** entre deux modules pour régler leur largeur ; un **double-clic** sur une séparation remet toutes les largeurs à égalité. Les largeurs sont enregistrées avec le projet.
 - **Nouveau** (menu ▾) : projet vierge avec un module **Jingles** et un module **Playlist**. Un second clic sur **Remplacer le projet ?** confirme (**Annuler** sinon) ; les préférences (audio, télécommandes, langue) sont gardées. Enregistrez d'abord le projet en cours si vous voulez le retrouver.
 - **Ouvrir…** / **Enregistrer sous…** (menu ▾) : ouvre ou enregistre un projet (fichier `.jinglestar`).
-- **Télécommandes** : une fenêtre à onglets, un par protocole (**OSC**, **MIDI**, **Yamaha**, **Midas M32 / X32**), plus **Correspondances** (mode apprendre) et **Raccourcis** (la liste des touches). Voir [Pilotage MIDI](#pilotage-midi), [Pilotage depuis une console Yamaha](#pilotage-depuis-une-console-yamaha) et [Pilotage depuis une Midas M32 / Behringer X32](#pilotage-depuis-une-midas-m32--behringer-x32).
+- **Télécommandes** : une fenêtre à onglets, un par protocole (**OSC**, **MIDI**, **Yamaha**, **Midas M32 / X32**), plus **Assignations** (mode apprendre) et **Raccourcis** (la liste des touches). Voir [Pilotage MIDI](#pilotage-midi), [Pilotage depuis une console Yamaha](#pilotage-depuis-une-console-yamaha) et [Pilotage depuis une Midas M32 / Behringer X32](#pilotage-depuis-une-midas-m32--behringer-x32).
 - **⚙ Préférences** : audio, langue et anti-veille.
 - **? Aide** (touche **F1**) : ce manuel. Le champ **🔍 Rechercher** en haut (ou **Ctrl+F**) n'affiche que les passages qui contiennent les mots tapés, sans tenir compte des accents ni des majuscules ; **✕** revient au sommaire.
 - **■ TOUT ARRÊTER** : arrête tous les sons de tous les modules (touche **Échap**).
@@ -69,12 +69,12 @@ Chaque module a, de haut en bas :
 
 Le cadre du module devient vert quand un son y joue.
 
-- **Volume** : glissez le fader. Un **double-clic** sur le fader le remet à 0 dB ; un **clic sur la valeur en dB** permet de la taper au clavier (Entrée valide, Échap annule). Un nombre tapé sans signe est négatif : `6` donne -6 dB ; tapez `+3` pour monter au-dessus de 0 dB.
+- **Volume** : glissez le fader. Un **double-clic** sur le fader le remet à 0 dB ; un **clic sur la valeur en dB** permet de la taper au clavier (Entrée valide, Échap annule). Un nombre tapé sans signe est négatif : `6` donne -6 dB ; tapez `+3` pour monter au-dessus de 0 dB. Les touches **+** et **−** montent et baissent le volume de 1 dB quand la souris est sur le fader (ou après un clic dessus).
 - **Changer de type** : passez en mode édition (✏), choisissez **Jingles**, **Playlist**, **Cuelist** ou **Texte** dans le menu **Type**, puis cliquez sur **Valider** (**Annuler** sinon). Le type ne peut pas changer par erreur pendant le spectacle. Si le module joue, un avertissement rouge prévient que le son sera coupé. Les jingles, la playlist, la conduite et le texte sont conservés : on les retrouve en revenant au type d'avant.
 - **Renommer** : **double-clic sur le nom** du module, tapez le nouveau nom puis Entrée (Échap annule). En mode édition (✏), le nom est aussi modifiable directement.
 - **Module Texte** : un grand champ libre pour écrire sa conduite, sauvegardé avec le projet. Échap y arrête quand même les jingles ; la barre d'espace y tape un espace (pas de GO).
   - **Mise en forme** : sélectionnez du texte puis cliquez sur **G**, **I**, **S**, **B** (barré) ou une pastille de couleur (rouge, bleu, vert, rose), ou utilisez Ctrl+B / Ctrl+I / Ctrl+U. Les boutons des styles du texte sélectionné (ou sous le curseur) s'allument. Un second clic retire le style. Sans sélection, le style s'applique au mot sous le curseur. On ne voit que le texte mis en forme : les balises enregistrées dans le projet (`{b}`, `{i}`, `{u}`, `{s}`, `{rouge}`, `{bleu}`, `{vert}`, `{rose}`, refermées par `{/b}`, `{/rouge}`…) restent invisibles. Le curseur les traverse : aux limites d'un style, une flèche peut demander un appui de plus.
-  - **Zoom** : les boutons **−** et **+** de la barre d'outils réduisent ou agrandissent le texte (de 60 % à 300 %).
+  - **Zoom** : les boutons **−** et **+** de la barre d'outils réduisent ou agrandissent le texte (de 60 % à 300 %). Le zoom est enregistré avec le projet.
   - **Importer…** ajoute un fichier texte (.txt, .md) à la fin de la conduite.
 - **Supprimer** : en mode édition, cliquez sur **🗑** puis confirmez avec **Supprimer ?**. Les modules suivants remontent d'un rang. Le dernier module restant ne peut pas être supprimé.
 
@@ -257,7 +257,7 @@ Le mode **Cuelist** suit une conduite de spectacle, à la façon de QLab : une l
 - En **mode édition** (✏), les noms des cues se modifient directement et **🗑** vide la conduite.
 
 La barre d'espace pilote la première Cuelist de l'écran (sauf pendant la saisie d'un texte).
-Les télécommandes ont les actions **Conduite : GO**, **Conduite : cue suivant** et **Conduite :
+Les télécommandes ont les actions **Cuelist : GO**, **Cuelist : cue suivant** et **Cuelist :
 cue précédent**, et l'OSC les adresses `go` et `cue/…` (voir [Pilotage OSC](#pilotage-osc)).
 
 ## L'égaliseur
@@ -442,7 +442,7 @@ choisissez le port (ou « Premier port disponible »). Les réglages s'appliquen
 Si le contrôleur est débranché, JingleStar le reconnecte seul quand il revient ; **⟳** relit la
 liste des ports.
 
-### Apprendre une correspondance
+### Apprendre une assignation
 
 1. Cliquez sur **＋ Ajouter et apprendre** : une ligne apparaît, en attente.
 2. Appuyez sur la touche, le pad, ou bougez le fader du contrôleur : il est affecté à la ligne.
@@ -450,7 +450,7 @@ liste des ports.
 
 **Apprendre** sur une ligne existante la réaffecte. Le bouton **✏** à côté de la valeur apprise
 permet de la corriger à la main : type (note, CC, program change, touche ou scène de console),
-canal, numéro de note ou de contrôle, voie de console. On peut ainsi créer une correspondance sans
+canal, numéro de note ou de contrôle, voie de console. On peut ainsi créer une assignation sans
 avoir le contrôleur sous la main.
 
  Une nouvelle ligne reprend l'action de la
@@ -475,7 +475,7 @@ Les actions de jingle sont ignorées si le module est en mode playlist, et inver
 
 Un fader (console ou contrôleur MIDI) affecté à un volume ne prend la main qu'une fois arrivé au
 volume actuel de JingleStar, à 1 dB près ou en le franchissant : pas de saut de volume si les
-deux ne sont pas au même endroit. Tant que ce n'est pas le cas, la ligne de la correspondance
+deux ne sont pas au même endroit. Tant que ce n'est pas le cas, la ligne de l'assignation
 affiche **amener le fader à … dB**. Si le volume est ensuite changé à la souris ou en OSC, le
 fader doit le rejoindre de nouveau.
 
@@ -529,7 +529,7 @@ du canal 32) ou **Console · Scène 12**.
 ## Pilotage depuis une Midas M32 / Behringer X32
 
 JingleStar écoute aussi les consoles Midas M32 et Behringer X32 sur le réseau (OSC, port UDP
-**10023**), avec le même tableau de correspondances et le même mode apprendre.
+**10023**), avec le même tableau d'assignations et le même mode apprendre.
 
 ### Se connecter
 
@@ -584,7 +584,7 @@ La liste des touches est aussi dans **Télécommandes → Raccourcis**.
 | Ajouter à une playlist | Glisser-déposer des fichiers ou un dossier sur la playlist |
 | Lancer un morceau de la playlist | Double-clic sur le morceau |
 | Volume du module à 0 dB | Double-clic sur le fader |
-| Monter / baisser le volume d'un module de 1 dB | Clic sur le fader, puis **+** / **−** (les flèches ne le bougent pas) |
+| Monter / baisser le volume d'un module de 1 dB | **+** / **−** (pavé numérique ou clavier) avec la souris sur le fader, ou après un clic dessus (les flèches ne le bougent pas) |
 | Taper une valeur en dB (fader, jingle, morceau) | Clic sur la valeur, puis Entrée (Échap annule) ; sans signe = négatif |
 | Largeur des modules | Glisser la séparation ; double-clic pour égaliser |
 | Rechercher dans l'aide | Ctrl+F dans la fenêtre d'aide |

@@ -204,7 +204,9 @@ pub fn db_marks(ui: &Ui, rect: Rect, vertical: bool, range: &RangeInclusive<f32>
             if !labels {
                 p.line_segment([pos2(c - rail - len, at), pos2(c - rail, at)], Stroke::new(1.0, col));
             } else {
-                p.text(pos2(c - rail + 1.0, at), Align2::RIGHT_CENTER, txt, FontId::monospace(8.0), col);
+                // Valeurs lisibles : plus grandes et plus claires, 0 dB en blanc.
+                let txt_col = if zero { Color32::from_white_alpha(235) } else { Color32::from_white_alpha(185) };
+                p.text(pos2(c - rail, at), Align2::RIGHT_CENTER, txt, FontId::proportional(10.5), txt_col);
             }
         } else {
             p.line_segment([pos2(at, rect.bottom() - len), pos2(at, rect.bottom())], Stroke::new(1.0, col));

@@ -368,7 +368,7 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
                     leaf(
                         "i",
                         ACCESS_RW,
-                        "Numéro du cue en attente (0 : fin de la conduite)",
+                        "Numéro du cue en attente (0 : fin de la cuelist)",
                         Some(json!(if c.standby < c.names.len() { c.standby + 1 } else { 0 })),
                         Some(json!({ "MIN": 1, "MAX": c.names.len().max(1) })),
                     ),

@@ -1,4 +1,4 @@
-//! Télécommandes MIDI et console Yamaha : correspondances « déclencheur → action »,
+//! Télécommandes MIDI et console Yamaha : assignations « déclencheur → action »,
 //! partagées par les deux sources et traduites en commandes communes avec l'OSC.
 
 use serde::{Deserialize, Serialize};
@@ -116,7 +116,7 @@ fn console_value(v: i32) -> String {
     }
 }
 
-/// Ce qui déclenche une correspondance.
+/// Ce qui déclenche une assignation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(tag = "source", rename_all = "snake_case")]
 pub enum Trigger {
@@ -233,10 +233,10 @@ impl ActionKind {
             ActionKind::PlaylistTrack => tr("Playlist : morceau n° (valeur)", "Playlist: track no. (value)"),
             ActionKind::PlaylistShuffle => tr("Playlist : aléatoire", "Playlist: shuffle"),
             ActionKind::PlaylistLoop => tr("Playlist : boucle", "Playlist: loop"),
-            ActionKind::CueGo => tr("Conduite : GO", "Cue list: GO"),
-            ActionKind::CueNext => tr("Conduite : cue suivant", "Cue list: next cue"),
-            ActionKind::CuePrevious => tr("Conduite : cue précédent", "Cue list: previous cue"),
-            ActionKind::CuePause => tr("Conduite : pause / reprise", "Cue list: pause / resume"),
+            ActionKind::CueGo => tr("Cuelist : GO", "Cuelist: GO"),
+            ActionKind::CueNext => tr("Cuelist : cue suivant", "Cuelist: next cue"),
+            ActionKind::CuePrevious => tr("Cuelist : cue précédent", "Cuelist: previous cue"),
+            ActionKind::CuePause => tr("Cuelist : pause / reprise", "Cuelist: pause / resume"),
             ActionKind::StopAll => tr("Tout arrêter", "Stop everything"),
         }
     }
@@ -269,7 +269,7 @@ pub enum Flag {
     Loop,
 }
 
-/// Une correspondance ; module et jingle comptés à partir de 0.
+/// Une assignation ; module et jingle comptés à partir de 0.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Mapping {

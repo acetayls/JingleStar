@@ -218,9 +218,9 @@ pub struct Controller {
     pub console: Option<ConsoleClient>,
     /// Écoute de la console Midas M32 / Behringer X32.
     pub m32: Option<M32Client>,
-    /// Reprise en douceur des volumes, par correspondance.
+    /// Reprise en douceur des volumes, par assignation.
     pickup: HashMap<usize, Pickup>,
-    /// Correspondance en attente d'apprentissage.
+    /// Assignation en attente d'apprentissage.
     pub learn: Option<usize>,
     /// Dernier message reçu d'une télécommande, pour les préférences.
     pub last_input: Option<String>,
@@ -974,6 +974,11 @@ impl Controller {
 
     pub fn set_module_notes(&mut self, m: usize, notes: String) {
         self.project.modules[m].notes = notes;
+        self.mark_dirty();
+    }
+
+    pub fn set_notes_zoom(&mut self, m: usize, zoom: f32) {
+        self.project.modules[m].notes_zoom = zoom;
         self.mark_dirty();
     }
 
@@ -1923,7 +1928,7 @@ impl Controller {
         }
     }
 
-    /// Volume que le fader de la correspondance `i` doit rejoindre avant d'agir.
+    /// Volume que le fader de l'assignation `i` doit rejoindre avant d'agir.
     pub fn pickup_waiting(&self, i: usize) -> Option<f32> {
         self.pickup.get(&i).and_then(|p| p.waiting)
     }

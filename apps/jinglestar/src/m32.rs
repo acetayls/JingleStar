@@ -231,7 +231,7 @@ pub fn fader_db(f: f32) -> Option<f32> {
 }
 
 /// Changement de paramètre → événement. Les niveaux sont convertis en centièmes de dB,
-/// comme ceux des consoles Yamaha, pour partager les mêmes correspondances.
+/// comme ceux des consoles Yamaha, pour partager les mêmes assignations.
 fn to_event(msg: &OscMessage, values: &mut HashMap<String, i32>) -> Option<InputEvent> {
     // Rappel de scène : numéro affiché sur la console.
     if msg.addr == "/-show/prepos/current" {
