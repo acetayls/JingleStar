@@ -952,6 +952,7 @@ dependencies = [
  "softbuffer",
  "star-build",
  "star-core",
+ "star-remote",
  "star-ui",
  "sysinfo",
  "windows",
@@ -2143,6 +2144,7 @@ dependencies = [
  "serde_json",
  "star-build",
  "star-core",
+ "star-remote",
  "star-ui",
  "symphonia",
  "tiny_http",
@@ -4090,6 +4092,18 @@ dependencies = [
  "directories",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "star-remote"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "midir",
+ "rosc",
+ "serde",
+ "serde_json",
+ "star-core",
 ]
 
 [[package]]

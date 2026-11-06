@@ -1,0 +1,16 @@
+[package]
+name = "star-remote"
+version = "0.1.0"
+description = "Télécommandes des applis Star : MIDI, consoles Yamaha et Midas, correspondances, OSC (extraits de JingleStar)"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+star-core.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rosc = "0.11"
+midir = "0.11"
+crossbeam-channel = "0.5"

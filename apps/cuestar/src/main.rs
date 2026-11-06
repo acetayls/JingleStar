@@ -6,10 +6,7 @@
 //! - `--output <config JSON>` : le moteur de sortie, processus séparé lancé par la régie.
 //!   Il possède la fenêtre plein écran et libmpv ; si la régie rame, l'image continue.
 
-mod console;
 mod link;
-mod m32;
-mod midi;
 mod osc;
 mod output;
 mod prefs;

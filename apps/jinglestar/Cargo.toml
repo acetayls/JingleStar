@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 star-core.workspace = true
 star-ui.workspace = true
+star-remote.workspace = true
 eframe.workspace = true
 egui.workspace = true
 rfd = "0.17"

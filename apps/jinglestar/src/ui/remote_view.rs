@@ -37,7 +37,7 @@ impl RemoteWindow {
     pub fn toggle(&mut self) {
         self.open = !self.open;
         if self.open {
-            self.midi_ports = crate::midi::port_names();
+            self.midi_ports = star_remote::midi::port_names(crate::project::APP);
         }
     }
 
@@ -120,7 +120,7 @@ impl RemoteWindow {
                     }
                 });
                 if ui.small_button("⟳").on_hover_text(tr("Rafraîchir la liste et reconnecter", "Refresh list and reconnect")).clicked() {
-                    self.midi_ports = crate::midi::port_names();
+                    self.midi_ports = star_remote::midi::port_names(crate::project::APP);
                     ctrl.restart_midi();
                 }
             });

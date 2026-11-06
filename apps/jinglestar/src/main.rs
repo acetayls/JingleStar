@@ -2,10 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod audio;
-mod console;
 mod controller;
-mod m32;
-mod midi;
 mod osc;
 mod project;
 mod remote;

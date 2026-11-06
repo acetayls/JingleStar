@@ -2,9 +2,9 @@
 //! correspondances « déclencheur → action » avec le mode apprendre, raccourcis clavier.
 //! Les actions passent par les mêmes commandes que l'OSC.
 
-use crate::console::ConsoleClient;
-use crate::m32::M32Client;
-use crate::midi::MidiListener;
+use star_remote::console::ConsoleClient;
+use star_remote::m32::M32Client;
+use star_remote::midi::MidiListener;
 use crate::osc::Msg;
 use crate::remote::{ActionKind, ConsoleSettings, Flag, InputEvent, M32Settings, Mapping, RemoteSettings, Trigger};
 use egui::{RichText, Ui};
@@ -58,7 +58,7 @@ impl Remotes {
         self.midi_retry = Instant::now();
         let s = self.settings.midi.clone();
         if s.enabled {
-            match MidiListener::open(s.port.as_deref(), self.repaint.clone()) {
+            match MidiListener::open(crate::project::APP, s.port.as_deref(), self.repaint.clone()) {
                 Ok(l) => self.midi = Some(l),
                 Err(e) => self.midi_error = Some(e),
             }
@@ -101,7 +101,7 @@ impl Remotes {
         // Port débranché puis rebranché : on retente régulièrement.
         if self.settings.midi.enabled && self.midi_retry.elapsed() > Duration::from_secs(3) {
             self.midi_retry = Instant::now();
-            let ports = crate::midi::port_names();
+            let ports = star_remote::midi::port_names(crate::project::APP);
             match self.midi.as_ref().map(|l| l.port.clone()) {
                 Some(port) if !ports.contains(&port) => {
                     self.midi = None;
@@ -157,7 +157,7 @@ pub const TABS: [(Tab, &str); 6] = [
 
 impl Remotes {
     pub fn refresh_ports(&mut self) {
-        self.midi_ports = crate::midi::port_names();
+        self.midi_ports = star_remote::midi::port_names(crate::project::APP);
     }
 
     pub fn midi_section(&mut self, ui: &mut Ui) {
@@ -175,7 +175,7 @@ impl Remotes {
                     }
                 });
                 if ui.small_button("⟳").on_hover_text("Rafraîchir la liste et reconnecter").clicked() {
-                    self.midi_ports = crate::midi::port_names();
+                    self.midi_ports = star_remote::midi::port_names(crate::project::APP);
                     self.restart_midi();
                 }
             });

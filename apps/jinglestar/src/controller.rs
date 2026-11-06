@@ -17,9 +17,9 @@ use crate::audio::engine::{AudioEngine, DeviceInfo};
 use star_core::eq::{EqCoeffs, EqSettings};
 use crate::audio::mixer::{is_playlist_slot, Command, Event, Queued, Region, MAX_MODULES, PLAYLIST_SLOTS};
 use star_core::i18n::{set_lang, tr, Lang};
-use crate::console::ConsoleClient;
-use crate::m32::M32Client;
-use crate::midi::MidiListener;
+use star_remote::console::ConsoleClient;
+use star_remote::m32::M32Client;
+use star_remote::midi::MidiListener;
 use crate::remote::{Flag, InputEvent, Mapping, Pickup};
 use crate::osc::{self, OscCommand, OscServer};
 mod cues;
@@ -1779,7 +1779,7 @@ impl Controller {
         if !settings.enabled {
             return;
         }
-        match MidiListener::open(settings.port.as_deref(), self.repaint.clone()) {
+        match MidiListener::open(crate::project::APP, settings.port.as_deref(), self.repaint.clone()) {
             Ok(l) => self.midi = Some(l),
             Err(e) => self.midi_error = Some(e),
         }
@@ -1862,7 +1862,7 @@ impl Controller {
         // Port débranché puis rebranché : on retente régulièrement.
         if self.project.preferences.midi.enabled && self.midi_retry.elapsed() > Duration::from_secs(3) {
             self.midi_retry = Instant::now();
-            let ports = crate::midi::port_names();
+            let ports = star_remote::midi::port_names(crate::project::APP);
             match self.midi.as_ref().map(|l| l.port.clone()) {
                 Some(port) if !ports.contains(&port) => {
                     self.midi = None;

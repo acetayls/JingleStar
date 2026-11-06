@@ -5,6 +5,7 @@ resolver = "2"
 members = [
     "crates/star-core",
     "crates/star-ui",
+    "crates/star-remote",
     "crates/star-build",
     "apps/jinglestar",
     "apps/cuestar",
@@ -21,6 +22,7 @@ eframe = "0.37"
 egui = "0.37"
 star-core = { path = "crates/star-core" }
 star-ui = { path = "crates/star-ui" }
+star-remote = { path = "crates/star-remote" }
 star-build = { path = "crates/star-build" }
 
 # Build de développement plus rapide à l'exécution : dépendances optimisées pour toutes les
