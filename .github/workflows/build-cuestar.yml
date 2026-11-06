@@ -1,0 +1,61 @@
+name: Build CueStar
+
+# Comme pour JingleStar, les builds se font en local ; ce workflow ne part qu'à la demande
+# (onglet Actions → Build CueStar → Run workflow). libmpv n'est pas inclus : il est chargé à
+# l'exécution (voir apps/cuestar/README.md).
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Tag de la release GitHub à créer et remplir (ex. cuestar-v0.1.0) ; vide = simple build"
+        required: false
+        default: ""
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: cuestar-windows
+            bin: target/release/cuestar.exe
+          - os: ubuntu-latest
+            artifact: cuestar-linux
+            bin: target/release/cuestar
+          - os: macos-latest
+            artifact: cuestar-macos-apple-silicon
+            bin: target/release/cuestar
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Dépendances Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libxkbcommon-dev libgtk-3-dev
+      - name: Tests
+        run: cargo test -p cuestar -p star-commun
+      - name: Build release
+        run: cargo build --release -p cuestar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.bin }}
+      - name: Préparer l'exécutable Windows
+        if: runner.os == 'Windows' && inputs.release != ''
+        shell: bash
+        run: |
+          VERSION="$(grep -m1 '^version' apps/cuestar/Cargo.toml | cut -d'"' -f2)"
+          mkdir -p dist
+          cp target/release/cuestar.exe "dist/CueStar-$VERSION-windows-x64.exe"
+      - name: Publier dans la release (Windows)
+        if: runner.os == 'Windows' && inputs.release != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release }}
+          name: CueStar ${{ inputs.release }}
+          target_commitish: ${{ github.sha }}
+          files: dist/*.exe

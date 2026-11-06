@@ -20,7 +20,7 @@ Modules : Lecteur, Diaporama, Cuelist (PowerPoint plus tard).
 
 libmpv est chargé au démarrage, pas à la compilation : sans lui, CueStar se lance et la
 sortie affiche la mire. Emplacements cherchés : à côté de l'exécutable, dans un dossier
-`mpv/` à côté, dans `mpv/` à la racine du projet (développement), puis le système.
+`mpv/` à côté, dans `mpv/` à la racine du dépôt MediaStar (développement), puis le système.
 
 - Windows : `libmpv-2.dll` (build « mpv-dev » de shinchiro/mpv-winbuild-cmake).
 - macOS : `brew install mpv`.
@@ -29,5 +29,5 @@ sortie affiche la mire. Emplacements cherchés : à côté de l'exécutable, dan
 ## Compiler
 
 ```
-cargo build --release
+cargo build --release -p cuestar
 ```
