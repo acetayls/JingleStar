@@ -1,0 +1,10 @@
+[package]
+name = "star-commun"
+version = "0.1.0"
+description = "Briques communes à JingleStar et CueStar : charte graphique, widgets"
+authors = ["Pierrick"]
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+egui = "0.37"
