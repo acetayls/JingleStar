@@ -1,5 +1,5 @@
 Bibliothèques Rust compilées dans CueStar (nom, version : licence)
-Généré par crates.py à partir de Cargo.lock.
+Généré par licences-crates.py à partir de Cargo.lock.
 
 ab_glyph 0.2.32 : Apache-2.0
 ab_glyph_rasterizer 0.1.10 : Apache-2.0

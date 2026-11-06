@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Régénère crates-rust.txt : bibliothèques Rust compilées dans CueStar, avec leur licence.
 À lancer depuis la racine du dépôt MediaStar après un changement de dépendances :
-    python3 apps/cuestar/packaging/licences/crates.py
+    python3 apps/cuestar/packaging/licences-crates.py
 """
 import json
 import pathlib
@@ -29,10 +29,10 @@ lines = sorted(
     for i, p in ((i, pkgs[i]) for i in seen)
     if i not in workspace
 )
-out = pathlib.Path(__file__).with_name("crates-rust.txt")
+out = pathlib.Path(__file__).parent / "licences" / "crates-rust.txt"
 out.write_text(
     "Bibliothèques Rust compilées dans CueStar (nom, version : licence)\n"
-    "Généré par crates.py à partir de Cargo.lock.\n\n" + "\n".join(lines) + "\n",
+    "Généré par licences-crates.py à partir de Cargo.lock.\n\n" + "\n".join(lines) + "\n",
     encoding="utf-8",
 )
 print(f"{out} : {len(lines)} bibliothèques")

@@ -50,4 +50,4 @@ Workflow **Build CueStar** (onglet Actions, à la demande), ou à la main avec l
 
 Les licences (CueStar, mpv, FFmpeg, bibliothèques Rust) sont dans `packaging/licences` et
 copiées dans chaque paquet. Après un changement de dépendances Rust :
-`python3 apps/cuestar/packaging/licences/crates.py`.
+`python3 apps/cuestar/packaging/licences-crates.py`.
