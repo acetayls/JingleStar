@@ -1,0 +1,35 @@
+[workspace]
+members = [".", "crates/star-commun"]
+
+[package]
+name = "cuestar"
+version = "0.0.1"
+description = "Diffusion vidéo sur écran de sortie : lecteur, diaporama, cuelist (Windows, macOS, Linux)"
+authors = ["Pierrick"]
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+star-commun = { path = "crates/star-commun" }
+eframe = "0.37"
+egui = "0.37"
+rfd = "0.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+directories = "6"
+anyhow = "1"
+# Moteur de sortie (processus séparé) : fenêtre native, libmpv chargé à l'exécution.
+winit = "0.30"
+raw-window-handle = "0.6"
+softbuffer = "0.4"
+libloading = "0.8"
+
+# Pour un paquet .app macOS avec `cargo bundle --release`.
+[package.metadata.bundle]
+name = "CueStar"
+identifier = "com.acetayls.CueStar"
+category = "public.app-category.video"
+
+[profile.release]
+lto = true
+codegen-units = 1
