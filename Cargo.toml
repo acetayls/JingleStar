@@ -4,6 +4,7 @@
 resolver = "2"
 members = [
     "crates/star-commun",
+    "crates/star-pptx",
     "apps/jinglestar",
     "apps/cuestar",
 ]
