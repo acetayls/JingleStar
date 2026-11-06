@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 const CORNER_NAMES: [&str; 4] = ["Haut gauche", "Haut droit", "Bas droit", "Bas gauche"];
 
 pub struct OutputView {
+    /// Fenêtre flottante ouverte.
+    pub open: bool,
     /// Réglages moteur en cours d'édition (appliqués en relançant la sortie).
     draft: Option<MachinePrefs>,
     selected: usize,
@@ -20,7 +22,7 @@ pub struct OutputView {
 
 impl Default for OutputView {
     fn default() -> Self {
-        Self { draft: None, selected: 0, last_warp_send: Instant::now(), warp_dirty: false }
+        Self { open: false, draft: None, selected: 0, last_warp_send: Instant::now(), warp_dirty: false }
     }
 }
 
@@ -34,6 +36,32 @@ fn section(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
     ui.add_space(10.0);
 }
 
+/// Ouvre le panneau « Écrans » du système d'exploitation.
+fn open_display_settings() -> Result<(), String> {
+    use std::process::Command;
+    #[cfg(windows)]
+    let tries: &[(&str, &[&str])] = &[("explorer.exe", &["ms-settings:display"])];
+    #[cfg(target_os = "macos")]
+    let tries: &[(&str, &[&str])] = &[
+        ("open", &["x-apple.systempreferences:com.apple.Displays-Settings.extension"]),
+        ("open", &["/System/Library/PreferencePanes/Displays.prefPane"]),
+    ];
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let tries: &[(&str, &[&str])] = &[
+        ("gnome-control-center", &["display"]),
+        ("systemsettings", &["kcm_kscreen"]),
+        ("kcmshell6", &["kcm_kscreen"]),
+        ("xfce4-display-settings", &[]),
+        ("arandr", &[]),
+    ];
+    for (prog, args) in tries {
+        if Command::new(prog).args(*args).spawn().is_ok() {
+            return Ok(());
+        }
+    }
+    Err("réglages d'affichage introuvables".into())
+}
+
 pub enum Action {
     None,
     /// Les réglages moteur ont changé : relancer la sortie.
@@ -41,7 +69,29 @@ pub enum Action {
 }
 
 impl OutputView {
-    pub fn ui(&mut self, ui: &mut egui::Ui, prefs: &mut MachinePrefs, out: &mut OutputLink, pattern: &mut Option<PatternKind>, typing: bool) -> Action {
+    /// Fenêtre flottante du système (peut sortir de la régie).
+    pub fn show(&mut self, ctx: &egui::Context, prefs: &mut MachinePrefs, out: &mut OutputLink, pattern: &mut Option<PatternKind>) -> Action {
+        if !self.open {
+            return Action::None;
+        }
+        let vp = egui::ViewportBuilder::default().with_title("CueStar — Video output").with_inner_size([1040.0, 660.0]).with_min_inner_size([600.0, 400.0]);
+        let mut close = false;
+        let action = ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("cuestar-video-output"), vp, |ui, _| {
+            close = ui.ctx().input(|i| i.viewport().close_requested());
+            let typing = ui.ctx().egui_wants_keyboard_input();
+            egui::CentralPanel::default()
+                .frame(egui::Frame::new().fill(BG).inner_margin(10))
+                .show(ui, |ui| self.ui(ui, prefs, out, pattern, typing))
+                .inner
+        });
+        if close {
+            self.open = false;
+            self.draft = None;
+        }
+        action
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, prefs: &mut MachinePrefs, out: &mut OutputLink, pattern: &mut Option<PatternKind>, typing: bool) -> Action {
         let mut action = Action::None;
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             ui.columns(2, |cols| {
@@ -113,6 +163,15 @@ impl OutputView {
             });
             let dec = if s.hwdec.is_empty() || s.hwdec == "no" { "CPU".to_string() } else { format!("GPU ({})", s.hwdec) };
             ui.label(RichText::new(format!("Décodeur en cours : {dec}")).color(TEXT_DIM));
+            if ui
+                .button("Réglages d'affichage du système…")
+                .on_hover_text("Ouvre les réglages d'écrans du système : résolution, fréquence, disposition, écran étendu")
+                .clicked()
+            {
+                if let Err(e) = open_display_settings() {
+                    ui.ctx().debug_text(e);
+                }
+            }
             let changed = !d.same_engine(prefs);
             ui.add_space(4.0);
             ui.horizontal(|ui| {

@@ -48,13 +48,15 @@ impl MonitorView {
         }
         let mut open = self.open;
         let mut fps_changed = false;
-        egui::Window::new("Monitoring")
-            .open(&mut open)
-            .default_size([420.0, 280.0])
-            .resizable(true)
-            .show(ctx, |ui| {
-                let w = ui.available_width().max(80.0);
+        // Vraie fenêtre du système : elle peut sortir de la régie (autre écran, par exemple).
+        let vp = egui::ViewportBuilder::default().with_title("CueStar — Monitoring").with_inner_size([480.0, 340.0]).with_min_inner_size([200.0, 150.0]);
+        ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("cuestar-monitoring"), vp, |ui, _| {
+            if ui.ctx().input(|i| i.viewport().close_requested()) {
+                open = false;
+            }
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(8)).show(ui, |ui| {
                 let aspect = self.texture.as_ref().map(|t| t.size_vec2()).map(|s| s.y / s.x.max(1.0)).unwrap_or(9.0 / 16.0);
+                let w = ui.available_width().min((ui.available_height() - 56.0).max(40.0) / aspect).max(80.0);
                 let size = vec2(w, w * aspect);
                 match &self.texture {
                     Some(t) => {
@@ -85,6 +87,7 @@ impl MonitorView {
                     fps_changed = ui.add(egui::Slider::new(&mut self.fps, 1..=25)).changed();
                 });
             });
+        });
         if fps_changed {
             self.sync(out);
         }

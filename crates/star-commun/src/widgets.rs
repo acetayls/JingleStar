@@ -259,11 +259,18 @@ pub fn track_row(ui: &mut Ui, label: &str, color: Color32, selected: bool, gain:
 /// Le logo des applis Star : la grille de pads seule.
 pub fn logo_mark(ui: &mut Ui, height: f32) -> Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(height, height), Sense::hover());
-    logo_grid(ui.painter(), rect);
+    logo_grid(ui.painter(), rect, false);
     resp
 }
 
-fn logo_grid(p: &egui::Painter, rect: Rect) {
+/// Variante CueStar : un triangle « lecture » à la place de l'étoile.
+pub fn logo_mark_play(ui: &mut Ui, height: f32) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(height, height), Sense::hover());
+    logo_grid(ui.painter(), rect, true);
+    resp
+}
+
+fn logo_grid(p: &egui::Painter, rect: Rect, play: bool) {
     const STRIPS: [Color32; 8] = [
         Color32::from_rgb(0x4a, 0x8f, 0xdb),
         Color32::from_rgb(0x4f, 0xae, 0x58),
@@ -284,7 +291,13 @@ fn logo_grid(p: &egui::Painter, rect: Rect) {
             let r = CornerRadius::same((4.5 * u).round().max(1.0) as u8);
             if row == 1 && col == 1 {
                 p.rect_filled(pad, r, ACCENT);
-                star_jingle(p, pad.center() + vec2(0.0, 0.6 * u), 11.5 * u, BG);
+                if play {
+                    let c = pad.center();
+                    let tri = vec![c + vec2(-4.5 * u, -7.0 * u), c + vec2(7.5 * u, 0.0), c + vec2(-4.5 * u, 7.0 * u)];
+                    p.add(Shape::convex_polygon(tri, BG, Stroke::NONE));
+                } else {
+                    star_jingle(p, pad.center() + vec2(0.0, 0.6 * u), 11.5 * u, BG);
+                }
             } else {
                 // À cette taille, des pads pleins se lisent mieux que les bandeaux du grand logo.
                 p.rect_filled(pad, r, STRIPS[k]);

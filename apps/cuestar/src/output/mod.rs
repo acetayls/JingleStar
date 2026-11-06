@@ -54,6 +54,8 @@ const P_PAUSE: u64 = 3;
 const P_HWDEC: u64 = 4;
 const P_DROPS: u64 = 5;
 const P_DELAYED: u64 = 6;
+const P_VFPS: u64 = 7;
+const P_DFPS: u64 = 8;
 
 struct OutputApp {
     prefs: MachinePrefs,
@@ -72,6 +74,8 @@ struct OutputApp {
     duration: f64,
     last_pos: Instant,
     drops: (i64, i64),
+    fps: (f64, f64),
+    last_fps: Instant,
     current: Option<String>,
 }
 
@@ -179,6 +183,8 @@ impl OutputApp {
         m.observe(P_HWDEC, "hwdec-current", mpv::FORMAT_STRING);
         m.observe(P_DROPS, "frame-drop-count", mpv::FORMAT_INT64);
         m.observe(P_DELAYED, "vo-delayed-frame-count", mpv::FORMAT_INT64);
+        m.observe(P_VFPS, "estimated-vf-fps", mpv::FORMAT_DOUBLE);
+        m.observe(P_DFPS, "display-fps", mpv::FORMAT_DOUBLE);
         m.set_wakeup(mpv_wakeup, &*self.proxy as *const EventLoopProxy<UserEv> as *mut c_void);
         let version = m.get_property("mpv-version").unwrap_or_else(|| format!("mpv (API {})", m.api_version()));
         self.mpv = Some(m);
@@ -471,6 +477,19 @@ impl OutputApp {
                 }
             }
             P_DURATION => self.duration = double().unwrap_or(0.0),
+            P_VFPS | P_DFPS => {
+                let v = double().unwrap_or(0.0);
+                if id == P_VFPS {
+                    self.fps.0 = v;
+                } else {
+                    self.fps.1 = v;
+                }
+                // Une mesure par seconde suffit (l'estimation bouge à chaque image).
+                if id == P_DFPS || self.last_fps.elapsed() >= Duration::from_secs(1) {
+                    self.last_fps = Instant::now();
+                    emit(&Event::Fps { video: self.fps.0, display: self.fps.1 });
+                }
+            }
             P_PAUSE => {
                 if p.format == mpv::FORMAT_FLAG && !p.data.is_null() {
                     emit(&Event::Paused { paused: unsafe { *(p.data as *const c_int) } != 0 });
@@ -595,6 +614,8 @@ pub fn run(prefs: MachinePrefs, monitor_port: Option<u16>) {
         duration: 0.0,
         last_pos: Instant::now(),
         drops: (0, 0),
+        fps: (0.0, 0.0),
+        last_fps: Instant::now(),
         current: None,
     };
     let _ = event_loop.run_app(&mut app);

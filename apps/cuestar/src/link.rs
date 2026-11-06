@@ -39,6 +39,8 @@ pub struct OutputState {
     pub slide: Option<(usize, usize, String)>,
     /// Compteur de fins de média (le Lecteur enchaîne quand il change).
     pub ended: u64,
+    pub video_fps: f64,
+    pub display_fps: f64,
 }
 
 pub struct OutputLink {
@@ -187,6 +189,10 @@ impl OutputLink {
                     s.duration = 0.0;
                 }
                 Event::Error { message } => s.last_error = Some(message),
+                Event::Fps { video, display } => {
+                    s.video_fps = video;
+                    s.display_fps = display;
+                }
                 Event::Slide { index, count, path } => s.slide = (count > 0).then_some((index, count, path)),
             }
         }

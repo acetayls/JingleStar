@@ -24,13 +24,22 @@ raw-window-handle = "0.6"
 softbuffer = "0.4"
 libloading = "0.8"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp", "gif", "tiff", "webp"] }
+sysinfo = { version = "0.40.1", default-features = false, features = ["system"] }
+
+[build-dependencies]
+# Icône et métadonnées de l'exécutable Windows.
+winresource = "0.1"
 
 # Pour un paquet .app macOS avec `cargo bundle --release`.
 [package.metadata.bundle]
 name = "CueStar"
 identifier = "com.acetayls.CueStar"
+icon = ["assets/icons/cuestar.icns", "assets/icons/cuestar-1024.png"]
 category = "public.app-category.video"
 
 [profile.release]
 lto = true
 codegen-units = 1
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Performance"] }

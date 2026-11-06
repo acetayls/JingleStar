@@ -136,6 +136,8 @@ pub enum Event {
     Hwdec { name: String },
     /// Images perdues ou retardées par le moteur de rendu.
     Drops { dropped: i64, delayed: i64 },
+    /// Images par seconde : vidéo affichée et rafraîchissement de l'écran.
+    Fps { video: f64, display: f64 },
     Ended,
     Idle,
     /// Position dans le diaporama (index à partir de 0). `count` = 0 : diaporama terminé.

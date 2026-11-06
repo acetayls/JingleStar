@@ -19,7 +19,6 @@ enum Tab {
     Lecteur,
     Diaporama,
     Cuelist,
-    Output,
 }
 
 pub struct CueStarApp {
@@ -32,6 +31,7 @@ pub struct CueStarApp {
     output_view: output_view::OutputView,
     monitor: monitor_view::MonitorView,
     pattern: Option<PatternKind>,
+    load: std::sync::Arc<std::sync::Mutex<crate::stats::Load>>,
     ctx: egui::Context,
 }
 
@@ -49,6 +49,7 @@ impl CueStarApp {
             output_view: Default::default(),
             monitor: Default::default(),
             pattern: None,
+            load: crate::stats::start(),
             ctx: cc.egui_ctx.clone(),
         };
         app.restart_output();
@@ -64,10 +65,10 @@ impl CueStarApp {
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_centered(|ui| {
-            widgets::logo_mark(ui, 26.0);
+            widgets::logo_mark_play(ui, 26.0);
             ui.label(RichText::new("CueStar").font(egui::FontId::new(24.0, logo_family())).color(TEXT));
             ui.add_space(18.0);
-            for (t, name) in [(Tab::Lecteur, "Lecteur"), (Tab::Diaporama, "Diaporama"), (Tab::Cuelist, "Cuelist"), (Tab::Output, "Video output")] {
+            for (t, name) in [(Tab::Lecteur, "Lecteur"), (Tab::Diaporama, "Diaporama"), (Tab::Cuelist, "Cuelist")] {
                 let sel = self.tab == t;
                 let txt = RichText::new(name).size(15.0).color(if sel { PLAYING_INK } else { TEXT });
                 let b = egui::Button::new(txt).fill(if sel { ACCENT } else { PANEL_HI }).min_size(egui::vec2(96.0, 30.0));
@@ -89,12 +90,11 @@ impl CueStarApp {
                     self.monitor.toggle(&mut self.out);
                 }
                 if ui
-                    .selectable_label(self.pattern.is_some(), "Mire")
-                    .on_hover_text("Affiche une mire sur l'écran de sortie pour le repérer et le régler")
+                    .selectable_label(self.output_view.open, "Video output")
+                    .on_hover_text("Fenêtre flottante : écran et moteur de sortie, mires de test, mapping 4 coins")
                     .clicked()
                 {
-                    self.pattern = if self.pattern.is_some() { None } else { Some(PatternKind::Bars) };
-                    self.out.send(Command::Pattern { kind: self.pattern });
+                    self.output_view.open = !self.output_view.open;
                 }
                 ui.add_space(8.0);
                 self.output_badge(ui);
@@ -139,6 +139,21 @@ impl CueStarApp {
             ui.separator();
             let col = if s.dropped > 0 { METER_HIGH } else { TEXT_DIM };
             ui.label(RichText::new(format!("Images perdues : {}  retardées : {}", s.dropped, s.delayed)).color(col));
+            ui.separator();
+            let fps = if s.current.is_some() && s.video_fps > 0.0 { format!("{:.2} i/s", s.video_fps) } else { "— i/s".into() };
+            let hz = if s.display_fps > 0.0 { format!(" (écran {:.2} Hz)", s.display_fps) } else { String::new() };
+            ui.label(RichText::new(format!("{fps}{hz}")).color(TEXT_DIM)).on_hover_text("Images par seconde de la vidéo affichée sur la sortie");
+            let load = self.load.lock().map(|l| *l).unwrap_or_default();
+            let pct = |v: Option<f32>| v.map(|v| format!("{v:.0} %")).unwrap_or_else(|| "—".into());
+            let heat = |v: Option<f32>| match v {
+                Some(v) if v >= 90.0 => METER_HIGH,
+                Some(v) if v >= 70.0 => METER_MID,
+                _ => TEXT_DIM,
+            };
+            ui.separator();
+            ui.label(RichText::new(format!("CPU {}", pct(load.cpu))).color(heat(load.cpu))).on_hover_text("Charge processeur de la machine");
+            ui.separator();
+            ui.label(RichText::new(format!("GPU {}", pct(load.gpu))).color(heat(load.gpu))).on_hover_text("Charge 3D de la carte graphique la plus sollicitée");
             if let Some(e) = &s.last_error {
                 ui.separator();
                 ui.label(RichText::new(e).color(STOP));
@@ -173,22 +188,16 @@ impl eframe::App for CueStarApp {
             .exact_size(26.0)
             .frame(egui::Frame::new().fill(PANEL).inner_margin(egui::Margin::symmetric(12, 4)))
             .show(ui, |ui| self.status_bar(ui));
-        let mut restart = false;
         egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(10)).show(ui, |ui| match self.tab {
             Tab::Lecteur => self.lecteur.ui(ui, &mut self.out, typing),
             Tab::Diaporama => self.diaporama.ui(ui, &mut self.out, typing),
             Tab::Cuelist => self.cuelist.ui(ui),
-            Tab::Output => {
-                if let output_view::Action::Restart = self.output_view.ui(ui, &mut self.prefs, &mut self.out, &mut self.pattern, typing) {
-                    restart = true;
-                }
-            }
         });
-        if restart {
-            self.restart_output();
-        }
 
         self.monitor.show(&ctx, &mut self.out);
+        if let output_view::Action::Restart = self.output_view.show(&ctx, &mut self.prefs, &mut self.out, &mut self.pattern) {
+            self.restart_output();
+        }
         if self.tab == Tab::Lecteur {
             self.lecteur.handle_drops(&ctx);
         }
