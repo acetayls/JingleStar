@@ -6,9 +6,11 @@
 
 mod mpv;
 mod pattern;
+mod slideshow;
 
 use crate::prefs::MachinePrefs;
-use crate::protocol::{Command, Event, Monitor};
+use crate::protocol::{Command, Event, Fit, Monitor};
+use slideshow::Show;
 use mpv::Mpv;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::ffi::{c_char, c_int, c_void, CStr};
@@ -59,6 +61,7 @@ struct OutputApp {
     window: Option<Arc<Window>>,
     surface: Option<softbuffer::Surface<Arc<Window>, Arc<Window>>>,
     pattern_on: bool,
+    show: Option<Show>,
     duration: f64,
     last_pos: Instant,
     drops: (i64, i64),
@@ -198,6 +201,7 @@ impl OutputApp {
             return;
         }
         if let Command::Pattern { on } = cmd {
+            self.end_show();
             self.pattern_on = on;
             if let Some(m) = &self.mpv {
                 let res = if on {
@@ -214,21 +218,77 @@ impl OutputApp {
             }
             return;
         }
-        let Some(m) = &self.mpv else {
+        if self.mpv.is_none() {
             emit(&Event::Error { message: "lecture impossible : libmpv n'est pas chargé".into() });
             return;
-        };
+        }
         let res = match cmd {
             Command::Load { path, paused } => {
-                let _ = m.set_property("pause", if paused { "yes" } else { "no" });
+                self.end_show();
                 self.current = Some(path.clone());
+                let m = self.m();
+                // Lecteur : la dernière image reste à l'écran en fin de média.
+                let _ = m.set_property("keep-open", "yes");
+                let _ = m.set_property("panscan", "0");
+                let _ = m.set_property("mute", "no");
+                let _ = m.set_property("pause", if paused { "yes" } else { "no" });
                 m.command(&["loadfile", &path, "replace"])
             }
-            Command::Play => m.set_property("pause", "no"),
-            Command::Pause => m.set_property("pause", "yes"),
-            Command::Stop => m.command(&["stop"]),
-            Command::Seek { seconds } => m.command(&["seek", &format!("{seconds:.3}"), "absolute+exact"]),
-            Command::Volume { value } => m.set_property("volume", &format!("{value:.1}")),
+            Command::Play => {
+                if let Some(s) = &mut self.show {
+                    s.resume();
+                }
+                self.m().set_property("pause", "no")
+            }
+            Command::Pause => {
+                if let Some(s) = &mut self.show {
+                    s.pause();
+                }
+                self.m().set_property("pause", "yes")
+            }
+            Command::Stop => {
+                self.end_show();
+                self.m().command(&["stop"])
+            }
+            Command::Seek { seconds } => self.m().command(&["seek", &format!("{seconds:.3}"), "absolute+exact"]),
+            Command::Volume { value } => self.m().set_property("volume", &format!("{value:.1}")),
+            Command::Slideshow { items, photo_seconds, looping, shuffle, fit, video_sound } => {
+                if items.is_empty() {
+                    Err("diaporama vide : aucun média dans le dossier".into())
+                } else {
+                    let _ = self.m().set_property("pause", "no");
+                    self.show = Some(Show::new(items, photo_seconds, looping, shuffle, fit, video_sound));
+                    self.show_current();
+                    Ok(())
+                }
+            }
+            Command::SetFit { fit } => {
+                if let Some(s) = &mut self.show {
+                    s.fit = fit;
+                }
+                self.apply_fit();
+                Ok(())
+            }
+            Command::Next => {
+                if self.show.as_mut().map(|s| s.advance()).unwrap_or(false) {
+                    self.show_current();
+                }
+                Ok(())
+            }
+            Command::Prev => {
+                if let Some(s) = &mut self.show {
+                    s.back();
+                    self.show_current();
+                }
+                Ok(())
+            }
+            Command::Goto { index } => {
+                if let Some(s) = &mut self.show {
+                    s.goto(index);
+                    self.show_current();
+                }
+                Ok(())
+            }
             Command::Pattern { .. } | Command::Quit => Ok(()),
         };
         if let Err(e) = res {
@@ -236,9 +296,65 @@ impl OutputApp {
         }
     }
 
+    fn m(&self) -> &Mpv {
+        self.mpv.as_ref().expect("mpv chargé")
+    }
+
+    fn end_show(&mut self) {
+        if self.show.take().is_some() {
+            emit(&Event::Slide { index: 0, count: 0, path: String::new() });
+        }
+    }
+
+    /// Envoie à mpv le média courant du diaporama.
+    fn show_current(&mut self) {
+        let (Some(m), Some(s)) = (&self.mpv, &mut self.show) else { return };
+        let Some(path) = s.current().map(str::to_string) else { return };
+        s.deadline = None;
+        let video = slideshow::is_video(&path);
+        // Diaporama : une vidéo finie passe la main au média suivant.
+        let _ = m.set_property("keep-open", "no");
+        let _ = m.set_property("mute", if video && !s.video_sound { "yes" } else { "no" });
+        self.current = Some(path.clone());
+        emit(&Event::Slide { index: s.pos, count: s.len(), path: path.clone() });
+        if let Err(e) = m.command(&["loadfile", &path, "replace"]) {
+            emit(&Event::Error { message: e });
+        }
+    }
+
+    /// Ajustement de l'image courante (panscan 1 = remplir en recadrant).
+    fn apply_fit(&self) {
+        let (Some(m), Some(s)) = (&self.mpv, &self.show) else { return };
+        let fill = match s.fit {
+            Fit::Contain => false,
+            Fit::Cover => true,
+            Fit::Auto => {
+                let img = m.get_property("video-params/aspect").and_then(|a| a.parse::<f64>().ok());
+                let scr = self.window.as_ref().map(|w| w.inner_size()).map(|z| z.width as f64 / z.height.max(1) as f64);
+                matches!((img, scr), (Some(i), Some(s)) if ((i - s) / s).abs() < 0.2)
+            }
+        };
+        let _ = m.set_property("panscan", if fill { "1" } else { "0" });
+    }
+
+    /// Fin de photo ou de vidéo : média suivant, ou fin du diaporama.
+    fn show_next(&mut self) {
+        let more = self.show.as_mut().map(|s| s.advance()).unwrap_or(false);
+        if more {
+            self.show_current();
+        } else if self.show.is_some() {
+            self.end_show();
+            emit(&Event::Ended);
+        }
+    }
+
     fn mpv_events(&mut self, el: &ActiveEventLoop) {
         // On sort mpv le temps de vider sa file : `property` a besoin de `&mut self`.
         let Some(m) = self.mpv.take() else { return };
+        // Actions du diaporama, faites une fois mpv rendu.
+        let mut next = false;
+        let mut started = false;
+        let mut refit = false;
         while let Some(ev) = m.next_event() {
             match ev.event_id {
                 mpv::EVENT_SHUTDOWN => el.exit(),
@@ -246,15 +362,28 @@ impl OutputApp {
                     if !self.pattern_on {
                         emit(&Event::Loaded { path: self.current.clone().unwrap_or_default() });
                     }
+                    started = true;
                 }
+                mpv::EVENT_VIDEO_RECONFIG => refit = true,
                 mpv::EVENT_END_FILE => {
                     let end = unsafe { &*(ev.data as *const mpv::RawEndFile) };
                     if end.reason == mpv::END_FILE_ERROR {
                         emit(&Event::Error { message: format!("lecture impossible ({})", self.current.clone().unwrap_or_default()) });
+                        if let Some(s) = &mut self.show {
+                            s.failures += 1;
+                            // Un média illisible est sauté, sauf si plus rien ne passe.
+                            if s.failures < s.len().max(1) {
+                                next = true;
+                            }
+                        }
                     }
                     if end.reason == mpv::END_FILE_EOF {
-                        emit(&Event::Ended);
-                    } else {
+                        if self.show.is_some() {
+                            next = true;
+                        } else {
+                            emit(&Event::Ended);
+                        }
+                    } else if self.show.is_none() {
                         emit(&Event::Idle);
                     }
                 }
@@ -265,7 +394,19 @@ impl OutputApp {
                 _ => {}
             }
         }
+        let paused = m.get_property("pause").as_deref() == Some("yes");
         self.mpv = Some(m);
+        if started {
+            if let Some(s) = &mut self.show {
+                s.started(paused);
+            }
+        }
+        if refit {
+            self.apply_fit();
+        }
+        if next {
+            self.show_next();
+        }
     }
 
     fn property(&mut self, id: u64, p: &mpv::RawProperty) {
@@ -328,6 +469,22 @@ impl ApplicationHandler<UserEv> for OutputApp {
         }
     }
 
+    /// Minutage des photos : on se réveille pile à l'échéance.
+    fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+        let due = self.show.as_ref().and_then(|s| s.deadline);
+        match due {
+            Some(d) if d <= Instant::now() => {
+                if let Some(s) = &mut self.show {
+                    s.deadline = None;
+                }
+                self.show_next();
+                el.set_control_flow(ControlFlow::Wait);
+            }
+            Some(d) => el.set_control_flow(ControlFlow::WaitUntil(d)),
+            None => el.set_control_flow(ControlFlow::Wait),
+        }
+    }
+
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => el.exit(),
@@ -372,6 +529,7 @@ pub fn run(prefs: MachinePrefs) {
         window: None,
         surface: None,
         pattern_on: false,
+        show: None,
         duration: 0.0,
         last_pos: Instant::now(),
         drops: (0, 0),

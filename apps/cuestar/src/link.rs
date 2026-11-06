@@ -24,6 +24,8 @@ pub struct OutputState {
     pub dropped: i64,
     pub delayed: i64,
     pub last_error: Option<String>,
+    /// Diaporama en cours : (index, nombre, chemin).
+    pub slide: Option<(usize, usize, String)>,
 }
 
 pub struct OutputLink {
@@ -155,6 +157,7 @@ impl OutputLink {
                     s.duration = 0.0;
                 }
                 Event::Error { message } => s.last_error = Some(message),
+                Event::Slide { index, count, path } => s.slide = (count > 0).then_some((index, count, path)),
             }
         }
         if closed {

@@ -16,7 +16,38 @@ pub enum Command {
     Volume { value: f64 },
     /// Affiche ou masque la mire (repérage de l'écran de sortie).
     Pattern { on: bool },
+    /// Lance un diaporama : le moteur de sortie tient le minutage et l'enchaînement.
+    Slideshow { items: Vec<String>, photo_seconds: f64, looping: bool, shuffle: bool, fit: Fit, video_sound: bool },
+    /// Change l'ajustement des images en cours de diaporama.
+    SetFit { fit: Fit },
+    Next,
+    Prev,
+    /// Va au média n° `index` (0 = premier) du diaporama.
+    Goto { index: usize },
     Quit,
+}
+
+/// Ajustement d'une image à l'écran.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Fit {
+    /// Image entière, bandes noires si besoin.
+    #[default]
+    Contain,
+    /// Remplit l'écran en recadrant.
+    Cover,
+    /// Remplit si le format est proche de celui de l'écran, sinon image entière.
+    Auto,
+}
+
+impl Fit {
+    pub const ALL: [Fit; 3] = [Fit::Contain, Fit::Cover, Fit::Auto];
+    pub fn label(self) -> &'static str {
+        match self {
+            Fit::Contain => "Image entière (bandes noires)",
+            Fit::Cover => "Remplir l'écran (recadrer)",
+            Fit::Auto => "Automatique",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -42,5 +73,7 @@ pub enum Event {
     Drops { dropped: i64, delayed: i64 },
     Ended,
     Idle,
+    /// Position dans le diaporama (index à partir de 0). `count` = 0 : diaporama terminé.
+    Slide { index: usize, count: usize, path: String },
     Error { message: String },
 }

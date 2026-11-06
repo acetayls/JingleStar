@@ -165,7 +165,7 @@ impl eframe::App for CueStarApp {
             .show(ui, |ui| self.status_bar(ui));
         egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(10)).show(ui, |ui| match self.tab {
             Tab::Lecteur => self.lecteur.ui(ui, &mut self.out, typing),
-            Tab::Diaporama => self.diaporama.ui(ui),
+            Tab::Diaporama => self.diaporama.ui(ui, &mut self.out, typing),
             Tab::Cuelist => self.cuelist.ui(ui),
         });
 
@@ -180,7 +180,7 @@ impl eframe::App for CueStarApp {
             self.lecteur.handle_drops(&ctx);
         }
 
-        let busy = self.out.state.current.is_some();
+        let busy = self.out.state.current.is_some() || self.out.state.slide.is_some();
         ctx.request_repaint_after(Duration::from_millis(if busy { 50 } else { 250 }));
     }
 
