@@ -121,13 +121,14 @@ impl CueStarApp {
     // ------------------------------------------------------------ projet
 
     fn snapshot(&self) -> Project {
-        Project { name: self.project_name.clone(), lecteur: self.lecteur.to_data(), diaporama: self.diaporama.to_data() }
+        Project { name: self.project_name.clone(), lecteur: self.lecteur.to_data(), diaporama: self.diaporama.to_data(), cuelist: self.cuelist.to_data() }
     }
 
     fn apply_project(&mut self, p: &Project) {
         self.project_name = p.name.clone();
         self.lecteur.load_data(&p.lecteur);
         self.diaporama.load_data(&p.diaporama);
+        self.cuelist.load_data(&p.cuelist);
         self.missing = p.clone().missing_files().len();
     }
 
@@ -308,6 +309,8 @@ impl CueStarApp {
                 self.out.send(Command::Stop);
             } else if let Some(cmd) = path.strip_prefix("lecteur/") {
                 self.lecteur.handle_osc(cmd, &m, &mut self.out);
+            } else if let Some(cmd) = path.strip_prefix("cuelist/") {
+                self.cuelist.handle_osc(cmd, &m, &mut self.out);
             } else if let Some(cmd) = path.strip_prefix("diaporama/") {
                 self.diaporama.handle_osc(cmd, &m, &mut self.out);
             }
@@ -618,7 +621,7 @@ impl eframe::App for CueStarApp {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(10)).show(ui, |ui| match self.tab {
             Tab::Lecteur => self.lecteur.ui(ui, &mut self.out, typing),
             Tab::Diaporama => self.diaporama.ui(ui, &mut self.out, typing),
-            Tab::Cuelist => self.cuelist.ui(ui),
+            Tab::Cuelist => self.cuelist.ui(ui, &mut self.out, typing),
         });
 
         self.monitor.show(&ctx, &mut self.out);
@@ -626,8 +629,10 @@ impl eframe::App for CueStarApp {
         if let output_view::Action::Restart = self.output_view.show(&ctx, &mut self.prefs, &mut self.out, &mut self.pattern) {
             self.restart_output();
         }
-        if self.tab == Tab::Lecteur {
-            self.lecteur.handle_drops(&ctx);
+        match self.tab {
+            Tab::Lecteur => self.lecteur.handle_drops(&ctx),
+            Tab::Cuelist => self.cuelist.handle_drops(&ctx),
+            Tab::Diaporama => {}
         }
 
         self.track_changes();

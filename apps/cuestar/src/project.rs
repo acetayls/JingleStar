@@ -15,6 +15,34 @@ pub struct Project {
     pub name: String,
     pub lecteur: LecteurData,
     pub diaporama: DiaporamaData,
+    pub cuelist: CuelistData,
+}
+
+/// Suite à donner à la fin d'un cue.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CueFollow {
+    /// On attend le prochain GO.
+    #[default]
+    Stop,
+    /// Le cue suivant part tout seul à la fin de celui-ci.
+    Continue,
+}
+
+/// Un cue de la conduite : un média (ou du noir si `path` est vide).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CueData {
+    pub name: String,
+    pub path: Option<PathBuf>,
+    pub looping: bool,
+    pub transition: crate::protocol::Transition,
+    pub follow: CueFollow,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CuelistData {
+    pub cues: Vec<CueData>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -119,7 +147,12 @@ impl Project {
 
     /// Chemins de tous les médias du projet.
     fn paths_mut(&mut self) -> impl Iterator<Item = &mut PathBuf> {
-        self.lecteur.items.iter_mut().map(|i| &mut i.path).chain(self.diaporama.folder.iter_mut())
+        self.lecteur
+            .items
+            .iter_mut()
+            .map(|i| &mut i.path)
+            .chain(self.diaporama.folder.iter_mut())
+            .chain(self.cuelist.cues.iter_mut().filter_map(|c| c.path.as_mut()))
     }
 
     /// Médias introuvables (sans doublon).
