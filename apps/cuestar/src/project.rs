@@ -16,6 +16,8 @@ pub struct Project {
     pub lecteur: LecteurData,
     pub diaporama: DiaporamaData,
     pub cuelist: CuelistData,
+    /// Module Texte : la conduite écrite (balisage léger de JingleStar).
+    pub notes: String,
 }
 
 /// Suite à donner à la fin d'un cue.

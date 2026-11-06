@@ -5,6 +5,7 @@ mod diaporama;
 mod dialogs;
 mod lecteur;
 mod monitor_view;
+mod notes;
 mod output_view;
 
 use crate::link::OutputLink;
@@ -62,6 +63,9 @@ pub struct CueStarApp {
     osc_draft: crate::osc::OscSettings,
     osc_open: bool,
     osc_last: Option<String>,
+    // ---- module Texte, sur le côté
+    notes: notes::NotesPanel,
+    show_notes: bool,
 }
 
 impl CueStarApp {
@@ -101,6 +105,8 @@ impl CueStarApp {
             osc_draft: crate::osc::OscSettings::load(),
             osc_open: false,
             osc_last: None,
+            notes: Default::default(),
+            show_notes: true,
         };
         // Session restaurée au lancement (copie datée gardée), comme JingleStar.
         if let Some(p) = app.autosave.clone() {
@@ -121,7 +127,7 @@ impl CueStarApp {
     // ------------------------------------------------------------ projet
 
     fn snapshot(&self) -> Project {
-        Project { name: self.project_name.clone(), lecteur: self.lecteur.to_data(), diaporama: self.diaporama.to_data(), cuelist: self.cuelist.to_data() }
+        Project { name: self.project_name.clone(), lecteur: self.lecteur.to_data(), diaporama: self.diaporama.to_data(), cuelist: self.cuelist.to_data(), notes: self.notes.text.clone() }
     }
 
     fn apply_project(&mut self, p: &Project) {
@@ -129,6 +135,7 @@ impl CueStarApp {
         self.lecteur.load_data(&p.lecteur);
         self.diaporama.load_data(&p.diaporama);
         self.cuelist.load_data(&p.cuelist);
+        self.notes.text = p.notes.clone();
         self.missing = p.clone().missing_files().len();
     }
 
@@ -199,6 +206,9 @@ impl CueStarApp {
         match pick {
             Pick::SaveProject => self.save_as(first),
             Pick::OpenProject => self.open_project(first),
+            Pick::NotesImport => match self.notes.import(&first) {
+                Ok(m) | Err(m) => self.status = Some(m),
+            },
             Pick::Relocate => {
                 let mut p = self.snapshot();
                 let fixed = p.relocate(&first);
@@ -474,6 +484,9 @@ impl CueStarApp {
                     self.out.send(Command::Stop);
                 }
                 ui.add_space(8.0);
+                if ui.selectable_label(self.show_notes, "Texte").on_hover_text("Module Texte : la conduite écrite, sur le côté").clicked() {
+                    self.show_notes = !self.show_notes;
+                }
                 if ui
                     .selectable_label(self.osc_open, "OSC")
                     .on_hover_text("Commande OSC : réglages et liste des adresses")
@@ -617,6 +630,28 @@ impl eframe::App for CueStarApp {
             .show(ui, |ui| self.status_bar(ui));
         if self.alert.is_some() || self.missing > 0 {
             egui::Panel::top("alerts").frame(egui::Frame::new()).show_separator_line(false).show(ui, |ui| self.alerts(ui));
+        }
+        if self.show_notes {
+            egui::Panel::right("texte")
+                .resizable(true)
+                .default_size(340.0)
+                .min_size(220.0)
+                .frame(egui::Frame::new().fill(PANEL).inner_margin(8))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("TEXTE").strong().color(ACCENT));
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if ui.small_button("✕").on_hover_text("Masquer le texte (bouton « Texte » en haut pour le réafficher)").clicked() {
+                                self.show_notes = false;
+                            }
+                        });
+                    });
+                    let area = ui.available_rect_before_wrap();
+                    self.notes.ui(ui, area);
+                });
+            if std::mem::take(&mut self.notes.import_requested) {
+                self.dialogs.show(&ctx, Pick::NotesImport, Kind::Text);
+            }
         }
         egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(10)).show(ui, |ui| match self.tab {
             Tab::Lecteur => self.lecteur.ui(ui, &mut self.out, typing),

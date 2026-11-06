@@ -13,11 +13,13 @@ pub enum Pick {
     SaveProject,
     OpenProject,
     Relocate,
+    NotesImport,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum Kind {
     Folder,
+    Text,
     OpenProject,
     SaveProject,
 }
@@ -49,6 +51,7 @@ impl Dialogs {
             let one = |f: Option<rfd::FileHandle>| f.map(|f| vec![f.path().to_path_buf()]).unwrap_or_default();
             let files = match kind {
                 Kind::Folder => one(block_on(rfd::AsyncFileDialog::new().pick_folder())),
+                Kind::Text => one(block_on(rfd::AsyncFileDialog::new().add_filter("Texte", &["txt", "md", "text"]).pick_file())),
                 Kind::OpenProject => one(block_on(rfd::AsyncFileDialog::new().add_filter("Projet CueStar", &[ext, "json"]).pick_file())),
                 Kind::SaveProject => {
                     one(block_on(rfd::AsyncFileDialog::new().add_filter("Projet CueStar", &[ext]).set_file_name(format!("projet.{ext}")).save_file()))
