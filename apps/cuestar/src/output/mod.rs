@@ -258,6 +258,7 @@ impl OutputApp {
         };
         let monitor = chosen.map(|m| describe(&m, &primary)).unwrap_or_default();
         emit(&Event::Ready { mpv: mpv_version, monitor, fullscreen, monitors: monitors.iter().map(|m| describe(m, &primary)).collect() });
+        self.emit_audio_devices();
         window.request_redraw();
         Ok(())
     }
@@ -285,6 +286,10 @@ impl OutputApp {
             p.decode.mpv_hwdec()
         };
         m.set_option("hwdec", hwdec)?;
+        if let Some(dev) = &p.audio_device {
+            let _ = m.set_option("audio-device", dev);
+        }
+        let _ = m.set_option("volume", &format!("{:.1}", p.volume.clamp(0.0, 100.0)));
         // Réglages « régie » : pas d'interface mpv, pas de clavier.
         for (k, v) in [
             ("terminal", "no"),
@@ -621,6 +626,22 @@ impl OutputApp {
                     Ok(())
                 }
             }
+            Command::SlideshowSettings { photo_seconds, looping, shuffle, video_sound } => {
+                if let Some(s) = &mut self.show {
+                    s.update(photo_seconds, looping, shuffle, video_sound);
+                    let video = s.current().map(slideshow::is_video).unwrap_or(false);
+                    if video {
+                        let _ = self.m().set_property("mute", if video_sound { "no" } else { "yes" });
+                    }
+                }
+                Ok(())
+            }
+            Command::AudioDevice { name } => {
+                // Les deux lecteurs changent de sortie son (le fondu enchaîné passe de l'un à l'autre).
+                let dev = name.as_deref().unwrap_or("auto").to_string();
+                let out = self.out();
+                (0..out.decks()).map(|i| out.deck(i).set_property("audio-device", &dev)).collect::<Result<Vec<_>, _>>().map(|_| ())
+            }
             Command::SetFit { fit } => {
                 if let Some(s) = &mut self.show {
                     s.fit = fit;
@@ -856,6 +877,20 @@ impl OutputApp {
         if interp {
             let _ = m.set_property("tscale", "oversample");
         }
+    }
+
+    /// Sorties audio vues par mpv, pour le choix dans la régie.
+    fn emit_audio_devices(&self) {
+        let Some(out) = &self.out else { return };
+        let list = out
+            .deck(0)
+            .get_property("audio-device-list")
+            .and_then(|s| serde_json::from_str::<Vec<serde_json::Value>>(&s).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|d| Some((d.get("name")?.as_str()?.to_string(), d.get("description").and_then(|x| x.as_str()).unwrap_or("").to_string())))
+            .collect();
+        emit(&Event::AudioDevices { list });
     }
 
     fn end_show(&mut self) {
@@ -1190,6 +1225,7 @@ pub fn run(prefs: MachinePrefs, monitor_port: Option<u16>) {
         })
         .ok();
 
+    let volume = prefs.volume.clamp(0.0, 100.0);
     let mut app = OutputApp {
         prefs,
         out: None,
@@ -1206,7 +1242,7 @@ pub fn run(prefs: MachinePrefs, monitor_port: Option<u16>) {
         xfade: None,
         warming: Vec::new(),
         skip_end: Vec::new(),
-        volume: 100.0,
+        volume,
         fade_level: 1.0,
         anim: None,
         pending: None,

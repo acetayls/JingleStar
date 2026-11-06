@@ -120,6 +120,10 @@ pub struct MachinePrefs {
     pub adapt_refresh: bool,
     /// Mapping 4 coins de l'image sur l'écran de sortie.
     pub warp: Warp,
+    /// Sortie audio (nom mpv `audio-device`) ; None = sortie par défaut du système.
+    pub audio_device: Option<String>,
+    /// Volume général de la sortie (0 à 100).
+    pub volume: f64,
 }
 
 /// Mapping 4 coins : position des coins de l'image (haut-gauche, haut-droit, bas-droit,
@@ -147,7 +151,7 @@ impl Default for Warp {
 
 impl Default for MachinePrefs {
     fn default() -> Self {
-        Self { decode: Decode::Auto, render: RenderApi::Auto, light: false, screen: None, windowed_if_single: true, cadence: Cadence::Auto, interpolation: false, adapt_refresh: false, warp: Warp::default() }
+        Self { decode: Decode::Auto, render: RenderApi::Auto, light: false, screen: None, windowed_if_single: true, cadence: Cadence::Auto, interpolation: false, adapt_refresh: false, warp: Warp::default(), audio_device: None, volume: 100.0 }
     }
 }
 
@@ -160,6 +164,8 @@ impl MachinePrefs {
     pub fn same_engine(&self, o: &Self) -> bool {
         let mut a = self.clone();
         a.warp = o.warp;
+        a.audio_device = o.audio_device.clone();
+        a.volume = o.volume;
         a == *o
     }
 

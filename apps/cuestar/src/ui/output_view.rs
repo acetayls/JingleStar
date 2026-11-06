@@ -99,6 +99,7 @@ impl OutputView {
                     action = Action::Restart;
                 }
                 self.patterns(&mut cols[0], out, pattern);
+                self.audio(&mut cols[0], prefs, out);
                 self.mapping(&mut cols[1], prefs, out, pattern, typing);
             });
         });
@@ -208,6 +209,49 @@ impl OutputView {
             });
         });
         restart
+    }
+
+    /// Sortie audio et volume général, appliqués tout de suite (sans relancer la sortie).
+    fn audio(&mut self, ui: &mut egui::Ui, prefs: &mut MachinePrefs, out: &mut OutputLink) {
+        section(ui, "Audio", |ui| {
+            let before = (prefs.audio_device.clone(), prefs.volume);
+            egui::Grid::new("audio").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
+                ui.label("Sortie audio");
+                let auto = "Par défaut du système";
+                let current = prefs
+                    .audio_device
+                    .as_ref()
+                    .map(|n| out.state.audio_devices.iter().find(|(d, _)| d == n).map(|(_, desc)| desc.clone()).unwrap_or_else(|| n.clone()))
+                    .unwrap_or_else(|| auto.into());
+                egui::ComboBox::from_id_salt("audio-dev").selected_text(current).width(280.0).show_ui(ui, |ui| {
+                    ui.selectable_value(&mut prefs.audio_device, None, auto);
+                    for (name, desc) in &out.state.audio_devices {
+                        if name == "auto" {
+                            continue;
+                        }
+                        let label = if desc.is_empty() { name.clone() } else { desc.clone() };
+                        ui.selectable_value(&mut prefs.audio_device, Some(name.clone()), label).on_hover_text(name);
+                    }
+                });
+                ui.end_row();
+                ui.label("Volume");
+                ui.add(egui::Slider::new(&mut prefs.volume, 0.0..=100.0).suffix(" %").step_by(1.0));
+                ui.end_row();
+            });
+            if out.state.audio_devices.is_empty() {
+                ui.label(RichText::new("La liste des sorties apparaît quand la sortie vidéo est prête.").color(TEXT_DIM));
+            }
+            ui.label(RichText::new("Carte son, HDMI de l'écran de sortie, interface Dante… S'applique tout de suite.").color(TEXT_DIM));
+            if (prefs.audio_device.clone(), prefs.volume) != before {
+                if prefs.audio_device != before.0 {
+                    out.send(Command::AudioDevice { name: prefs.audio_device.clone() });
+                }
+                if prefs.volume != before.1 {
+                    out.send(Command::Volume { value: prefs.volume });
+                }
+                prefs.save();
+            }
+        });
     }
 
     fn patterns(&mut self, ui: &mut egui::Ui, out: &mut OutputLink, pattern: &mut Option<PatternKind>) {

@@ -40,6 +40,8 @@ pub struct OutputState {
     /// Compteur de fins de média (le Lecteur enchaîne quand il change).
     pub ended: u64,
     pub video_fps: f64,
+    /// Sorties audio vues par mpv : (nom, description).
+    pub audio_devices: Vec<(String, String)>,
     pub display_fps: f64,
 }
 
@@ -189,6 +191,7 @@ impl OutputLink {
                     s.duration = 0.0;
                 }
                 Event::Error { message } => s.last_error = Some(message),
+                Event::AudioDevices { list } => s.audio_devices = list,
                 Event::Fps { video, display } => {
                     s.video_fps = video;
                     s.display_fps = display;
