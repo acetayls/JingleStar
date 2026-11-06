@@ -4,9 +4,11 @@
 //! directement au GPU. Les commandes arrivent sur l'entrée standard, les événements repartent
 //! sur la sortie standard (voir `protocol`). Une régie qui rame ne retarde aucune image.
 
-mod mpv;
+mod monitor;
+pub mod mpv;
 mod pattern;
 mod slideshow;
+pub mod warp;
 
 use crate::prefs::MachinePrefs;
 use crate::protocol::{Command, Event, Fit, Monitor};
@@ -62,6 +64,11 @@ struct OutputApp {
     surface: Option<softbuffer::Surface<Arc<Window>, Arc<Window>>>,
     pattern_on: bool,
     show: Option<Show>,
+    shaders: warp::ShaderFiles,
+    monitor_port: Option<u16>,
+    feed: Option<monitor::MonitorFeed>,
+    monitor_every: Option<Duration>,
+    monitor_next: Instant,
     duration: f64,
     last_pos: Instant,
     drops: (i64, i64),
@@ -175,6 +182,7 @@ impl OutputApp {
         m.set_wakeup(mpv_wakeup, &*self.proxy as *const EventLoopProxy<UserEv> as *mut c_void);
         let version = m.get_property("mpv-version").unwrap_or_else(|| format!("mpv (API {})", m.api_version()));
         self.mpv = Some(m);
+        self.apply_warp(self.prefs.warp.active());
         Ok(version)
     }
 
@@ -200,13 +208,28 @@ impl OutputApp {
             el.exit();
             return;
         }
-        if let Command::Pattern { on } = cmd {
+        if let Command::Monitor { fps } = cmd {
+            self.monitor_every = (fps > 0).then(|| Duration::from_secs_f64(1.0 / fps.min(30) as f64));
+            if fps > 0 && !self.feed.as_ref().is_some_and(|f| f.alive()) {
+                self.feed = self.monitor_port.map(monitor::MonitorFeed::connect);
+            }
+            self.monitor_next = Instant::now();
+            return;
+        }
+        if let Command::Warp { corners } = cmd {
+            self.apply_warp(corners);
+            return;
+        }
+        if let Command::Pattern { kind } = cmd {
             self.end_show();
-            self.pattern_on = on;
+            self.pattern_on = kind.is_some();
             if let Some(m) = &self.mpv {
-                let res = if on {
+                let res = if let Some(k) = kind {
                     let (w, h) = self.window.as_ref().map(|w| (w.inner_size().width, w.inner_size().height)).unwrap_or((1920, 1080));
-                    m.command(&["loadfile", &format!("av://lavfi:smptehdbars=size={w}x{h}"), "replace"])
+                    let _ = m.set_property("panscan", "0");
+                    let _ = m.set_property("loop-file", "no");
+                    let _ = m.set_property("pause", "no");
+                    m.command(&["loadfile", &k.lavfi(w, h), "replace"])
                 } else {
                     m.command(&["stop"])
                 };
@@ -223,12 +246,13 @@ impl OutputApp {
             return;
         }
         let res = match cmd {
-            Command::Load { path, paused } => {
+            Command::Load { path, paused, looping, hold } => {
                 self.end_show();
                 self.current = Some(path.clone());
                 let m = self.m();
                 // Lecteur : la dernière image reste à l'écran en fin de média.
-                let _ = m.set_property("keep-open", "yes");
+                let _ = m.set_property("keep-open", if hold { "yes" } else { "no" });
+                let _ = m.set_property("loop-file", if looping { "inf" } else { "no" });
                 let _ = m.set_property("panscan", "0");
                 let _ = m.set_property("mute", "no");
                 let _ = m.set_property("pause", if paused { "yes" } else { "no" });
@@ -289,7 +313,7 @@ impl OutputApp {
                 }
                 Ok(())
             }
-            Command::Pattern { .. } | Command::Quit => Ok(()),
+            Command::Pattern { .. } | Command::Warp { .. } | Command::Monitor { .. } | Command::Quit => Ok(()),
         };
         if let Err(e) = res {
             emit(&Event::Error { message: e });
@@ -298,6 +322,29 @@ impl OutputApp {
 
     fn m(&self) -> &Mpv {
         self.mpv.as_ref().expect("mpv chargé")
+    }
+
+    fn apply_warp(&mut self, corners: Option<[[f32; 2]; 4]>) {
+        let Some(m) = &self.mpv else { return };
+        let res = match corners.and_then(warp::shader) {
+            Some(src) => match self.shaders.write(&src) {
+                Ok(p) => m.set_property("glsl-shaders", &p.to_string_lossy()),
+                Err(e) => Err(format!("mapping 4 coins : {e}")),
+            },
+            None => m.set_property("glsl-shaders", ""),
+        };
+        if let Err(e) = res {
+            emit(&Event::Error { message: e });
+        }
+    }
+
+    /// Envoie une vignette de l'image en cours à la régie.
+    fn capture(&mut self) {
+        let Some(feed) = &mut self.feed else { return };
+        match self.mpv.as_ref().and_then(|m| m.screenshot_rgba()) {
+            Some((w, h, stride, px)) => feed.send(w, h, stride, &px),
+            None => feed.send_black(),
+        }
     }
 
     fn end_show(&mut self) {
@@ -314,6 +361,7 @@ impl OutputApp {
         let video = slideshow::is_video(&path);
         // Diaporama : une vidéo finie passe la main au média suivant.
         let _ = m.set_property("keep-open", "no");
+        let _ = m.set_property("loop-file", "no");
         let _ = m.set_property("mute", if video && !s.video_sound { "yes" } else { "no" });
         self.current = Some(path.clone());
         emit(&Event::Slide { index: s.pos, count: s.len(), path: path.clone() });
@@ -471,18 +519,27 @@ impl ApplicationHandler<UserEv> for OutputApp {
 
     /// Minutage des photos : on se réveille pile à l'échéance.
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
-        let due = self.show.as_ref().and_then(|s| s.deadline);
-        match due {
-            Some(d) if d <= Instant::now() => {
+        let now = Instant::now();
+        if let Some(d) = self.show.as_ref().and_then(|s| s.deadline) {
+            if d <= now {
                 if let Some(s) = &mut self.show {
                     s.deadline = None;
                 }
                 self.show_next();
-                el.set_control_flow(ControlFlow::Wait);
             }
-            Some(d) => el.set_control_flow(ControlFlow::WaitUntil(d)),
-            None => el.set_control_flow(ControlFlow::Wait),
         }
+        if let Some(every) = self.monitor_every {
+            if self.monitor_next <= now {
+                self.capture();
+                self.monitor_next = now + every;
+            }
+        }
+        // Prochain réveil : fin de photo ou prochaine vignette.
+        let next = [self.show.as_ref().and_then(|s| s.deadline), self.monitor_every.map(|_| self.monitor_next)].into_iter().flatten().min();
+        el.set_control_flow(match next {
+            Some(d) => ControlFlow::WaitUntil(d),
+            None => ControlFlow::Wait,
+        });
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -494,7 +551,7 @@ impl ApplicationHandler<UserEv> for OutputApp {
     }
 }
 
-pub fn run(prefs: MachinePrefs) {
+pub fn run(prefs: MachinePrefs, monitor_port: Option<u16>) {
     let event_loop = match EventLoop::<UserEv>::with_user_event().build() {
         Ok(e) => e,
         Err(e) => {
@@ -530,6 +587,11 @@ pub fn run(prefs: MachinePrefs) {
         surface: None,
         pattern_on: false,
         show: None,
+        shaders: warp::ShaderFiles::new(),
+        monitor_port,
+        feed: None,
+        monitor_every: None,
+        monitor_next: Instant::now(),
         duration: 0.0,
         last_pos: Instant::now(),
         drops: (0, 0),

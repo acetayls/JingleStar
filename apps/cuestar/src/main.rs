@@ -10,13 +10,21 @@ mod link;
 mod output;
 mod prefs;
 mod protocol;
+mod thumb;
 mod ui;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--output") {
         let cfg = args.get(2).and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default();
-        output::run(cfg);
+        let monitor_port = args.get(3).and_then(|s| s.parse().ok());
+        output::run(cfg, monitor_port);
+        return;
+    }
+    if args.get(1).map(String::as_str) == Some("--thumb") {
+        if let (Some(media), Some(dir)) = (args.get(2), args.get(3)) {
+            thumb::extract(media, dir);
+        }
         return;
     }
     let options = eframe::NativeOptions {

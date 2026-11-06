@@ -3,11 +3,12 @@
 mod cuelist;
 mod diaporama;
 mod lecteur;
-mod prefs_view;
+mod monitor_view;
+mod output_view;
 
 use crate::link::OutputLink;
 use crate::prefs::MachinePrefs;
-use crate::protocol::Command;
+use crate::protocol::{Command, PatternKind};
 use egui::{Align, Color32, Key, Layout, RichText};
 use star_commun::theme::{self, *};
 use star_commun::widgets;
@@ -18,6 +19,7 @@ enum Tab {
     Lecteur,
     Diaporama,
     Cuelist,
+    Output,
 }
 
 pub struct CueStarApp {
@@ -27,8 +29,9 @@ pub struct CueStarApp {
     lecteur: lecteur::Lecteur,
     diaporama: diaporama::Diaporama,
     cuelist: cuelist::Cuelist,
-    prefs_view: prefs_view::PrefsView,
-    pattern: bool,
+    output_view: output_view::OutputView,
+    monitor: monitor_view::MonitorView,
+    pattern: Option<PatternKind>,
     ctx: egui::Context,
 }
 
@@ -43,8 +46,9 @@ impl CueStarApp {
             lecteur: Default::default(),
             diaporama: Default::default(),
             cuelist: Default::default(),
-            prefs_view: Default::default(),
-            pattern: false,
+            output_view: Default::default(),
+            monitor: Default::default(),
+            pattern: None,
             ctx: cc.egui_ctx.clone(),
         };
         app.restart_output();
@@ -53,15 +57,17 @@ impl CueStarApp {
 
     fn restart_output(&mut self) {
         let ctx = self.ctx.clone();
-        self.pattern = false;
-        self.out.start(&self.prefs, move || ctx.request_repaint());
+        self.pattern = None;
+        self.out.start(&self.prefs, std::sync::Arc::new(move || ctx.request_repaint()));
+        self.monitor.sync(&mut self.out);
     }
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_centered(|ui| {
-            widgets::logo(ui, "Cue", 28.0);
+            widgets::logo_mark(ui, 26.0);
+            ui.label(RichText::new("CueStar").font(egui::FontId::new(24.0, logo_family())).color(TEXT));
             ui.add_space(18.0);
-            for (t, name) in [(Tab::Lecteur, "Lecteur"), (Tab::Diaporama, "Diaporama"), (Tab::Cuelist, "Cuelist")] {
+            for (t, name) in [(Tab::Lecteur, "Lecteur"), (Tab::Diaporama, "Diaporama"), (Tab::Cuelist, "Cuelist"), (Tab::Output, "Video output")] {
                 let sel = self.tab == t;
                 let txt = RichText::new(name).size(15.0).color(if sel { PLAYING_INK } else { TEXT });
                 let b = egui::Button::new(txt).fill(if sel { ACCENT } else { PANEL_HI }).min_size(egui::vec2(96.0, 30.0));
@@ -75,16 +81,20 @@ impl CueStarApp {
                     self.out.send(Command::Stop);
                 }
                 ui.add_space(8.0);
-                if ui.button("⚙ Préférences").clicked() {
-                    self.prefs_view.open(&self.prefs);
+                if ui
+                    .selectable_label(self.monitor.open, "Monitoring")
+                    .on_hover_text("Fenêtre flottante : retour de l'image envoyée sur la sortie")
+                    .clicked()
+                {
+                    self.monitor.toggle(&mut self.out);
                 }
                 if ui
-                    .selectable_label(self.pattern, "Mire")
+                    .selectable_label(self.pattern.is_some(), "Mire")
                     .on_hover_text("Affiche une mire sur l'écran de sortie pour le repérer et le régler")
                     .clicked()
                 {
-                    self.pattern = !self.pattern;
-                    self.out.send(Command::Pattern { on: self.pattern });
+                    self.pattern = if self.pattern.is_some() { None } else { Some(PatternKind::Bars) };
+                    self.out.send(Command::Pattern { kind: self.pattern });
                 }
                 ui.add_space(8.0);
                 self.output_badge(ui);
@@ -147,7 +157,7 @@ impl eframe::App for CueStarApp {
         self.out.poll();
         // Sans libmpv, la sortie démarre sur la mire : le bouton doit le refléter.
         if !had_mpv_report && self.out.state.mpv_missing.is_some() {
-            self.pattern = true;
+            self.pattern = Some(PatternKind::Bars);
         }
 
         let typing = ctx.egui_wants_keyboard_input();
@@ -163,19 +173,22 @@ impl eframe::App for CueStarApp {
             .exact_size(26.0)
             .frame(egui::Frame::new().fill(PANEL).inner_margin(egui::Margin::symmetric(12, 4)))
             .show(ui, |ui| self.status_bar(ui));
+        let mut restart = false;
         egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(10)).show(ui, |ui| match self.tab {
             Tab::Lecteur => self.lecteur.ui(ui, &mut self.out, typing),
             Tab::Diaporama => self.diaporama.ui(ui, &mut self.out, typing),
             Tab::Cuelist => self.cuelist.ui(ui),
-        });
-
-        if let Some(new_prefs) = self.prefs_view.show(&ctx, &self.out.state) {
-            if new_prefs != self.prefs {
-                self.prefs = new_prefs;
-                self.prefs.save();
-                self.restart_output();
+            Tab::Output => {
+                if let output_view::Action::Restart = self.output_view.ui(ui, &mut self.prefs, &mut self.out, &mut self.pattern, typing) {
+                    restart = true;
+                }
             }
+        });
+        if restart {
+            self.restart_output();
         }
+
+        self.monitor.show(&ctx, &mut self.out);
         if self.tab == Tab::Lecteur {
             self.lecteur.handle_drops(&ctx);
         }

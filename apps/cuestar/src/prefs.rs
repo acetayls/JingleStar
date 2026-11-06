@@ -91,11 +91,36 @@ pub struct MachinePrefs {
     pub windowed_if_single: bool,
     /// Synchronisation sur la fréquence de l'écran (lecture fluide à 50, 59,94, 60 Hz…).
     pub display_sync: bool,
+    /// Mapping 4 coins de l'image sur l'écran de sortie.
+    pub warp: Warp,
+}
+
+/// Mapping 4 coins : position des coins de l'image (haut-gauche, haut-droit, bas-droit,
+/// bas-gauche), en fraction de l'écran (0 à 1, origine en haut à gauche).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Warp {
+    pub enabled: bool,
+    pub corners: [[f32; 2]; 4],
+}
+
+impl Warp {
+    pub const IDENTITY: [[f32; 2]; 4] = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+    /// Coins à appliquer, ou None si le mapping est inactif ou neutre.
+    pub fn active(&self) -> Option<[[f32; 2]; 4]> {
+        (self.enabled && self.corners != Self::IDENTITY).then_some(self.corners)
+    }
+}
+
+impl Default for Warp {
+    fn default() -> Self {
+        Self { enabled: false, corners: Self::IDENTITY }
+    }
 }
 
 impl Default for MachinePrefs {
     fn default() -> Self {
-        Self { decode: Decode::Auto, render: RenderApi::Auto, light: false, screen: None, windowed_if_single: true, display_sync: true }
+        Self { decode: Decode::Auto, render: RenderApi::Auto, light: false, screen: None, windowed_if_single: true, display_sync: true, warp: Warp::default() }
     }
 }
 
@@ -104,6 +129,13 @@ fn path() -> Option<PathBuf> {
 }
 
 impl MachinePrefs {
+    /// Mêmes réglages de moteur (ceux qui demandent de relancer la sortie).
+    pub fn same_engine(&self, o: &Self) -> bool {
+        let mut a = self.clone();
+        a.warp = o.warp;
+        a == *o
+    }
+
     pub fn load() -> Self {
         path().and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
     }

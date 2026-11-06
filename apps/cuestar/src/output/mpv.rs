@@ -25,6 +25,29 @@ pub const FORMAT_DOUBLE: c_int = 5;
 pub const END_FILE_EOF: c_int = 0;
 pub const END_FILE_ERROR: c_int = 4;
 
+pub const FORMAT_NODE_MAP: c_int = 8;
+pub const FORMAT_BYTE_ARRAY: c_int = 9;
+
+#[repr(C)]
+pub struct Node {
+    /// Union C : chaîne, entier, double, liste ou tableau d'octets selon `format`.
+    pub u: u64,
+    pub format: c_int,
+}
+
+#[repr(C)]
+struct NodeList {
+    num: c_int,
+    values: *mut Node,
+    keys: *mut *mut c_char,
+}
+
+#[repr(C)]
+struct ByteArray {
+    data: *mut c_void,
+    size: usize,
+}
+
 #[repr(C)]
 pub struct RawEvent {
     pub event_id: c_int,
@@ -55,6 +78,8 @@ struct Api {
     set_property_string: unsafe extern "C" fn(Handle, *const c_char, *const c_char) -> c_int,
     get_property_string: unsafe extern "C" fn(Handle, *const c_char) -> *mut c_char,
     command: unsafe extern "C" fn(Handle, *const *const c_char) -> c_int,
+    command_ret: unsafe extern "C" fn(Handle, *const *const c_char, *mut Node) -> c_int,
+    free_node_contents: unsafe extern "C" fn(*mut Node),
     observe_property: unsafe extern "C" fn(Handle, u64, *const c_char, c_int) -> c_int,
     wait_event: unsafe extern "C" fn(Handle, f64) -> *mut RawEvent,
     set_wakeup_callback: unsafe extern "C" fn(Handle, Option<unsafe extern "C" fn(*mut c_void)>, *mut c_void),
@@ -86,8 +111,8 @@ fn candidates() -> Vec<PathBuf> {
             out.push(dir.join(n));
             out.push(dir.join("mpv").join(n));
         }
-        // En développement : `target/debug/` → racine du projet.
-        if let Some(root) = dir.parent().and_then(|p| p.parent()) {
+        // En développement : dossier `mpv/` à la racine du projet, quelques niveaux au-dessus de `target/…`.
+        for root in dir.ancestors().skip(1).take(4) {
             for n in names {
                 out.push(root.join("mpv").join(n));
             }
@@ -141,6 +166,8 @@ impl Mpv {
             set_property_string: sym!("mpv_set_property_string"),
             get_property_string: sym!("mpv_get_property_string"),
             command: sym!("mpv_command"),
+            command_ret: sym!("mpv_command_ret"),
+            free_node_contents: sym!("mpv_free_node_contents"),
             observe_property: sym!("mpv_observe_property"),
             wait_event: sym!("mpv_wait_event"),
             set_wakeup_callback: sym!("mpv_set_wakeup_callback"),
@@ -200,6 +227,43 @@ impl Mpv {
         self.check(unsafe { (self.api.command)(self.handle, ptrs.as_ptr()) }, args.first().copied().unwrap_or("commande"))
     }
 
+    /// Copie RGBA de l'image vidéo en cours (`screenshot-raw`) : (largeur, hauteur, pas, pixels).
+    pub fn screenshot_rgba(&self) -> Option<(usize, usize, usize, Vec<u8>)> {
+        let owned: Vec<CString> = ["screenshot-raw", "video", "rgba"].iter().map(|a| cstr(a)).collect();
+        let mut ptrs: Vec<*const c_char> = owned.iter().map(|c| c.as_ptr()).collect();
+        ptrs.push(std::ptr::null());
+        let mut node = Node { u: 0, format: 0 };
+        if unsafe { (self.api.command_ret)(self.handle, ptrs.as_ptr(), &mut node) } < 0 {
+            return None;
+        }
+        let mut out = None;
+        if node.format == FORMAT_NODE_MAP && node.u != 0 {
+            let list = unsafe { &*(node.u as *const NodeList) };
+            let (mut w, mut h, mut stride, mut data) = (0i64, 0i64, 0i64, None);
+            for i in 0..list.num.max(0) as usize {
+                let key = unsafe { CStr::from_ptr(*list.keys.add(i)) }.to_bytes();
+                let v = unsafe { &*list.values.add(i) };
+                match key {
+                    b"w" if v.format == FORMAT_INT64 => w = v.u as i64,
+                    b"h" if v.format == FORMAT_INT64 => h = v.u as i64,
+                    b"stride" if v.format == FORMAT_INT64 => stride = v.u as i64,
+                    b"data" if v.format == FORMAT_BYTE_ARRAY && v.u != 0 => {
+                        let ba = unsafe { &*(v.u as *const ByteArray) };
+                        data = Some(unsafe { std::slice::from_raw_parts(ba.data as *const u8, ba.size) }.to_vec());
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(d) = data {
+                if w > 0 && h > 0 && stride >= w * 4 && d.len() >= (stride * h) as usize {
+                    out = Some((w as usize, h as usize, stride as usize, d));
+                }
+            }
+        }
+        unsafe { (self.api.free_node_contents)(&mut node) };
+        out
+    }
+
     pub fn observe(&self, id: u64, name: &str, format: c_int) {
         let n = cstr(name);
         unsafe { (self.api.observe_property)(self.handle, id, n.as_ptr(), format) };
@@ -208,6 +272,12 @@ impl Mpv {
     /// Prochain événement en attente (timeout 0 : ne bloque pas). None quand la file est vide.
     pub fn next_event(&self) -> Option<&RawEvent> {
         let ev = unsafe { &*(self.api.wait_event)(self.handle, 0.0) };
+        (ev.event_id != EVENT_NONE).then_some(ev)
+    }
+
+    /// Attend un événement au plus `timeout` secondes.
+    pub fn wait_event(&self, timeout: f64) -> Option<&RawEvent> {
+        let ev = unsafe { &*(self.api.wait_event)(self.handle, timeout) };
         (ev.event_id != EVENT_NONE).then_some(ev)
     }
 

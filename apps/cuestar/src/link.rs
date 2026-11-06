@@ -4,7 +4,18 @@ use crate::prefs::MachinePrefs;
 use crate::protocol::{Command, Event, Monitor};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Stdio};
+use std::net::TcpListener;
 use std::sync::mpsc::{channel, Receiver};
+use std::sync::{Arc, Mutex};
+
+/// Vignette de monitoring : largeur, hauteur, pixels RGBA, numéro d'image.
+#[derive(Default)]
+pub struct MonitorFrame {
+    pub w: usize,
+    pub h: usize,
+    pub rgba: Vec<u8>,
+    pub serial: u64,
+}
 
 /// État de la sortie tel que la régie le connaît.
 #[derive(Default, Clone)]
@@ -26,6 +37,8 @@ pub struct OutputState {
     pub last_error: Option<String>,
     /// Diaporama en cours : (index, nombre, chemin).
     pub slide: Option<(usize, usize, String)>,
+    /// Compteur de fins de média (le Lecteur enchaîne quand il change).
+    pub ended: u64,
 }
 
 pub struct OutputLink {
@@ -33,15 +46,17 @@ pub struct OutputLink {
     stdin: Option<ChildStdin>,
     rx: Option<Receiver<Option<Event>>>,
     pub state: OutputState,
+    /// Dernière vignette reçue de la sortie.
+    pub monitor: Arc<Mutex<MonitorFrame>>,
 }
 
 impl OutputLink {
     pub fn new() -> Self {
-        Self { child: None, stdin: None, rx: None, state: OutputState::default() }
+        Self { child: None, stdin: None, rx: None, state: OutputState::default(), monitor: Arc::new(Mutex::new(MonitorFrame::default())) }
     }
 
     /// (Re)lance le moteur de sortie avec les préférences de la machine.
-    pub fn start(&mut self, prefs: &MachinePrefs, repaint: impl Fn() + Send + 'static) {
+    pub fn start(&mut self, prefs: &MachinePrefs, repaint: Arc<dyn Fn() + Send + Sync>) {
         self.stop();
         let exe = match std::env::current_exe() {
             Ok(e) => e,
@@ -52,6 +67,18 @@ impl OutputLink {
         };
         let mut cmd = std::process::Command::new(exe);
         cmd.arg("--output").arg(serde_json::to_string(prefs).unwrap_or_default());
+        // Canal du monitoring : la sortie s'y connecte quand la régie demande des vignettes.
+        if let Ok(listener) = TcpListener::bind(("127.0.0.1", 0)) {
+            if let Ok(addr) = listener.local_addr() {
+                cmd.arg(addr.port().to_string());
+                let frame = self.monitor.clone();
+                let repaint = repaint.clone();
+                std::thread::Builder::new()
+                    .name("monitoring".into())
+                    .spawn(move || monitor_reader(listener, frame, repaint))
+                    .ok();
+            }
+        }
         cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
         #[cfg(windows)]
         {
@@ -152,6 +179,9 @@ impl OutputLink {
                     s.delayed = delayed;
                 }
                 Event::Ended | Event::Idle => {
+                    if matches!(ev, Event::Ended) {
+                        s.ended += 1;
+                    }
                     s.current = None;
                     s.time = 0.0;
                     s.duration = 0.0;
@@ -169,6 +199,31 @@ impl OutputLink {
             self.state.running = false;
             self.state.ready = false;
         }
+    }
+}
+
+fn monitor_reader(listener: TcpListener, frame: Arc<Mutex<MonitorFrame>>, repaint: Arc<dyn Fn() + Send + Sync>) {
+    use std::io::Read;
+    // Une seule connexion par sortie lancée ; elle se ferme avec la sortie.
+    let Ok((mut s, _)) = listener.accept() else { return };
+    let mut head = [0u8; 8];
+    while s.read_exact(&mut head).is_ok() {
+        let w = u32::from_le_bytes(head[0..4].try_into().unwrap()) as usize;
+        let h = u32::from_le_bytes(head[4..8].try_into().unwrap()) as usize;
+        if w == 0 || h == 0 || w * h > 4096 * 4096 {
+            return;
+        }
+        let mut px = vec![0u8; w * h * 4];
+        if s.read_exact(&mut px).is_err() {
+            return;
+        }
+        if let Ok(mut f) = frame.lock() {
+            f.w = w;
+            f.h = h;
+            f.rgba = px;
+            f.serial += 1;
+        }
+        repaint();
     }
 }
 
