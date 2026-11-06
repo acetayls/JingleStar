@@ -1,0 +1,64 @@
+{
+  "console": {
+    "enabled": true,
+    "host": "10.0.0.2",
+    "port": 49281
+  },
+  "m32": {
+    "enabled": true,
+    "host": "10.0.0.3",
+    "port": 10024
+  },
+  "mappings": [
+    {
+      "action": "cue_go",
+      "trigger": {
+        "channel": 1,
+        "note": 60,
+        "source": "note"
+      }
+    },
+    {
+      "action": "lecteur_pause",
+      "trigger": {
+        "cc": 7,
+        "channel": 2,
+        "source": "cc"
+      }
+    },
+    {
+      "action": "lecteur_item",
+      "trigger": {
+        "channel": 1,
+        "program": 5,
+        "source": "program"
+      }
+    },
+    {
+      "action": "black",
+      "trigger": {
+        "address": "MIXER:Current/InCh/Fader/On",
+        "source": "console",
+        "x": 3,
+        "y": 0
+      }
+    },
+    {
+      "action": "diaporama_play",
+      "trigger": {
+        "number": 12,
+        "source": "scene"
+      }
+    },
+    {
+      "action": "lecteur_go",
+      "trigger": {
+        "source": "unset"
+      }
+    }
+  ],
+  "midi": {
+    "enabled": true,
+    "port": "nanoKONTROL"
+  }
+}

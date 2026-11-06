@@ -1,0 +1,55 @@
+{
+  "cuelist": {
+    "cues": [
+      {
+        "follow": "Continue",
+        "looping": false,
+        "name": "Ouverture",
+        "path": "/v/ouverture.mov",
+        "transition": {
+          "kind": "Crossfade",
+          "secs": 2.0
+        }
+      },
+      {
+        "follow": "Stop",
+        "looping": true,
+        "name": "Noir",
+        "path": null,
+        "transition": {
+          "kind": "Black",
+          "secs": 1.0
+        }
+      }
+    ]
+  },
+  "diaporama": {
+    "fit": "Cover",
+    "folder": "/photos",
+    "looping": false,
+    "photo_seconds": 7.5,
+    "recursive": false,
+    "shuffle": true,
+    "video_sound": true
+  },
+  "lecteur": {
+    "items": [
+      {
+        "looping": true,
+        "path": "/v/intro.mp4"
+      },
+      {
+        "looping": false,
+        "path": "/v/logo.png"
+      }
+    ],
+    "loop_all": true,
+    "shuffle": true,
+    "transition": {
+      "kind": "Crossfade",
+      "secs": 2.0
+    }
+  },
+  "name": "Gala",
+  "notes": "**Acte 1**\nTop vidéo"
+}

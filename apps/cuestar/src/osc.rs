@@ -25,7 +25,7 @@ impl Default for OscSettings {
     }
 }
 
-fn settings_path() -> Option<std::path::PathBuf> {
+pub(crate) fn settings_path() -> Option<std::path::PathBuf> {
     directories::ProjectDirs::from("com", "acetayls", "CueStar").map(|d| d.config_dir().join("osc.json"))
 }
 

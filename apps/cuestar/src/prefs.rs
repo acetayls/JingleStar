@@ -155,7 +155,7 @@ impl Default for MachinePrefs {
     }
 }
 
-fn path() -> Option<PathBuf> {
+pub(crate) fn path() -> Option<PathBuf> {
     directories::ProjectDirs::from("com", "acetayls", "CueStar").map(|d| d.config_dir().join("machine.json"))
 }
 

@@ -707,6 +707,97 @@ pub fn autosave_path() -> Option<PathBuf> {
 }
 
 #[cfg(test)]
+pub(crate) mod golden {
+    //! Fichiers de référence : un projet et des préférences écrits par JingleStar 0.1.4.
+    //! Ils doivent toujours se relire et se réécrire à l'identique (format stable).
+    //! `STAR_UPDATE_FIXTURES=1 cargo test` les régénère : à ne faire que pour un changement
+    //! de format voulu.
+    use super::*;
+    use crate::remote::{ActionKind, Mapping, Trigger};
+
+    pub fn check(name: &str, value: serde_json::Value) {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name);
+        if std::env::var_os("STAR_UPDATE_FIXTURES").is_some() {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, serde_json::to_string_pretty(&value).unwrap() + "\n").unwrap();
+        }
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let expected: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value, expected, "format de {name} modifié");
+    }
+
+    /// Projet où chaque sorte de réglage a une valeur autre que celle par défaut.
+    pub fn sample_project() -> Project {
+        let mut p = Project { name: "Gala".into(), module_count: 4, ..Project::default() };
+        p.audio = AudioSettings { host: Some("ASIO".into()), device: Some("Carte".into()), buffer_size: Some(256) };
+        let m = &mut p.modules[0];
+        m.volume_db = -3.0;
+        m.output_pair = 1;
+        m.width = 1.5;
+        m.eq.low_cut.on = true;
+        m.eq.peak1.gain_db = 2.5;
+        let mut j = JingleSlot::new("/sons/applause.wav".into(), "Applaudissements".into(), DEFAULT_COLORS[2]);
+        j.hotkey = Some("F1".into());
+        j.sound = SoundSettings { volume_db: -6.0, looping: true, start: 0.5, end: Some(12.0), loop_start: Some(1.0), loop_end: Some(10.0), fade_in: 0.2, fade_out: 1.5, eq: EqSettings::default() };
+        m.jingles[3] = Some(j);
+        let m = &mut p.modules[1];
+        m.mode = ModuleMode::Playlist;
+        m.playlist.folder = Some("/musique".into());
+        m.playlist.tracks = vec!["/musique/01.mp3".into(), "/musique/02.flac".into()];
+        m.playlist.looping = true;
+        m.playlist.shuffle = true;
+        m.playlist.transition = Transition::Crossfade;
+        m.playlist.crossfade_secs = 4.0;
+        m.playlist.normalize.enabled = true;
+        m.playlist.manual_gains.insert("/musique/01.mp3".into(), -2.0);
+        let m = &mut p.modules[2];
+        m.mode = ModuleMode::Text;
+        m.notes = "**1.** Ouverture\n2. Entracte".into();
+        m.notes_zoom = 1.4;
+        let m = &mut p.modules[3];
+        m.mode = ModuleMode::Go;
+        m.cues = vec![Cue::new("/sons/top.wav".into()), Cue { follow: CueFollow::Continue, ..Cue::new("/sons/suite.wav".into()) }];
+        let pr = &mut p.preferences;
+        pr.prevent_sleep = false;
+        pr.language = Lang::En;
+        pr.osc = OscSettings { enabled: true, port: 9100, prefix: "/js".into(), oscquery: false, oscquery_port: 9101, zeroconf: false, name: "Régie".into() };
+        pr.midi = MidiSettings { enabled: true, port: Some("nanoKONTROL".into()) };
+        pr.console = ConsoleSettings { enabled: true, host: "10.0.0.2".into(), port: 49281 };
+        pr.m32 = M32Settings { enabled: true, host: "10.0.0.3".into(), port: 10024 };
+        pr.escape_stops_playlist = true;
+        pr.double_go_ms = 450;
+        pr.memory_warn_mb = 2000;
+        pr.mappings = vec![
+            Mapping { trigger: Trigger::Note { channel: 1, note: 60 }, action: ActionKind::JingleToggle, module: 0, jingle: 3 },
+            Mapping { trigger: Trigger::Cc { channel: 2, cc: 7 }, action: ActionKind::ModuleVolume, module: 1, jingle: 0 },
+            Mapping { trigger: Trigger::Program { channel: 1, program: 5 }, action: ActionKind::PlaylistTrack, module: 1, jingle: 0 },
+            Mapping { trigger: Trigger::Console { address: "MIXER:Current/InCh/Fader/On".into(), x: 3, y: 0 }, action: ActionKind::CueGo, module: 3, jingle: 0 },
+            Mapping { trigger: Trigger::Scene { number: 12 }, action: ActionKind::StopAll, module: 0, jingle: 0 },
+            Mapping::default(),
+        ];
+        p
+    }
+
+    #[test]
+    fn project_format_is_stable() {
+        let p = sample_project();
+        check("projet-0.1.4.jinglestar", serde_json::to_value(&p).unwrap());
+        // Relu par le vrai chargement (normalisation, garde-fous), puis réécrit : identique.
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/projet-0.1.4.jinglestar");
+        let back = Project::load(&path).unwrap();
+        check("projet-0.1.4.jinglestar", serde_json::to_value(&back).unwrap());
+    }
+
+    #[test]
+    fn config_paths_are_stable() {
+        let d = directories::ProjectDirs::from("com", "acetayls", "JingleStar").unwrap();
+        assert_eq!(autosave_path().unwrap(), d.config_dir().join("session.json"));
+        assert_eq!(loudness_cache_path().unwrap(), d.cache_dir().join("loudness.json"));
+        assert_eq!(crate::log::log_path().unwrap(), d.config_dir().join("jinglestar.log"));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -366,6 +366,107 @@ pub fn remember_project_path(p: Option<&Path>) {
 }
 
 #[cfg(test)]
+mod golden {
+    //! Fichiers de référence écrits par CueStar avant la mise en commun du code : ils doivent
+    //! toujours se relire et se réécrire à l'identique (format stable).
+    //! `STAR_UPDATE_FIXTURES=1 cargo test` les régénère : seulement pour un changement voulu.
+    use super::*;
+    use crate::protocol::{Transition, TransitionKind};
+    use crate::remote::{ActionKind, ConsoleSettings, M32Settings, Mapping, MidiSettings, RemoteSettings, Trigger};
+
+    fn check(name: &str, value: serde_json::Value) {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name);
+        if std::env::var_os("STAR_UPDATE_FIXTURES").is_some() {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, serde_json::to_string_pretty(&value).unwrap() + "\n").unwrap();
+        }
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let expected: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value, expected, "format de {name} modifié");
+    }
+
+    fn fixture(name: &str) -> String {
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)).unwrap()
+    }
+
+    #[test]
+    fn project_format_is_stable() {
+        let fade = Transition { kind: TransitionKind::Crossfade, secs: 2.0 };
+        let p = Project {
+            name: "Gala".into(),
+            lecteur: LecteurData {
+                items: vec![LecteurItem { path: "/v/intro.mp4".into(), looping: true }, LecteurItem { path: "/v/logo.png".into(), looping: false }],
+                loop_all: true,
+                shuffle: true,
+                transition: fade,
+            },
+            diaporama: DiaporamaData { folder: Some("/photos".into()), recursive: false, shuffle: true, looping: false, photo_seconds: 7.5, fit: Fit::Cover, video_sound: true },
+            cuelist: CuelistData {
+                cues: vec![
+                    CueData { name: "Ouverture".into(), path: Some("/v/ouverture.mov".into()), looping: false, transition: fade, follow: CueFollow::Continue },
+                    CueData { name: "Noir".into(), path: None, looping: true, transition: Transition { kind: TransitionKind::Black, secs: 1.0 }, follow: CueFollow::Stop },
+                ],
+            },
+            notes: "**Acte 1**\nTop vidéo".into(),
+        };
+        check("projet-0.0.1.cuestar", serde_json::to_value(&p).unwrap());
+        let back = Project::load(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/projet-0.0.1.cuestar")).unwrap();
+        assert_eq!(back, p);
+    }
+
+    #[test]
+    fn machine_prefs_format_is_stable() {
+        use crate::prefs::*;
+        let m = MachinePrefs {
+            decode: Decode::Cpu,
+            render: RenderApi::OpenGL,
+            light: true,
+            screen: Some("DELL U2720Q".into()),
+            windowed_if_single: false,
+            cadence: Cadence::Resample,
+            interpolation: true,
+            adapt_refresh: true,
+            warp: Warp { enabled: true, corners: [[0.1, 0.0], [0.9, 0.05], [1.0, 1.0], [0.0, 0.95]] },
+            audio_device: Some("wasapi/Haut-parleurs".into()),
+            volume: 80.0,
+        };
+        check("machine-0.0.1.json", serde_json::to_value(&m).unwrap());
+        assert_eq!(serde_json::from_str::<MachinePrefs>(&fixture("machine-0.0.1.json")).unwrap(), m);
+    }
+
+    #[test]
+    fn remote_and_osc_format_is_stable() {
+        let r = RemoteSettings {
+            midi: MidiSettings { enabled: true, port: Some("nanoKONTROL".into()) },
+            console: ConsoleSettings { enabled: true, host: "10.0.0.2".into(), port: 49281 },
+            m32: M32Settings { enabled: true, host: "10.0.0.3".into(), port: 10024 },
+            mappings: vec![
+                Mapping { trigger: Trigger::Note { channel: 1, note: 60 }, action: ActionKind::CueGo },
+                Mapping { trigger: Trigger::Cc { channel: 2, cc: 7 }, action: ActionKind::LecteurPause },
+                Mapping { trigger: Trigger::Program { channel: 1, program: 5 }, action: ActionKind::LecteurItem },
+                Mapping { trigger: Trigger::Console { address: "MIXER:Current/InCh/Fader/On".into(), x: 3, y: 0 }, action: ActionKind::Black },
+                Mapping { trigger: Trigger::Scene { number: 12 }, action: ActionKind::DiaporamaPlay },
+                Mapping::default(),
+            ],
+        };
+        check("remote-0.0.1.json", serde_json::to_value(&r).unwrap());
+        assert_eq!(serde_json::from_str::<RemoteSettings>(&fixture("remote-0.0.1.json")).unwrap(), r);
+        let o = crate::osc::OscSettings { enabled: true, port: 9100, network: true, prefix: "/diaporama".into() };
+        check("osc-0.0.1.json", serde_json::to_value(&o).unwrap());
+        assert_eq!(serde_json::from_str::<crate::osc::OscSettings>(&fixture("osc-0.0.1.json")).unwrap(), o);
+    }
+
+    #[test]
+    fn config_paths_are_stable() {
+        let d = directories::ProjectDirs::from("com", "acetayls", "CueStar").unwrap();
+        assert_eq!(autosave_path().unwrap(), d.config_dir().join("session.json"));
+        assert_eq!(crate::prefs::path().unwrap(), d.config_dir().join("machine.json"));
+        assert_eq!(crate::remote::settings_path().unwrap(), d.config_dir().join("remote.json"));
+        assert_eq!(crate::osc::settings_path().unwrap(), d.config_dir().join("osc.json"));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

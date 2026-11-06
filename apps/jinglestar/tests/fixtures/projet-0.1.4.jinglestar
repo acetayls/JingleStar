@@ -1,0 +1,561 @@
+{
+  "audio": {
+    "buffer_size": 256,
+    "device": "Carte",
+    "host": "ASIO"
+  },
+  "module_count": 4,
+  "modules": [
+    {
+      "cues": [],
+      "eq": {
+        "enabled": true,
+        "high_shelf": {
+          "freq": 8000.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 0.7071067690849304
+        },
+        "low_cut": {
+          "freq": 80.0,
+          "gain_db": 0.0,
+          "on": true,
+          "q": 0.7071067690849304
+        },
+        "low_cut_slope": "12",
+        "low_shelf": {
+          "freq": 150.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 0.7071067690849304
+        },
+        "peak1": {
+          "freq": 400.0,
+          "gain_db": 2.5,
+          "on": false,
+          "q": 1.0
+        },
+        "peak2": {
+          "freq": 2500.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 1.0
+        }
+      },
+      "jingles": [
+        null,
+        null,
+        null,
+        {
+          "color": [
+            230,
+            180,
+            50
+          ],
+          "end": 12.0,
+          "eq": {
+            "enabled": true,
+            "high_shelf": {
+              "freq": 8000.0,
+              "gain_db": 0.0,
+              "on": false,
+              "q": 0.7071067690849304
+            },
+            "low_cut": {
+              "freq": 80.0,
+              "gain_db": 0.0,
+              "on": false,
+              "q": 0.7071067690849304
+            },
+            "low_cut_slope": "12",
+            "low_shelf": {
+              "freq": 150.0,
+              "gain_db": 0.0,
+              "on": false,
+              "q": 0.7071067690849304
+            },
+            "peak1": {
+              "freq": 400.0,
+              "gain_db": 0.0,
+              "on": false,
+              "q": 1.0
+            },
+            "peak2": {
+              "freq": 2500.0,
+              "gain_db": 0.0,
+              "on": false,
+              "q": 1.0
+            }
+          },
+          "fade_in": 0.2,
+          "fade_out": 1.5,
+          "hotkey": "F1",
+          "loop_end": 10.0,
+          "loop_start": 1.0,
+          "looping": true,
+          "name": "Applaudissements",
+          "path": "/sons/applause.wav",
+          "start": 0.5,
+          "volume_db": -6.0
+        },
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "mode": "jingle",
+      "name": "Module 1",
+      "notes": "",
+      "notes_zoom": 1.0,
+      "output_pair": 1,
+      "playlist": {
+        "crossfade_secs": 3.0,
+        "folder": null,
+        "looping": false,
+        "manual_gains": {},
+        "normalize": {
+          "ceiling": -1.0,
+          "enabled": false,
+          "limit": true,
+          "mode": "lufs",
+          "target_lufs": -16.0,
+          "target_peak": -1.0,
+          "target_rms": -18.0,
+          "target_true_peak": -1.0
+        },
+        "shuffle": false,
+        "tracks": [],
+        "transition": "gapless"
+      },
+      "volume_db": -3.0,
+      "width": 1.5
+    },
+    {
+      "cues": [],
+      "eq": {
+        "enabled": true,
+        "high_shelf": {
+          "freq": 8000.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 0.7071067690849304
+        },
+        "low_cut": {
+          "freq": 80.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 0.7071067690849304
+        },
+        "low_cut_slope": "12",
+        "low_shelf": {
+          "freq": 150.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 0.7071067690849304
+        },
+        "peak1": {
+          "freq": 400.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 1.0
+        },
+        "peak2": {
+          "freq": 2500.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 1.0
+        }
+      },
+      "jingles": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "mode": "playlist",
+      "name": "Module 2",
+      "notes": "",
+      "notes_zoom": 1.0,
+      "output_pair": 0,
+      "playlist": {
+        "crossfade_secs": 4.0,
+        "folder": "/musique",
+        "looping": true,
+        "manual_gains": {
+          "/musique/01.mp3": -2.0
+        },
+        "normalize": {
+          "ceiling": -1.0,
+          "enabled": true,
+          "limit": true,
+          "mode": "lufs",
+          "target_lufs": -16.0,
+          "target_peak": -1.0,
+          "target_rms": -18.0,
+          "target_true_peak": -1.0
+        },
+        "shuffle": true,
+        "tracks": [
+          "/musique/01.mp3",
+          "/musique/02.flac"
+        ],
+        "transition": "crossfade"
+      },
+      "volume_db": 0.0,
+      "width": 1.0
+    },
+    {
+      "cues": [],
+      "eq": {
+        "enabled": true,
+        "high_shelf": {
+          "freq": 8000.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 0.7071067690849304
+        },
+        "low_cut": {
+          "freq": 80.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 0.7071067690849304
+        },
+        "low_cut_slope": "12",
+        "low_shelf": {
+          "freq": 150.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 0.7071067690849304
+        },
+        "peak1": {
+          "freq": 400.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 1.0
+        },
+        "peak2": {
+          "freq": 2500.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 1.0
+        }
+      },
+      "jingles": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "mode": "text",
+      "name": "Module 3",
+      "notes": "**1.** Ouverture\n2. Entracte",
+      "notes_zoom": 1.399999976158142,
+      "output_pair": 0,
+      "playlist": {
+        "crossfade_secs": 3.0,
+        "folder": null,
+        "looping": false,
+        "manual_gains": {},
+        "normalize": {
+          "ceiling": -1.0,
+          "enabled": false,
+          "limit": true,
+          "mode": "lufs",
+          "target_lufs": -16.0,
+          "target_peak": -1.0,
+          "target_rms": -18.0,
+          "target_true_peak": -1.0
+        },
+        "shuffle": false,
+        "tracks": [],
+        "transition": "gapless"
+      },
+      "volume_db": 0.0,
+      "width": 1.0
+    },
+    {
+      "cues": [
+        {
+          "end": null,
+          "eq": {
+            "enabled": true,
+            "high_shelf": {
+              "freq": 8000.0,
+              "gain_db": 0.0,
+              "on": false,
+              "q": 0.7071067690849304
+            },
+            "low_cut": {
+              "freq": 80.0,
+              "gain_db": 0.0,
+              "on": false,
+              "q": 0.7071067690849304
+            },
+            "low_cut_slope": "12",
+            "low_shelf": {
+              "freq": 150.0,
+              "gain_db": 0.0,
+              "on": false,
+              "q": 0.7071067690849304
+            },
+            "peak1": {
+              "freq": 400.0,
+              "gain_db": 0.0,
+              "on": false,
+              "q": 1.0
+            },
+            "peak2": {
+              "freq": 2500.0,
+              "gain_db": 0.0,
+              "on": false,
+              "q": 1.0
+            }
+          },
+          "fade_in": 0.0,
+          "fade_out": 0.0,
+          "follow": "stop",
+          "loop_end": null,
+          "loop_start": null,
+          "looping": false,
+          "name": "top",
+          "path": "/sons/top.wav",
+          "start": 0.0,
+          "volume_db": 0.0
+        },
+        {
+          "end": null,
+          "eq": {
+            "enabled": true,
+            "high_shelf": {
+              "freq": 8000.0,
+              "gain_db": 0.0,
+              "on": false,
+              "q": 0.7071067690849304
+            },
+            "low_cut": {
+              "freq": 80.0,
+              "gain_db": 0.0,
+              "on": false,
+              "q": 0.7071067690849304
+            },
+            "low_cut_slope": "12",
+            "low_shelf": {
+              "freq": 150.0,
+              "gain_db": 0.0,
+              "on": false,
+              "q": 0.7071067690849304
+            },
+            "peak1": {
+              "freq": 400.0,
+              "gain_db": 0.0,
+              "on": false,
+              "q": 1.0
+            },
+            "peak2": {
+              "freq": 2500.0,
+              "gain_db": 0.0,
+              "on": false,
+              "q": 1.0
+            }
+          },
+          "fade_in": 0.0,
+          "fade_out": 0.0,
+          "follow": "continue",
+          "loop_end": null,
+          "loop_start": null,
+          "looping": false,
+          "name": "suite",
+          "path": "/sons/suite.wav",
+          "start": 0.0,
+          "volume_db": 0.0
+        }
+      ],
+      "eq": {
+        "enabled": true,
+        "high_shelf": {
+          "freq": 8000.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 0.7071067690849304
+        },
+        "low_cut": {
+          "freq": 80.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 0.7071067690849304
+        },
+        "low_cut_slope": "12",
+        "low_shelf": {
+          "freq": 150.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 0.7071067690849304
+        },
+        "peak1": {
+          "freq": 400.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 1.0
+        },
+        "peak2": {
+          "freq": 2500.0,
+          "gain_db": 0.0,
+          "on": false,
+          "q": 1.0
+        }
+      },
+      "jingles": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "mode": "go",
+      "name": "Module 4",
+      "notes": "",
+      "notes_zoom": 1.0,
+      "output_pair": 0,
+      "playlist": {
+        "crossfade_secs": 3.0,
+        "folder": null,
+        "looping": false,
+        "manual_gains": {},
+        "normalize": {
+          "ceiling": -1.0,
+          "enabled": false,
+          "limit": true,
+          "mode": "lufs",
+          "target_lufs": -16.0,
+          "target_peak": -1.0,
+          "target_rms": -18.0,
+          "target_true_peak": -1.0
+        },
+        "shuffle": false,
+        "tracks": [],
+        "transition": "gapless"
+      },
+      "volume_db": 0.0,
+      "width": 1.0
+    }
+  ],
+  "name": "Gala",
+  "preferences": {
+    "console": {
+      "enabled": true,
+      "host": "10.0.0.2",
+      "port": 49281
+    },
+    "double_go_ms": 450,
+    "escape_stops_playlist": true,
+    "language": "en",
+    "m32": {
+      "enabled": true,
+      "host": "10.0.0.3",
+      "port": 10024
+    },
+    "mappings": [
+      {
+        "action": "jingle_toggle",
+        "jingle": 3,
+        "module": 0,
+        "trigger": {
+          "channel": 1,
+          "note": 60,
+          "source": "note"
+        }
+      },
+      {
+        "action": "module_volume",
+        "jingle": 0,
+        "module": 1,
+        "trigger": {
+          "cc": 7,
+          "channel": 2,
+          "source": "cc"
+        }
+      },
+      {
+        "action": "playlist_track",
+        "jingle": 0,
+        "module": 1,
+        "trigger": {
+          "channel": 1,
+          "program": 5,
+          "source": "program"
+        }
+      },
+      {
+        "action": "cue_go",
+        "jingle": 0,
+        "module": 3,
+        "trigger": {
+          "address": "MIXER:Current/InCh/Fader/On",
+          "source": "console",
+          "x": 3,
+          "y": 0
+        }
+      },
+      {
+        "action": "stop_all",
+        "jingle": 0,
+        "module": 0,
+        "trigger": {
+          "number": 12,
+          "source": "scene"
+        }
+      },
+      {
+        "action": "jingle_toggle",
+        "jingle": 0,
+        "module": 0,
+        "trigger": {
+          "source": "unset"
+        }
+      }
+    ],
+    "memory_warn_mb": 2000,
+    "midi": {
+      "enabled": true,
+      "port": "nanoKONTROL"
+    },
+    "osc": {
+      "enabled": true,
+      "name": "Régie",
+      "oscquery": false,
+      "oscquery_port": 9101,
+      "port": 9100,
+      "prefix": "/js",
+      "zeroconf": false
+    },
+    "prevent_sleep": false
+  },
+  "version": 1
+}

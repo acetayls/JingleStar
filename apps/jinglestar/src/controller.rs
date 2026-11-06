@@ -2303,6 +2303,21 @@ mod tests {
     }
 
     #[test]
+    fn machine_prefs_format_is_stable() {
+        let p = crate::project::golden::sample_project();
+        let m = MachinePrefs { audio: p.audio, preferences: p.preferences, project_path: Some("/spectacles/gala.jinglestar".into()) };
+        crate::project::golden::check("machine-0.1.4.json", serde_json::to_value(&m).unwrap());
+        let dir = std::env::temp_dir().join(format!("jinglestar-machine-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = machine_path(&dir.join("session.json"));
+        assert_eq!(f, dir.join("machine.json"));
+        m.save(&f).unwrap();
+        let back = MachinePrefs::load(&f).unwrap();
+        crate::project::golden::check("machine-0.1.4.json", serde_json::to_value(&back).unwrap());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn looping_playlist_of_unreadable_files_stops() {
         let mut p = Project::default();
         p.modules[0].mode = ModuleMode::Playlist;
