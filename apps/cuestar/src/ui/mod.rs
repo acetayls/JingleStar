@@ -6,6 +6,7 @@ mod dialogs;
 mod lecteur;
 mod monitor_view;
 mod notes;
+mod remote_view;
 mod output_view;
 
 use crate::link::OutputLink;
@@ -62,6 +63,8 @@ pub struct CueStarApp {
     osc: crate::osc::OscServer,
     osc_draft: crate::osc::OscSettings,
     osc_open: bool,
+    remotes: remote_view::Remotes,
+    remote_tab: remote_view::Tab,
     osc_last: Option<String>,
     // ---- module Texte, sur le côté
     notes: notes::NotesPanel,
@@ -104,6 +107,11 @@ impl CueStarApp {
             },
             osc_draft: crate::osc::OscSettings::load(),
             osc_open: false,
+            remotes: {
+                let ctx = cc.egui_ctx.clone();
+                remote_view::Remotes::new(std::sync::Arc::new(move || ctx.request_repaint()))
+            },
+            remote_tab: Default::default(),
             osc_last: None,
             notes: Default::default(),
             show_notes: true,
@@ -312,8 +320,17 @@ impl CueStarApp {
 
     /// Messages OSC reçus depuis la dernière image.
     fn poll_osc(&mut self) {
+        // Télécommandes (MIDI, consoles) : mêmes commandes que l'OSC.
+        let (sh, lp) = self.lecteur.flags();
+        let mut msgs: Vec<crate::osc::Msg> = self.remotes.poll(|f| match f {
+            crate::remote::Flag::Shuffle => sh,
+            crate::remote::Flag::Loop => lp,
+        });
         while let Ok(m) = self.osc.rx.try_recv() {
             self.osc_last = Some(format!("/{} {:?}", m.path, m.args));
+            msgs.push(m);
+        }
+        for m in msgs {
             let path = m.path.clone();
             if path == "noir" || path == "black" {
                 self.out.send(Command::Stop);
@@ -332,12 +349,35 @@ impl CueStarApp {
         if !self.osc_open {
             return;
         }
-        let vp = egui::ViewportBuilder::default().with_title("CueStar — Commande OSC").with_inner_size([560.0, 520.0]);
+        let vp = egui::ViewportBuilder::default().with_title("CueStar — Télécommandes").with_inner_size([680.0, 560.0]);
         let mut close = false;
         let mut apply = false;
         ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("cuestar-osc"), vp, |ui, _| {
             close = ui.ctx().input(|i| i.viewport().close_requested());
             egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(12)).show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for (tab, label) in remote_view::TABS {
+                        if ui.selectable_value(&mut self.remote_tab, tab, label).clicked() && tab == remote_view::Tab::Midi {
+                            self.remotes.refresh_ports();
+                        }
+                    }
+                });
+                ui.separator();
+                // « Apprendre » ne reste pas actif dans un onglet où on ne le voit pas.
+                if self.remote_tab != remote_view::Tab::Mappings {
+                    self.remotes.learn = None;
+                }
+                if self.remote_tab != remote_view::Tab::Osc {
+                    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match self.remote_tab {
+                        remote_view::Tab::Midi => self.remotes.midi_section(ui),
+                        remote_view::Tab::Yamaha => self.remotes.console_section(ui),
+                        remote_view::Tab::M32 => self.remotes.m32_section(ui),
+                        remote_view::Tab::Mappings => self.remotes.mappings(ui),
+                        remote_view::Tab::Keyboard => remote_view::shortcuts(ui),
+                        remote_view::Tab::Osc => {}
+                    });
+                    return;
+                }
                 let d = &mut self.osc_draft;
                 egui::Grid::new("osc").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
                     ui.label("Commande OSC");
@@ -491,8 +531,8 @@ impl CueStarApp {
                 }
                 ui.add_space(8.0);
                 if ui
-                    .selectable_label(self.osc_open, "OSC")
-                    .on_hover_text("Commande OSC : réglages et liste des adresses")
+                    .selectable_label(self.osc_open, "Télécommandes")
+                    .on_hover_text("OSC, MIDI, consoles Yamaha et Midas, correspondances, raccourcis")
                     .clicked()
                 {
                     self.osc_open = !self.osc_open;
@@ -511,8 +551,6 @@ impl CueStarApp {
                 {
                     self.output_view.open = !self.output_view.open;
                 }
-                ui.add_space(8.0);
-                self.output_badge(ui);
             });
         });
     }
@@ -630,7 +668,13 @@ impl eframe::App for CueStarApp {
         egui::Panel::bottom("status")
             .exact_size(26.0)
             .frame(egui::Frame::new().fill(PANEL).inner_margin(egui::Margin::symmetric(12, 4)))
-            .show(ui, |ui| self.status_bar(ui));
+            .show(ui, |ui| {
+                ui.horizontal_centered(|ui| {
+                    self.output_badge(ui);
+                    ui.separator();
+                    self.status_bar(ui);
+                });
+            });
         if self.alert.is_some() || self.missing > 0 {
             egui::Panel::top("alerts").frame(egui::Frame::new()).show_separator_line(false).show(ui, |ui| self.alerts(ui));
         }

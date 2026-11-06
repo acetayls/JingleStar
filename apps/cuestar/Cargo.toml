@@ -26,6 +26,8 @@ libloading = "0.8"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp", "gif", "tiff", "webp"] }
 sysinfo = { version = "0.40.1", default-features = false, features = ["system"] }
 rosc = "0.11"
+midir = "0.11"
+crossbeam-channel = "0.5"
 
 [build-dependencies]
 # Icône et métadonnées de l'exécutable Windows.

@@ -107,6 +107,11 @@ impl Lecteur {
         self.confirm_clear = false;
     }
 
+    /// Aléatoire et Tout boucler (pour les touches qui les basculent).
+    pub fn flags(&self) -> (bool, bool) {
+        (self.shuffle, self.loop_all)
+    }
+
     /// Commande OSC « lecteur/… ».
     pub fn handle_osc(&mut self, cmd: &str, m: &crate::osc::Msg, out: &mut OutputLink) {
         match cmd {
