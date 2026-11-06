@@ -27,8 +27,8 @@ midir = "0.11"
 crossbeam-channel = "0.5"
 
 [build-dependencies]
-# Icône et métadonnées de l'exécutable Windows.
-winresource = "0.1"
+# Icône et métadonnées de l'exécutable Windows, version de build.
+star-build.workspace = true
 
 # Pour un paquet .app macOS avec `cargo bundle --release`.
 [package.metadata.bundle]

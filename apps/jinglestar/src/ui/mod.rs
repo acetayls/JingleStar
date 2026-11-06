@@ -1699,8 +1699,8 @@ pub fn build_version() -> String {
     format!(
         "JingleStar {} · {} · {}",
         env!("CARGO_PKG_VERSION"),
-        env!("JINGLESTAR_GIT"),
-        env!("JINGLESTAR_BUILD_DATE")
+        env!("STAR_GIT"),
+        env!("STAR_BUILD_DATE")
     )
 }
 
