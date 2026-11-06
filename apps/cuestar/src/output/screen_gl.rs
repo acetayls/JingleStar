@@ -377,6 +377,10 @@ impl Backend for Gl {
         let _ = self.surface.swap_buffers(&self.context);
     }
 
+    fn thumbs_pending(&self) -> bool {
+        self.pbos.iter().any(|p| p.1.is_some())
+    }
+
     fn read_thumbs(&mut self, feed: &mut MonitorFeed) {
         let (w, h) = (self.thumb.1 as usize, self.thumb.2 as usize);
         let n = self.pbos.len();
@@ -393,14 +397,10 @@ impl Backend for Gl {
                 gl::BindBuffer(gl::PIXEL_PACK_BUFFER, self.pbos[k].0);
                 let p = gl::MapBufferRange(gl::PIXEL_PACK_BUFFER, 0, (w * h * 4) as isize, gl::MAP_READ_BIT) as *const u8;
                 if !p.is_null() {
-                    let src = std::slice::from_raw_parts(p, w * h * 4);
-                    // OpenGL lit de bas en haut : on remet l'image à l'endroit.
-                    let mut rgba = vec![0u8; w * h * 4];
-                    for y in 0..h {
-                        rgba[y * w * 4..(y + 1) * w * 4].copy_from_slice(&src[(h - 1 - y) * w * 4..(h - y) * w * 4]);
-                    }
+                    // Simple copie mémoire ici ; retournement (OpenGL lit de bas en haut) dans le fil d'envoi.
+                    let data = std::slice::from_raw_parts(p, w * h * 4).to_vec();
                     gl::UnmapBuffer(gl::PIXEL_PACK_BUFFER);
-                    feed.send(w, h, w * 4, &rgba);
+                    feed.send_raw(w, h, w * 4, false, true, data);
                 }
                 gl::BindBuffer(gl::PIXEL_PACK_BUFFER, 0);
             }

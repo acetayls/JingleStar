@@ -86,7 +86,6 @@ struct Api {
     set_wakeup_callback: unsafe extern "C" fn(Handle, Option<unsafe extern "C" fn(*mut c_void)>, *mut c_void),
     error_string: unsafe extern "C" fn(c_int) -> *const c_char,
     free: unsafe extern "C" fn(*mut c_void),
-    get_time_us: unsafe extern "C" fn(Handle) -> i64,
     render: Option<RenderApi>,
 }
 
@@ -116,15 +115,22 @@ impl RenderParam {
 }
 
 pub const RENDER_PARAM_API_TYPE: c_int = 1;
+#[allow(dead_code)]
 pub const RENDER_PARAM_OPENGL_INIT_PARAMS: c_int = 2;
+#[allow(dead_code)]
 pub const RENDER_PARAM_OPENGL_FBO: c_int = 3;
+#[allow(dead_code)]
 pub const RENDER_PARAM_FLIP_Y: c_int = 4;
+#[allow(dead_code)]
 pub const RENDER_PARAM_X11_DISPLAY: c_int = 8;
+#[allow(dead_code)]
 pub const RENDER_PARAM_WL_DISPLAY: c_int = 9;
 pub const RENDER_PARAM_ADVANCED_CONTROL: c_int = 10;
 pub const RENDER_PARAM_NEXT_FRAME_INFO: c_int = 11;
 pub const RENDER_PARAM_BLOCK_FOR_TARGET_TIME: c_int = 12;
+#[allow(dead_code)]
 pub const RENDER_PARAM_D3D11_INIT_PARAMS: c_int = 21;
+#[allow(dead_code)]
 pub const RENDER_PARAM_D3D11_FBO: c_int = 22;
 pub const RENDER_UPDATE_FRAME: u64 = 1;
 pub const FRAME_INFO_PRESENT: u64 = 1;
@@ -223,7 +229,6 @@ impl Mpv {
             set_wakeup_callback: sym!("mpv_set_wakeup_callback"),
             error_string: sym!("mpv_error_string"),
             free: sym!("mpv_free"),
-            get_time_us: sym!("mpv_get_time_us"),
             render: (|| -> Result<RenderApi, String> {
                 Ok(RenderApi {
                     create: sym!("mpv_render_context_create"),
@@ -261,15 +266,6 @@ impl Mpv {
 
     pub fn raw(&self) -> Handle {
         self.handle
-    }
-
-    /// Horloge de mpv (microsecondes), celle des heures d'affichage des images.
-    pub fn time_us(&self) -> i64 {
-        unsafe { (self.api.get_time_us)(self.handle) }
-    }
-
-    pub fn error_text(&self, code: c_int) -> String {
-        unsafe { CStr::from_ptr((self.api.error_string)(code)) }.to_string_lossy().into_owned()
     }
 
     pub fn api_version(&self) -> String {

@@ -107,6 +107,8 @@ pub(super) trait Backend {
     fn present(&mut self);
     /// Envoie les vignettes prêtes, sans jamais attendre la carte graphique.
     fn read_thumbs(&mut self, feed: &mut MonitorFeed);
+    /// Des vignettes attendent encore d'être lues.
+    fn thumbs_pending(&self) -> bool;
 }
 
 /// Pointeur passé au fil d'affichage (les objets qu'il désigne restent valides jusqu'à son arrêt).
@@ -258,6 +260,9 @@ fn vsync_us(hz: f64) -> i64 {
 }
 
 fn run<B: Backend>(shared: Arc<Shared>, mut g: B, mut decks: Vec<DeckRc>) {
+    // CUESTAR_DEBUG : une ligne de statistiques par seconde sur la sortie d'erreur.
+    let debug = std::env::var_os("CUESTAR_DEBUG").is_some();
+    let mut stat = (Instant::now(), [0u32; DECKS], [0u32; DECKS], 0u32, [0i64; DECKS]);
     let mut monitor: Option<(MonitorFeed, Duration)> = None;
     let mut next_thumb = Instant::now();
     let mut size = shared.st.lock().map(|s| s.size).unwrap_or((1, 1));
@@ -295,13 +300,21 @@ fn run<B: Backend>(shared: Arc<Shared>, mut g: B, mut decks: Vec<DeckRc>) {
 
         // Nouvelles images des lecteurs.
         let now = decks.first().map(|d| unsafe { (d.api.time_us)(d.mpv) }).unwrap_or(0);
-        for d in decks.iter_mut() {
+        for (di, d) in decks.iter_mut().enumerate() {
             let flags = unsafe { (d.api.update)(d.rc) };
             if flags & mpv::RENDER_UPDATE_FRAME != 0 {
+                stat.2[di] += 1;
+            }
+            if flags & mpv::RENDER_UPDATE_FRAME != 0 {
+
                 d.has_frame = true;
                 let mut info = FrameInfo::default();
                 let ok = unsafe { (d.api.get_info)(d.rc, RenderParam { kind: mpv::RENDER_PARAM_NEXT_FRAME_INFO, data: &mut info as *mut FrameInfo as *mut c_void }) } >= 0;
-                d.target = (ok && info.flags & mpv::FRAME_INFO_PRESENT != 0 && info.target_time > 0).then_some(info.target_time);
+                // L'en-tête de mpv annonce des µs, mais les versions récentes donnent des ns :
+                // on garde l'unité qui tombe le plus près de l'horloge.
+                let t = info.target_time;
+                let t = if (t / 1000 - now).abs() < (t - now).abs() { t / 1000 } else { t };
+                d.target = (ok && info.flags & mpv::FRAME_INFO_PRESENT != 0 && t > 0).then_some(t);
             }
         }
         // Une image est due si son heure tombe avant le prochain rafraîchissement.
@@ -309,7 +322,14 @@ fn run<B: Backend>(shared: Arc<Shared>, mut g: B, mut decks: Vec<DeckRc>) {
         if !due.iter().any(|x| *x) && !dirty && !resized {
             // Rien à faire : on attend un lecteur, un réglage, ou l'heure de la prochaine image.
             let next = decks.iter().filter(|d| d.has_frame).filter_map(|d| d.target).min();
-            let wait = next.map(|t| Duration::from_micros((t - vsync_us - now).clamp(0, 100_000) as u64)).unwrap_or(Duration::from_millis(100));
+            let mut wait = next.map(|t| Duration::from_micros((t - vsync_us - now).clamp(0, 100_000) as u64)).unwrap_or(Duration::from_millis(100));
+            // Vignettes encore sur la carte : on repasse vite les chercher.
+            if let Some((feed, _)) = &mut monitor {
+                g.read_thumbs(feed);
+                if g.thumbs_pending() {
+                    wait = wait.min(Duration::from_millis(4));
+                }
+            }
             if let Ok(s) = shared.st.lock() {
                 let _ = shared.cv.wait_timeout_while(s, wait, |s| !s.wake && !s.dirty && !s.stop);
             }
@@ -321,6 +341,10 @@ fn run<B: Backend>(shared: Arc<Shared>, mut g: B, mut decks: Vec<DeckRc>) {
         for (i, d) in decks.iter_mut().enumerate() {
             if due[i] || (resized && d.drawn) {
                 g.draw_deck(i, d);
+                stat.1[i] += 1;
+                if let Some(t) = d.target {
+                    stat.4[i] = stat.4[i].max(now - t);
+                }
                 d.has_frame = false;
                 d.target = None;
                 d.drawn = true;
@@ -346,6 +370,11 @@ fn run<B: Backend>(shared: Arc<Shared>, mut g: B, mut decks: Vec<DeckRc>) {
             }
         }
         g.present();
+        stat.3 += 1;
+        if debug && stat.0.elapsed() >= Duration::from_secs(1) {
+            eprintln!("rendus {:?} images reçues {:?} affichages {} avance max µs {:?}", stat.1, stat.2, stat.3, stat.4);
+            stat = (Instant::now(), [0; DECKS], [0; DECKS], 0, [i64::MIN / 2; DECKS]);
+        }
         for d in &decks {
             unsafe { (d.api.report_swap)(d.rc) };
         }

@@ -815,6 +815,8 @@ dependencies = [
  "directories",
  "eframe",
  "egui",
+ "gl",
+ "glutin",
  "image",
  "libloading 0.8.9",
  "midir",
@@ -826,6 +828,7 @@ dependencies = [
  "softbuffer",
  "star-commun",
  "sysinfo",
+ "windows",
  "windows-sys 0.59.0",
  "winit",
  "winresource",
@@ -1470,6 +1473,15 @@ checksum = "ee8cfcc411d9adbbaba82fb72661cc1bcca13e8bba98b364e62b2dba8f960159"
 dependencies = [
  "color_quant",
  "weezl",
+]
+
+[[package]]
+name = "gl"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a94edab108827d67608095e269cf862e60d920f144a5026d3dbcfd8b877fb404"
+dependencies = [
+ "gl_generator",
 ]
 
 [[package]]

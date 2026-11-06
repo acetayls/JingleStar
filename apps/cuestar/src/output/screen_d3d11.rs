@@ -378,6 +378,10 @@ impl Backend for D3d {
         let _ = unsafe { self.swap.Present(1, DXGI_PRESENT(0)) };
     }
 
+    fn thumbs_pending(&self) -> bool {
+        self.staging.iter().any(|s| s.1)
+    }
+
     fn read_thumbs(&mut self, feed: &mut MonitorFeed) {
         let (w, h) = (self.thumb.2 as usize, self.thumb.3 as usize);
         let n = self.staging.len();
@@ -392,21 +396,11 @@ impl Backend for D3d {
                 continue;
             }
             let pitch = m.RowPitch as usize;
-            let src = unsafe { std::slice::from_raw_parts(m.pData as *const u8, pitch * h) };
-            let mut rgba = vec![0u8; w * h * 4];
-            for y in 0..h {
-                let s = &src[y * pitch..y * pitch + w * 4];
-                let d = &mut rgba[y * w * 4..(y + 1) * w * 4];
-                for (o, i) in d.chunks_exact_mut(4).zip(s.chunks_exact(4)) {
-                    o[0] = i[2];
-                    o[1] = i[1];
-                    o[2] = i[0];
-                    o[3] = 255;
-                }
-            }
+            // Simple copie mémoire ici ; la conversion se fait dans le fil d'envoi.
+            let data = unsafe { std::slice::from_raw_parts(m.pData as *const u8, pitch * h) }.to_vec();
             unsafe { self.ctx.Unmap(&self.staging[k].0, 0) };
             self.staging[k].1 = false;
-            feed.send(w, h, w * 4, &rgba);
+            feed.send_raw(w, h, pitch, true, false, data);
         }
     }
 }
