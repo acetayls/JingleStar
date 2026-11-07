@@ -242,7 +242,8 @@ impl OscServer {
     }
 }
 
-/// Aide affichée dans la fenêtre OSC.
+/// Liste de référence des adresses (plus affichée dans la fenêtre, comme dans JingleStar).
+#[allow(dead_code)]
 pub const HELP: &[(&str, &str)] = &[
     ("noir", "écran de sortie au noir"),
     ("output/drops/reset", "remet à zéro le compteur d'images perdues et retardées"),
