@@ -10,6 +10,7 @@ mod monitor_view;
 mod notes;
 mod remote_view;
 mod output_view;
+mod presentation;
 
 use crate::link::OutputLink;
 use crate::prefs::MachinePrefs;
@@ -31,6 +32,7 @@ const HELP_EN: &str = include_str!("../../docs/help.md");
 enum Tab {
     Lecteur,
     Diaporama,
+    Presentation,
     Cuelist,
 }
 
@@ -42,6 +44,7 @@ pub struct CueStarApp {
     out: OutputLink,
     lecteur: lecteur::Lecteur,
     diaporama: diaporama::Diaporama,
+    presentation: presentation::Presentation,
     cuelist: cuelist::Cuelist,
     output_view: output_view::OutputView,
     monitor: monitor_view::MonitorView,
@@ -91,6 +94,7 @@ impl CueStarApp {
             out: OutputLink::new(),
             lecteur: Default::default(),
             diaporama: Default::default(),
+            presentation: Default::default(),
             cuelist: Default::default(),
             output_view: Default::default(),
             monitor: Default::default(),
@@ -422,6 +426,7 @@ impl CueStarApp {
                     });
                     return;
                 }
+                ui.heading("OSC");
                 let d = &mut self.osc_draft;
                 egui::Grid::new("osc").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
                     ui.label(tr("Commande OSC", "OSC control"));
@@ -479,18 +484,6 @@ impl CueStarApp {
                 if let Some(l) = &self.osc_last {
                     ui.label(RichText::new(format!("{} : {l}", tr("Dernier message", "Last message"))).monospace().color(TEXT_DIM));
                 }
-                ui.separator();
-                let prefix = self.osc.settings.prefix.trim_end_matches('/').to_string();
-                ui.label(RichText::new(format!("{} {prefix} ; {}", tr("Adresses (préfixe", "Addresses (prefix"), tr("/diaporama/… est aussi accepté ; …/subscribe abonne au retour d'état)", "/diaporama/… is also accepted; …/subscribe subscribes to state feedback)"))).strong());
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    egui::Grid::new("osc-help").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-                        for (a, t) in crate::osc::HELP {
-                            ui.label(RichText::new(format!("{prefix}/{a}")).monospace());
-                            ui.label(RichText::new(*t).color(TEXT_DIM));
-                            ui.end_row();
-                        }
-                    });
-                });
             });
         });
         if apply {
@@ -574,7 +567,7 @@ impl CueStarApp {
                 }
             }
             ui.add_space(14.0);
-            for (t, name) in [(Tab::Lecteur, "Lecteur"), (Tab::Diaporama, "Diaporama"), (Tab::Cuelist, "Cuelist")] {
+            for (t, name) in [(Tab::Lecteur, "Lecteur"), (Tab::Diaporama, "Diaporama"), (Tab::Presentation, "Présentation"), (Tab::Cuelist, "Cuelist")] {
                 let sel = self.tab == t;
                 let txt = RichText::new(name).size(15.0).color(if sel { PLAYING_INK } else { TEXT });
                 let b = egui::Button::new(txt).fill(if sel { ACCENT } else { PANEL_HI }).min_size(egui::vec2(96.0, 30.0));
@@ -612,8 +605,8 @@ impl CueStarApp {
                     self.monitor.toggle(&mut self.out);
                 }
                 if ui
-                    .selectable_label(self.output_view.open, "Video output")
-                    .on_hover_text("Fenêtre flottante : écran et moteur de sortie, mires de test, mapping 4 coins")
+                    .selectable_label(self.output_view.open, "Préférences")
+                    .on_hover_text("Fenêtre flottante en onglets : écran et moteur de sortie, audio, mires de test, mapping 4 coins")
                     .clicked()
                 {
                     self.output_view.open = !self.output_view.open;
@@ -798,6 +791,7 @@ impl eframe::App for CueStarApp {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(10)).show(ui, |ui| match self.tab {
             Tab::Lecteur => self.lecteur.ui(ui, &mut self.out, typing),
             Tab::Diaporama => self.diaporama.ui(ui, &mut self.out, typing),
+            Tab::Presentation => self.presentation.ui(ui, &mut self.out, typing),
             Tab::Cuelist => self.cuelist.ui(ui, &mut self.out, typing),
         });
 
@@ -810,7 +804,7 @@ impl eframe::App for CueStarApp {
         match self.tab {
             Tab::Lecteur => self.lecteur.handle_drops(&ctx),
             Tab::Cuelist => self.cuelist.handle_drops(&ctx),
-            Tab::Diaporama => {}
+            Tab::Diaporama | Tab::Presentation => {}
         }
 
         self.track_changes();

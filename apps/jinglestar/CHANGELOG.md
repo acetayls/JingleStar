@@ -20,6 +20,22 @@
   précédent** et **Cuelist : pause / reprise** (au lieu de « Conduite »), comme le module Cuelist.
 - Les « correspondances » s'appellent désormais **assignations** (onglet, aide, messages).
 
+### Icône
+
+- **Icône plus lisible** : en grand (Dock, barre des tâches, installeur), le pad central de la
+  grille est agrandi avec un liseré sombre et porte le casque ; en petit (64 px et moins, titre
+  de fenêtre), un pad orange plein cadre avec le casque en grand.
+
+### Coulisses
+
+- JingleStar vit désormais dans le dépôt **MediaStar**, à côté de CueStar ; ses releases portent
+  les tags `jinglestar-vX.Y.Z`.
+- Une grande partie du code est **partagée avec CueStar** (crates `star-core`, `star-ui`,
+  `star-remote`, `star-build`) : journal, enregistrement sûr, session, préférences, langue, EQ,
+  thème et widgets, aide, panneau Texte, télécommandes MIDI / Yamaha / Midas et serveur OSC
+  (OSCQuery, mDNS). Rien ne change à l'usage : des tests relisent et réécrivent à l'identique
+  les projets et les préférences de la 0.1.4, et les adresses OSC sont les mêmes.
+
 ## 0.1.3 — 3 novembre 2026
 
 ### Téléchargements

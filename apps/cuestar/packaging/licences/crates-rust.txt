@@ -24,6 +24,7 @@ arboard 3.7.0 : MIT OR Apache-2.0
 arrayref 0.3.9 : BSD-2-Clause
 arrayvec 0.7.8 : MIT OR Apache-2.0
 as-raw-xcb-connection 1.0.1 : MIT OR Apache-2.0
+ascii 1.1.0 : Apache-2.0 OR MIT
 ash 0.38.0+1.3.281 : MIT OR Apache-2.0
 async-broadcast 0.7.2 : MIT OR Apache-2.0
 async-channel 2.5.0 : Apache-2.0 OR MIT
@@ -59,6 +60,7 @@ calloop-wayland-source 0.4.1 : MIT
 cesu8 1.1.0 : Apache-2.0/MIT
 cfg-if 1.0.5 : MIT OR Apache-2.0
 cgl 0.3.2 : MIT / Apache-2.0
+chunked_transfer 1.5.0 : MIT OR Apache-2.0
 clipboard-win 5.4.3 : BSL-1.0
 codespan-reporting 0.13.1 : Apache-2.0
 color 0.3.3 : Apache-2.0 OR MIT
@@ -70,8 +72,10 @@ core-foundation 0.9.4 : MIT OR Apache-2.0
 core-foundation-sys 0.8.7 : MIT OR Apache-2.0
 core-graphics 0.23.2 : MIT OR Apache-2.0
 core-graphics-types 0.1.3 : MIT OR Apache-2.0
+core_maths 0.1.1 : MIT
 coremidi 0.9.2 : MIT
 coremidi-sys 3.2.1 : MIT
+cosmic-text 0.19.0 : MIT OR Apache-2.0
 crc32fast 1.5.3 : MIT OR Apache-2.0
 crossbeam-channel 0.5.17 : MIT OR Apache-2.0
 crossbeam-utils 0.8.23 : MIT OR Apache-2.0
@@ -120,9 +124,13 @@ fdeflate 0.3.7 : MIT OR Apache-2.0
 fearless_simd 0.4.1 : Apache-2.0 OR MIT
 fixedbitset 0.5.7 : MIT OR Apache-2.0
 flate2 1.1.10 : MIT OR Apache-2.0
+flume 0.12.0 : Apache-2.0/MIT
 foldhash 0.1.5 : Zlib
 foldhash 0.2.0 : Zlib
+font-types 0.11.3 : MIT OR Apache-2.0
 font-types 0.12.7 : MIT OR Apache-2.0
+fontconfig-parser 0.5.8 : MIT
+fontdb 0.23.0 : MIT
 fontique 0.11.1 : Apache-2.0 OR MIT
 foreign-types 0.5.0 : MIT/Apache-2.0
 foreign-types-macros 0.2.4 : MIT/Apache-2.0
@@ -132,6 +140,7 @@ futures-core 0.3.34 : MIT OR Apache-2.0
 futures-io 0.3.34 : MIT OR Apache-2.0
 futures-lite 2.6.1 : Apache-2.0 OR MIT
 futures-macro 0.3.34 : MIT OR Apache-2.0
+futures-sink 0.3.34 : MIT OR Apache-2.0
 futures-task 0.3.34 : MIT OR Apache-2.0
 futures-util 0.3.34 : MIT OR Apache-2.0
 gethostname 1.1.0 : Apache-2.0
@@ -151,11 +160,13 @@ gpu-allocator 0.28.0 : MIT OR Apache-2.0
 guillotiere 0.7.0 : MIT/Apache-2.0
 half 2.7.1 : MIT OR Apache-2.0
 harfrust 0.12.0 : MIT
+harfrust 0.5.2 : MIT
 hashbrown 0.15.5 : MIT OR Apache-2.0
 hashbrown 0.16.1 : MIT OR Apache-2.0
 hashbrown 0.17.1 : MIT OR Apache-2.0
 hermit-abi 0.5.3 : MIT OR Apache-2.0
 hex 0.4.3 : MIT OR Apache-2.0
+httpdate 1.0.3 : MIT OR Apache-2.0
 icu_collections 2.4.0 : Unicode-3.0
 icu_locale_core 2.4.0 : Unicode-3.0
 icu_normalizer 2.4.0 : Unicode-3.0
@@ -165,6 +176,7 @@ icu_properties_data 2.4.0 : Unicode-3.0
 icu_provider 2.4.0 : Unicode-3.0
 idna 1.1.0 : MIT OR Apache-2.0
 idna_adapter 1.2.2 : Apache-2.0 OR MIT
+if-addrs 0.15.0 : MIT OR BSD-3-Clause
 image 0.25.10 : MIT OR Apache-2.0
 image-webp 0.2.4 : MIT OR Apache-2.0
 indexmap 2.14.2 : Apache-2.0 OR MIT
@@ -194,6 +206,7 @@ litemap 0.8.3 : Unicode-3.0
 litrs 1.0.1 : MIT OR Apache-2.0
 lock_api 0.4.14 : MIT OR Apache-2.0
 log 0.4.34 : MIT OR Apache-2.0
+mdns-sd 0.21.6 : Apache-2.0 OR MIT
 memchr 2.8.3 : Unlicense OR MIT
 memmap2 0.9.12 : MIT OR Apache-2.0
 memoffset 0.9.1 : MIT
@@ -201,12 +214,14 @@ midir 0.11.1 : MIT
 minimal-lexical 0.2.1 : MIT/Apache-2.0
 miniz_oxide 0.8.9 : MIT OR Zlib OR Apache-2.0
 miniz_oxide 0.9.1 : MIT OR Zlib OR Apache-2.0
+mio 1.2.4 : MIT
 moxcms 0.8.1 : BSD-3-Clause OR Apache-2.0
 naga 30.0.1 : MIT OR Apache-2.0
 naga-types 30.0.1 : MIT OR Apache-2.0
 ndk 0.9.0 : MIT OR Apache-2.0
 ndk-context 0.1.1 : MIT OR Apache-2.0
 ndk-sys 0.6.0+11769913 : MIT OR Apache-2.0
+nix 0.31.3 : MIT
 nohash-hasher 0.2.0 : Apache-2.0 OR MIT
 nom 7.1.3 : MIT
 nom 8.0.0 : MIT
@@ -266,6 +281,7 @@ pin-project-internal 1.1.13 : Apache-2.0 OR MIT
 pin-project-lite 0.2.17 : Apache-2.0 OR MIT
 piper 0.2.5 : MIT OR Apache-2.0
 plain 0.2.3 : MIT/Apache-2.0
+png 0.17.16 : MIT OR Apache-2.0
 png 0.18.1 : MIT OR Apache-2.0
 poll-promise 0.3.0 : MIT OR Apache-2.0
 polling 3.11.0 : Apache-2.0 OR MIT
@@ -288,8 +304,10 @@ quote 1.0.47 : MIT OR Apache-2.0
 r-efi 5.3.0 : MIT OR Apache-2.0 OR LGPL-2.1-or-later
 r-efi 6.0.0 : MIT OR Apache-2.0 OR LGPL-2.1-or-later
 range-alloc 0.1.5 : MIT OR Apache-2.0
+rangemap 1.8.0 : MIT/Apache-2.0
 raw-window-handle 0.6.2 : MIT OR Apache-2.0 OR Zlib
 raw-window-metal 1.1.0 : MIT OR Apache-2.0
+read-fonts 0.37.0 : MIT OR Apache-2.0
 read-fonts 0.41.0 : MIT OR Apache-2.0
 redox_syscall 0.4.1 : MIT
 redox_syscall 0.5.18 : MIT
@@ -298,6 +316,7 @@ redox_users 0.5.3 : MIT
 renderdoc-sys 1.1.0 : MIT OR Apache-2.0
 rfd 0.17.2 : MIT
 rosc 0.11.4 : MIT/Apache-2.0
+roxmltree 0.20.0 : MIT OR Apache-2.0
 roxmltree 0.21.2 : MIT OR Apache-2.0
 rustc-hash 1.1.0 : Apache-2.0/MIT
 rustc-hash 2.1.3 : Apache-2.0 OR MIT
@@ -319,6 +338,7 @@ simd-adler32 0.3.10 : MIT
 simd_cesu8 1.2.0 : Apache-2.0 OR MIT
 simdutf8 0.1.5 : MIT OR Apache-2.0
 siphasher 1.0.4 : MIT OR Apache-2.0
+skrifa 0.40.0 : MIT OR Apache-2.0
 skrifa 0.44.0 : MIT OR Apache-2.0
 slab 0.4.12 : MIT
 slotmap 1.1.1 : Zlib
@@ -327,11 +347,16 @@ smithay-client-toolkit 0.19.2 : MIT
 smithay-client-toolkit 0.20.0 : MIT
 smithay-clipboard 0.7.3 : MIT
 smol_str 0.2.2 : MIT OR Apache-2.0
+smol_str 0.3.7 : MIT OR Apache-2.0
+socket-pktinfo 0.4.1 : MIT
+socket2 0.6.5 : MIT OR Apache-2.0
 softbuffer 0.4.8 : MIT OR Apache-2.0
+spin 0.9.9 : MIT
 spirv 0.4.0+sdk-1.4.341.0 : Apache-2.0
 stable_deref_trait 1.2.1 : MIT OR Apache-2.0
 static_assertions 1.1.0 : MIT OR Apache-2.0
 strict-num 0.1.1 : MIT
+swash 0.2.10 : Apache-2.0 OR MIT
 syn 2.0.119 : MIT OR Apache-2.0
 syn 3.0.9 : MIT OR Apache-2.0
 synstructure 0.14.0 : MIT
@@ -350,7 +375,9 @@ time-macros 0.2.32 : MIT OR Apache-2.0
 tiny-skia 0.11.4 : BSD-3-Clause
 tiny-skia-path 0.11.4 : BSD-3-Clause
 tiny-xlib 0.2.5 : MIT OR Apache-2.0 OR Zlib
+tiny_http 0.12.0 : MIT OR Apache-2.0
 tinystr 0.8.5 : Unicode-3.0
+tinyvec 1.13.3 : Zlib OR Apache-2.0 OR MIT
 tokio 1.54.1 : MIT
 toml_datetime 1.1.2+spec-1.1.0 : MIT OR Apache-2.0
 toml_edit 0.25.17+spec-1.1.0 : MIT OR Apache-2.0
@@ -361,9 +388,12 @@ tracing-core 0.1.36 : MIT
 tree_magic_mini 3.2.2 : MIT
 ttf-parser 0.25.1 : MIT OR Apache-2.0
 type-map 0.5.1 : MIT/Apache-2.0
+typed-path 0.13.0 : MIT OR Apache-2.0
 uds_windows 1.2.1 : MIT
+unicode-bidi 0.3.18 : MIT OR Apache-2.0
 unicode-general-category 1.1.0 : Apache-2.0
 unicode-ident 1.0.27 : (MIT OR Apache-2.0) AND Unicode-3.0
+unicode-linebreak 0.1.5 : Apache-2.0
 unicode-properties 0.1.4 : MIT/Apache-2.0
 unicode-script 0.5.8 : MIT OR Apache-2.0
 unicode-segmentation 1.13.3 : MIT OR Apache-2.0
@@ -373,6 +403,7 @@ utf8_iter 1.0.4 : Apache-2.0 OR MIT
 uuid 1.29.0 : Apache-2.0 OR MIT
 vello_common 0.2.0 : Apache-2.0 OR MIT
 vello_cpu 0.2.0 : Apache-2.0 OR MIT
+wasi 0.11.1+wasi-snapshot-preview1 : Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
 wasip2 1.0.4+wasi-0.2.12 : Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
 wasm-bindgen 0.2.129 : MIT OR Apache-2.0
 wasm-bindgen-futures 0.4.79 : MIT OR Apache-2.0
@@ -450,6 +481,7 @@ x11rb-protocol 0.13.2 : MIT OR Apache-2.0
 xcursor 0.3.11 : MIT
 xkbcommon-dl 0.4.2 : MIT
 xkeysym 0.2.1 : MIT OR Apache-2.0 OR Zlib
+yazi 0.2.2 : Apache-2.0 OR MIT
 yeslogic-fontconfig-sys 6.0.1 : MIT
 yoke 0.8.4 : Unicode-3.0
 yoke-derive 0.8.4 : Unicode-3.0
@@ -460,6 +492,7 @@ zbus_macros 5.19.0 : MIT
 zbus_names 4.3.5 : MIT
 zbus_xml 5.2.1 : MIT
 zcheapstr 1.1.0 : MIT
+zeno 0.3.3 : Apache-2.0 OR MIT
 zerocopy 0.8.63 : BSD-2-Clause OR Apache-2.0 OR MIT
 zerocopy-derive 0.8.63 : BSD-2-Clause OR Apache-2.0 OR MIT
 zerofrom 0.1.8 : Unicode-3.0
@@ -467,6 +500,7 @@ zerofrom-derive 0.1.8 : Unicode-3.0
 zerotrie 0.2.5 : Unicode-3.0
 zerovec 0.11.9 : Unicode-3.0
 zerovec-derive 0.11.7 : Unicode-3.0
+zip 9.4.1 : MIT
 zlib-rs 0.6.8 : Zlib
 zmij 1.0.23 : MIT
 zune-core 0.5.3 : MIT OR Apache-2.0 OR Zlib

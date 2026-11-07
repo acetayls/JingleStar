@@ -4,9 +4,9 @@ CueStar sends videos, images and sounds to an output screen (projector, stage sc
 desk). The control screen, where you work, and the **output**, which shows the picture, run as
 two separate programs: a busy control screen never delays a frame.
 
-Three modules share the screen: the **Player** (Lecteur, a playlist), the **Slideshow**
-(Diaporama, a folder of photos and videos) and the **Cuelist** (a running order of cues fired
-with GO). The **Text** panel sits alongside to keep the written running order in view.
+Four modules share the screen: the **Player** (Lecteur, a playlist), the **Slideshow**
+(Diaporama, a folder of photos and videos), the **Presentation** (Présentation, a PowerPoint
+file) and the **Cuelist** (a running order of cues fired with GO). The **Text** panel sits alongside to keep the written running order in view.
 
 ## Getting started
 
@@ -32,10 +32,10 @@ TIFF, WebP) and sounds (MP3, WAV, FLAC, AAC/M4A, OGG). Decoding goes through lib
 |---|---|
 | Project name | Menu: New, Open, Save as, Rename |
 | **Enregistrer** | Saves the project (**Ctrl+S**) |
-| **Lecteur**, **Diaporama**, **Cuelist** | Switches module; a hidden module keeps playing |
+| **Lecteur**, **Diaporama**, **Présentation**, **Cuelist** | Switches module; a hidden module keeps playing |
 | **Texte** | Shows or hides the Text panel |
 | **? Help** | Opens this help (**F1**) |
-| **Video output** | Output screen and engine, sound, test patterns, 4-corner mapping |
+| **Préférences** | Tabbed window: output screen and engine, audio, test patterns, 4-corner mapping |
 | **Monitoring** | Floating window showing the picture sent to the output |
 | **Télécommandes** | OSC, MIDI, Yamaha and Midas consoles, mappings, shortcuts |
 | **NOIR** | Cuts the picture: output to black (**Esc**) |
@@ -133,6 +133,25 @@ Plays a folder of photos and videos.
 
 Changes apply at once, without restarting the slideshow.
 
+## The Presentation
+
+Shows a PowerPoint presentation (**.pptx**) on the output, without PowerPoint: CueStar draws
+each slide itself at the output resolution.
+
+- **Choisir…** (choose) or drop a .pptx file; **Relire** reloads the file after a change in
+  PowerPoint.
+- The **thumbnails** show every slide: click to select, double-click to show it on the output.
+  Hidden slides are skipped.
+- **LANCER** (go) shows the selected slide, then **SUIVANTE** (next, **Space** or **→**) and
+  **←** move from slide to slide; **Aller à** (go to) jumps to a number. The next slide is
+  prepared in advance.
+- **Transition**: **Coupe** (cut), **Noir** (fade to black then up) or **Fondu enchaîné**
+  (crossfade).
+- **Esc** goes to black; **LANCER** shows the slide again.
+
+Text, bullets, shapes, pictures, tables, SmartArt and simple charts are drawn; animations are not:
+an embedded video shows as its preview picture.
+
 ## The Cuelist
 
 A running order of cues: each one is a media, or **black**. The **standby** cue plays on GO.
@@ -156,7 +175,8 @@ colours, size. **Importer…** brings in an existing text. It is saved with the 
 
 ## Video and sound output
 
-**Video output** opens the output settings:
+**Préférences** opens the output settings, in tabs (Écran et moteur, Audio, Mires de test,
+Mapping 4 coins):
 
 - **Output screen**: automatic (first secondary screen) or a given screen; **output in a
   window** when there is only one screen.
@@ -303,9 +323,9 @@ in a text field.
   `libmpv-2.dll` next to CueStar or in its `mpv` folder, then restart.
 - **Output stopped** (red light): **Relancer la sortie** in the bottom bar.
 - **Dropped or delayed frames keep rising**: try **GPU** decoding, **light rendering** or
-  **Match the screen refresh rate to the video** in **Video output**; **File information**
+  **Match the screen refresh rate to the video** in **Préférences**; **File information**
   shows whether the media is very heavy (bit rate, resolution, 10-bit).
-- **No sound**: pick the card in **Video output → Audio output**.
+- **No sound**: pick the card in **Préférences → Audio**.
 - **Media not found**: **Relocaliser…** in the banner.
 - **Odd behaviour or a crash**: the `cuestar.log` journal, in the configuration folder, keeps
   errors and crash traces.
