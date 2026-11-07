@@ -4099,11 +4099,13 @@ name = "star-remote"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
+ "egui",
  "midir",
  "rosc",
  "serde",
  "serde_json",
  "star-core",
+ "star-ui",
 ]
 
 [[package]]

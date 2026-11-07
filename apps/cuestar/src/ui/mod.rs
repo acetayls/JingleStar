@@ -370,8 +370,8 @@ impl CueStarApp {
             close = ui.ctx().input(|i| i.viewport().close_requested());
             egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(12)).show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    for (tab, label) in remote_view::TABS {
-                        if ui.selectable_value(&mut self.remote_tab, tab, label).clicked() && tab == remote_view::Tab::Midi {
+                    for tab in remote_view::Tab::ALL {
+                        if ui.selectable_value(&mut self.remote_tab, tab, tab.label()).clicked() && tab == remote_view::Tab::Midi {
                             self.remotes.refresh_ports();
                         }
                     }
@@ -379,7 +379,7 @@ impl CueStarApp {
                 ui.separator();
                 // « Apprendre » ne reste pas actif dans un onglet où on ne le voit pas.
                 if self.remote_tab != remote_view::Tab::Mappings {
-                    self.remotes.learn = None;
+                    self.remotes.cancel_learn();
                 }
                 if self.remote_tab != remote_view::Tab::Osc {
                     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match self.remote_tab {

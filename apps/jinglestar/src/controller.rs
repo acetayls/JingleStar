@@ -17,9 +17,7 @@ use crate::audio::engine::{AudioEngine, DeviceInfo};
 use star_core::eq::{EqCoeffs, EqSettings};
 use crate::audio::mixer::{is_playlist_slot, Command, Event, Queued, Region, MAX_MODULES, PLAYLIST_SLOTS};
 use star_core::i18n::{set_lang, tr, Lang};
-use star_remote::console::ConsoleClient;
-use star_remote::m32::M32Client;
-use star_remote::midi::MidiListener;
+use star_remote::{Inputs, Learn};
 use crate::remote::{Flag, InputEvent, Mapping, Pickup};
 use crate::osc::{self, OscCommand, OscServer};
 mod cues;
@@ -210,20 +208,10 @@ pub struct Controller {
     /// Niveaux affichés par les vumètres (dB, G et D), envoyés aux abonnés OSC.
     pub meters_db: [[f32; 2]; MAX_MODULES],
     last_levels_sent: Instant,
-    /// Entrée MIDI ouverte, ou l'erreur d'ouverture.
-    pub midi: Option<MidiListener>,
-    pub midi_error: Option<String>,
-    midi_retry: Instant,
-    /// Écoute de la console Yamaha.
-    pub console: Option<ConsoleClient>,
-    /// Écoute de la console Midas M32 / Behringer X32.
-    pub m32: Option<M32Client>,
+    /// Télécommandes : entrée MIDI, consoles Yamaha et Midas, apprentissage.
+    pub inputs: Inputs,
     /// Reprise en douceur des volumes, par assignation.
     pickup: HashMap<usize, Pickup>,
-    /// Assignation en attente d'apprentissage.
-    pub learn: Option<usize>,
-    /// Dernier message reçu d'une télécommande, pour les préférences.
-    pub last_input: Option<String>,
     /// Dernier déclenchement de chaque jingle, pour le délai anti double-GO.
     last_trigger: HashMap<(usize, usize), Instant>,
 }
@@ -267,6 +255,7 @@ impl Controller {
         let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(repaint);
         let (urgent, jobs, done) = spawn_loaders(repaint.clone());
         let (analysis_jobs, analysis_done) = spawn_analyzers(repaint.clone());
+        let inputs = Inputs::new(crate::project::APP, repaint.clone());
         let mut c = Self {
             project,
             engine: AudioEngine::new(),
@@ -314,14 +303,8 @@ impl Controller {
             last_osc_publish: Instant::now(),
             meters_db: [[-120.0; 2]; MAX_MODULES],
             last_levels_sent: Instant::now(),
-            midi: None,
-            midi_error: None,
-            midi_retry: Instant::now(),
-            console: None,
-            m32: None,
+            inputs,
             pickup: HashMap::new(),
-            learn: None,
-            last_input: None,
             last_trigger: HashMap::new(),
         };
         for rt in c.playlists.iter_mut() {
@@ -1772,17 +1755,7 @@ impl Controller {
 
     /// (Ré)ouvre le port MIDI selon les préférences.
     pub fn restart_midi(&mut self) {
-        self.midi = None;
-        self.midi_error = None;
-        self.midi_retry = Instant::now();
-        let settings = self.project.preferences.midi.clone();
-        if !settings.enabled {
-            return;
-        }
-        match MidiListener::open(crate::project::APP, settings.port.as_deref(), self.repaint.clone()) {
-            Ok(l) => self.midi = Some(l),
-            Err(e) => self.midi_error = Some(e),
-        }
+        self.inputs.restart_midi(&self.project.preferences.midi);
     }
 
     pub fn set_console_settings(&mut self, settings: ConsoleSettings) {
@@ -1795,11 +1768,7 @@ impl Controller {
 
     /// (Re)lance l'écoute de la console selon les préférences.
     pub fn restart_console(&mut self) {
-        self.console = None;
-        let settings = self.project.preferences.console.clone();
-        if settings.enabled {
-            self.console = Some(ConsoleClient::start(settings, self.repaint.clone()));
-        }
+        self.inputs.restart_console(&self.project.preferences.console);
     }
 
     pub fn set_m32_settings(&mut self, settings: M32Settings) {
@@ -1812,11 +1781,7 @@ impl Controller {
 
     /// (Re)lance l'écoute de la M32 selon les préférences.
     pub fn restart_m32(&mut self) {
-        self.m32 = None;
-        let settings = self.project.preferences.m32.clone();
-        if settings.enabled {
-            self.m32 = Some(M32Client::start(settings, self.repaint.clone()));
-        }
+        self.inputs.restart_m32(&self.project.preferences.m32);
     }
 
     pub fn add_mapping(&mut self, mapping: Mapping) {
@@ -1839,57 +1804,28 @@ impl Controller {
         if i < self.project.preferences.mappings.len() {
             self.project.preferences.mappings.remove(i);
             self.pickup.clear();
-            self.learn = match self.learn {
-                Some(l) if l == i => None,
-                Some(l) if l > i => Some(l - 1),
-                other => other,
-            };
+            self.inputs.mapping_removed(i);
             self.mark_prefs_dirty();
         }
     }
 
     fn poll_remote(&mut self) {
-        let mut events = Vec::new();
-        if let Some(l) = self.midi.as_ref() {
-            events.extend(l.events.try_iter().map(|e| ("MIDI", e)));
-        }
-        if let Some(c) = self.console.as_ref() {
-            events.extend(c.events.try_iter().map(|e| ("QL", e)));
-        }
-        if let Some(c) = self.m32.as_ref() {
-            events.extend(c.events.try_iter().map(|e| ("M32", e)));
-        }
-        // Port débranché puis rebranché : on retente régulièrement.
-        if self.project.preferences.midi.enabled && self.midi_retry.elapsed() > Duration::from_secs(3) {
-            self.midi_retry = Instant::now();
-            let ports = star_remote::midi::port_names(crate::project::APP);
-            match self.midi.as_ref().map(|l| l.port.clone()) {
-                Some(port) if !ports.contains(&port) => {
-                    self.midi = None;
-                    self.midi_error = Some(format!("{} : {port}", tr("port MIDI débranché", "MIDI port unplugged")));
-                }
-                None if !ports.is_empty() => self.restart_midi(),
-                _ => {}
-            }
-        }
-        for (source, ev) in events {
+        for (source, ev) in self.inputs.poll(&self.project.preferences.midi) {
             self.on_input(source, ev);
         }
     }
 
     fn on_input(&mut self, source: &str, ev: InputEvent) {
-        // Les déclencheurs des consoles portent déjà leur source (« QL · … », « M32 · … »).
-        let labelled = matches!(ev, InputEvent::Console { .. } | InputEvent::Scene { .. });
-        self.last_input = Some(if labelled { ev.label() } else { format!("{source} · {}", ev.label()) });
-        if let Some(i) = self.learn {
-            if ev.learnable() {
+        match self.inputs.receive(source, &ev) {
+            Learn::Off => {}
+            Learn::Ignored => return,
+            Learn::Learned(i, trigger) => {
                 if let Some(m) = self.project.preferences.mappings.get(i) {
-                    let learned = Mapping { trigger: ev.trigger(), ..m.clone() };
+                    let learned = Mapping { trigger, ..m.clone() };
                     self.update_mapping(i, learned);
                 }
-                self.learn = None;
+                return;
             }
-            return;
         }
         let commands: Vec<(usize, OscCommand)> = self
             .project
@@ -2071,7 +2007,7 @@ impl Controller {
             .flat_map(|m| m.jingles.iter().flatten().map(|j| j.path.clone()).chain(m.cues.iter().map(|c| c.path.clone())))
             .collect();
         self.cache.retain(|p, _| used.contains(p));
-        self.learn = None;
+        self.inputs.learn = None;
         self.project_path = path;
         self.playlists = Default::default();
         self.gos = Default::default();

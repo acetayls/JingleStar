@@ -6,9 +6,13 @@
 
 pub mod console;
 pub mod input;
+pub mod inputs;
 pub mod m32;
 pub mod midi;
 pub mod settings;
+#[cfg(feature = "ui")]
+pub mod ui;
 
 pub use input::{InputEvent, Pickup, Trigger, CONSOLE_MIN};
+pub use inputs::{Inputs, Learn};
 pub use settings::{ConsoleSettings, M32Settings, MidiSettings};
