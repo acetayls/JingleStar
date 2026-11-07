@@ -651,6 +651,11 @@ impl CueStarApp {
             let dec = if s.hwdec.is_empty() || s.hwdec == "no" { "CPU".to_string() } else { format!("GPU ({})", s.hwdec) };
             ui.label(RichText::new(format!("Décodage : {dec}")).color(TEXT_DIM));
             ui.separator();
+            if let Some(ms) = s.go_latency_ms {
+                ui.label(RichText::new(format!("{} {ms:.0} ms", tr("GO → image :", "GO → picture:"))).color(TEXT_DIM))
+                    .on_hover_text(tr("Temps entre le dernier GO et sa première image sur l'écran de sortie.", "Time from the last GO to its first picture on the output screen."));
+                ui.separator();
+            }
             let col = if s.dropped > 0 { METER_HIGH } else { TEXT_DIM };
             let (media_dropped, media_delayed) = (s.media_dropped, s.media_delayed);
             ui.horizontal(|ui| {

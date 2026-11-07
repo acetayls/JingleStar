@@ -18,6 +18,15 @@ pub fn best(fps: f64, modes: &[f64]) -> Option<f64> {
         .fold(None, |best: Option<f64>, hz| Some(best.map_or(hz, |b| b.max(hz))))
 }
 
+/// Chaque image tient un nombre entier de rafraîchissements, sans recalage (30 i/s sur 60 Hz).
+pub fn exact(fps: f64, hz: f64) -> bool {
+    if fps <= 1.0 || hz <= 1.0 {
+        return false;
+    }
+    let r = hz / fps;
+    r >= 0.999 && ((r - r.round()).abs() / r) < 0.0005
+}
+
 /// L'écran tombe-t-il juste pour cette cadence (à 1 % près, rattrapable par recalage de vitesse) ?
 pub fn fits(fps: f64, hz: f64) -> bool {
     if fps <= 1.0 || hz <= 1.0 {
@@ -114,5 +123,9 @@ mod tests {
         assert!(fits(23.976, 144.0));
         assert!(!fits(25.0, 144.0));
         assert!(fits(29.97, 60.0));
+        assert!(exact(30.0, 60.0));
+        assert!(exact(25.0, 50.0));
+        assert!(!exact(29.97, 60.0));
+        assert!(!exact(23.976, 24.0));
     }
 }
