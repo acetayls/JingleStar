@@ -244,6 +244,7 @@ impl OscServer {
 /// Aide affichée dans la fenêtre OSC.
 pub const HELP: &[(&str, &str)] = &[
     ("noir", "écran de sortie au noir"),
+    ("output/drops/reset", "remet à zéro le compteur d'images perdues et retardées"),
     ("lecteur/go", "lance l'élément sélectionné (ou reprend)"),
     ("lecteur/pause | play | toggle | stop", "transport du Lecteur"),
     ("lecteur/next | prev", "élément suivant / précédent"),
