@@ -268,9 +268,12 @@ mod golden {
         };
         check("remote-0.0.1.json", serde_json::to_value(&r).unwrap());
         assert_eq!(serde_json::from_str::<RemoteSettings>(&fixture("remote-0.0.1.json")).unwrap(), r);
-        let o = crate::osc::OscSettings { enabled: true, port: 9100, network: true, prefix: "/diaporama".into() };
-        check("osc-0.0.1.json", serde_json::to_value(&o).unwrap());
+        // Réglages OSC d'avant OSCQuery : relus avec les valeurs par défaut des nouveaux champs.
+        let o = crate::osc::OscSettings { enabled: true, port: 9100, network: true, prefix: "/diaporama".into(), ..Default::default() };
         assert_eq!(serde_json::from_str::<crate::osc::OscSettings>(&fixture("osc-0.0.1.json")).unwrap(), o);
+        let o = crate::osc::OscSettings { oscquery: true, oscquery_port: 9101, zeroconf: true, name: "Régie vidéo".into(), ..o };
+        check("osc-0.0.2.json", serde_json::to_value(&o).unwrap());
+        assert_eq!(serde_json::from_str::<crate::osc::OscSettings>(&fixture("osc-0.0.2.json")).unwrap(), o);
     }
 
     #[test]

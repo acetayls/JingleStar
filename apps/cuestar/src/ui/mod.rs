@@ -67,6 +67,7 @@ pub struct CueStarApp {
     remotes: remote_view::Remotes,
     remote_tab: remote_view::Tab,
     osc_last: Option<String>,
+    osc_published: std::time::Instant,
     // ---- module Texte, sur le côté
     notes: notes::NotesPanel,
     show_notes: bool,
@@ -115,6 +116,7 @@ impl CueStarApp {
             },
             remote_tab: Default::default(),
             osc_last: None,
+            osc_published: std::time::Instant::now(),
             notes: Default::default(),
             show_notes: true,
         };
@@ -340,7 +342,9 @@ impl CueStarApp {
             crate::remote::Flag::Shuffle => sh,
             crate::remote::Flag::Loop => lp,
         });
-        while let Ok(m) = self.osc.rx.try_recv() {
+        let received = self.osc.poll();
+        let changed = !received.is_empty();
+        for m in received {
             self.osc_last = Some(format!("/{} {:?}", m.path, m.args));
             msgs.push(m);
         }
@@ -355,6 +359,22 @@ impl CueStarApp {
             } else if let Some(cmd) = path.strip_prefix("diaporama/") {
                 self.diaporama.handle_osc(cmd, &m, &mut self.out);
             }
+        }
+        // État pour OSCQuery et les abonnés (Companion…), environ 10 fois par seconde.
+        if changed || self.osc_published.elapsed() >= std::time::Duration::from_millis(100) {
+            self.osc_published = std::time::Instant::now();
+            let st = &self.out.state;
+            let media = st.current.as_deref().or(st.slide.as_ref().map(|s| s.2.as_str())).unwrap_or("");
+            let snap = crate::osc::Snapshot {
+                media: std::path::Path::new(media).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+                paused: st.paused,
+                time: st.time,
+                duration: st.duration,
+                lecteur: self.lecteur.osc_state(),
+                cuelist: self.cuelist.osc_state(),
+                slide: st.slide.as_ref().map_or((0, 0), |s| (s.0 + 1, s.1)),
+            };
+            self.osc.publish(snap);
         }
     }
 
@@ -394,44 +414,64 @@ impl CueStarApp {
                 }
                 let d = &mut self.osc_draft;
                 egui::Grid::new("osc").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
-                    ui.label("Commande OSC");
-                    ui.checkbox(&mut d.enabled, "Activer");
+                    ui.label(tr("Commande OSC", "OSC control"));
+                    ui.checkbox(&mut d.enabled, tr("Activer", "Enable"));
                     ui.end_row();
-                    ui.label("Accès");
+                    ui.label(tr("Accès", "Access"));
                     ui.horizontal(|ui| {
-                        ui.radio_value(&mut d.network, false, "Local (ce PC)");
-                        ui.radio_value(&mut d.network, true, "Réseau");
+                        ui.radio_value(&mut d.network, false, tr("Local (ce PC)", "Local (this PC)"));
+                        ui.radio_value(&mut d.network, true, tr("Réseau", "Network"));
                     });
                     ui.end_row();
-                    ui.label("Port (UDP)");
+                    ui.label(tr("Port (UDP)", "Port (UDP)"));
                     ui.add(egui::DragValue::new(&mut d.port).range(1024..=65535));
                     ui.end_row();
-                    ui.label("Préfixe");
+                    ui.label(tr("Préfixe", "Prefix"));
                     ui.add(egui::TextEdit::singleline(&mut d.prefix).desired_width(160.0));
+                    ui.end_row();
+                    ui.label("OSCQuery");
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut d.oscquery, tr("Décrire les adresses et l'état (HTTP)", "Describe addresses and state (HTTP)"));
+                        ui.add_enabled(d.oscquery, egui::DragValue::new(&mut d.oscquery_port).range(1024..=65535));
+                    });
+                    ui.end_row();
+                    ui.label(tr("Découverte", "Discovery"));
+                    ui.add_enabled(d.oscquery, egui::Checkbox::new(&mut d.zeroconf, tr("Annoncer sur le réseau (mDNS / Bonjour)", "Advertise on the network (mDNS / Bonjour)")));
+                    ui.end_row();
+                    ui.label(tr("Nom annoncé", "Advertised name"));
+                    ui.add(egui::TextEdit::singleline(&mut d.name).desired_width(160.0));
                     ui.end_row();
                 });
                 let changed = *d != self.osc.settings;
                 ui.horizontal(|ui| {
-                    let b = egui::Button::new(RichText::new("Appliquer").color(if changed { PLAYING_INK } else { TEXT_DIM })).fill(if changed { ACCENT } else { PANEL_HI });
+                    let b = egui::Button::new(RichText::new(tr("Appliquer", "Apply")).color(if changed { PLAYING_INK } else { TEXT_DIM })).fill(if changed { ACCENT } else { PANEL_HI });
                     apply = ui.add_enabled(changed, b).clicked();
-                    match (&self.osc.error, self.osc.settings.enabled) {
-                        (Some(e), _) => {
-                            ui.label(RichText::new(e).color(STOP));
-                        }
-                        (None, true) => {
-                            ui.label(RichText::new(format!("● À l'écoute sur le port {}", self.osc.settings.port)).color(GO));
-                        }
-                        (None, false) => {
-                            ui.label(RichText::new("Désactivée").color(TEXT_DIM));
-                        }
+                    if self.osc.server.is_none() {
+                        ui.label(RichText::new(tr("Désactivée", "Disabled")).color(TEXT_DIM));
                     }
                 });
+                if let Some(server) = &self.osc.server {
+                    let ip = if self.osc.settings.network {
+                        star_remote::osc::local_ip().map(|ip| ip.to_string()).unwrap_or_else(|| "127.0.0.1".into())
+                    } else {
+                        "127.0.0.1".into()
+                    };
+                    if let Some(port) = server.udp_port {
+                        ui.label(RichText::new(format!("● {} {ip}:{port}  ·  {}/…", tr("À l'écoute sur", "Listening on"), server.prefix)).color(GO));
+                    }
+                    if let Some(port) = server.http_port {
+                        ui.label(RichText::new(format!("OSCQuery : http://{ip}:{port}/")).small().color(GO));
+                    }
+                    for e in &server.startup_errors {
+                        ui.label(RichText::new(e).color(STOP));
+                    }
+                }
                 if let Some(l) = &self.osc_last {
-                    ui.label(RichText::new(format!("Dernier message : {l}")).monospace().color(TEXT_DIM));
+                    ui.label(RichText::new(format!("{} : {l}", tr("Dernier message", "Last message"))).monospace().color(TEXT_DIM));
                 }
                 ui.separator();
                 let prefix = self.osc.settings.prefix.trim_end_matches('/').to_string();
-                ui.label(RichText::new(format!("Adresses (préfixe {prefix} ; /diaporama/… est aussi accepté)")).strong());
+                ui.label(RichText::new(format!("{} {prefix} ; {}", tr("Adresses (préfixe", "Addresses (prefix"), tr("/diaporama/… est aussi accepté ; …/subscribe abonne au retour d'état)", "/diaporama/… is also accepted; …/subscribe subscribes to state feedback)"))).strong());
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     egui::Grid::new("osc-help").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
                         for (a, t) in crate::osc::HELP {

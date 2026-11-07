@@ -2134,7 +2134,6 @@ dependencies = [
  "eframe",
  "egui",
  "keepawake",
- "mdns-sd",
  "midir",
  "raw-window-handle",
  "rfd",
@@ -2147,7 +2146,6 @@ dependencies = [
  "star-remote",
  "star-ui",
  "symphonia",
- "tiny_http",
  "windows-sys 0.59.0",
 ]
 
@@ -4100,12 +4098,14 @@ version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
  "egui",
+ "mdns-sd",
  "midir",
  "rosc",
  "serde",
  "serde_json",
  "star-core",
  "star-ui",
+ "tiny_http",
 ]
 
 [[package]]

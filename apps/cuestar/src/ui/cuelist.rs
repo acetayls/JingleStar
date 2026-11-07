@@ -170,6 +170,17 @@ impl Cuelist {
     }
 
     /// Commande OSC « cuelist/… ».
+    /// État publié par OSC.
+    pub fn osc_state(&self) -> crate::osc::CuelistState {
+        let name = |i: usize| self.cues.get(i).map(|c| c.name.clone()).unwrap_or_default();
+        crate::osc::CuelistState {
+            cues: self.cues.len(),
+            standby: if self.standby < self.cues.len() { self.standby + 1 } else { 0 },
+            standby_name: name(self.standby),
+            running_name: self.running.map(name).unwrap_or_default(),
+        }
+    }
+
     pub fn handle_osc(&mut self, cmd: &str, m: &crate::osc::Msg, out: &mut OutputLink) {
         match cmd {
             "go" => self.go(out),

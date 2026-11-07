@@ -112,6 +112,11 @@ impl Lecteur {
         (self.shuffle, self.loop_all)
     }
 
+    /// État publié par OSC.
+    pub fn osc_state(&self) -> crate::osc::LecteurState {
+        crate::osc::LecteurState { items: self.items.len(), playing: self.playing.map_or(0, |i| i + 1), shuffle: self.shuffle, looping: self.loop_all }
+    }
+
     /// Commande OSC « lecteur/… ».
     pub fn handle_osc(&mut self, cmd: &str, m: &crate::osc::Msg, out: &mut OutputLink) {
         match cmd {

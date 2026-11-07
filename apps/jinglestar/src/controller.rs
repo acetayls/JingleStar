@@ -1667,7 +1667,7 @@ impl Controller {
         if !settings.enabled {
             return;
         }
-        let server = OscServer::start(settings, self.repaint.clone());
+        let server = osc::start(settings, self.repaint.clone());
         if let Some(e) = server.startup_errors.first() {
             self.status = Some(e.clone());
         }
@@ -1696,7 +1696,7 @@ impl Controller {
         if self.last_levels_sent.elapsed() >= Duration::from_millis(45) {
             self.last_levels_sent = Instant::now();
             if let Some(server) = self.osc.as_ref().filter(|s| s.has_subscribers()) {
-                server.send_levels(&self.meters_db[..self.project.module_count]);
+                osc::send_levels(server, &self.meters_db[..self.project.module_count]);
             }
         }
     }

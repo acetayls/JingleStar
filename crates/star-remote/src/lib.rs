@@ -9,6 +9,7 @@ pub mod input;
 pub mod inputs;
 pub mod m32;
 pub mod midi;
+pub mod osc;
 pub mod settings;
 #[cfg(feature = "ui")]
 pub mod ui;
