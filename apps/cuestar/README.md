@@ -13,8 +13,12 @@ Modules : Lecteur, Diaporama, Cuelist (PowerPoint plus tard).
 - **Préférences machine** (`src/prefs.rs`) : décodage Auto/GPU/CPU, rendu Direct3D 11 /
   Vulkan / OpenGL, rendu léger, écran de sortie, calage sur la fréquence de l'écran.
   Stockées par machine, hors du spectacle.
-- **star-commun** (`crates/star-commun`) : charte et widgets partagés avec JingleStar,
-  destinés à sortir dans leur propre dépôt.
+- **Crates communes** (`crates/star-*`), partagées avec JingleStar : fichiers et session
+  (`star-core`), thème, widgets, panneau Texte et langue français / anglais (`star-ui`),
+  télécommandes MIDI / consoles et serveur OSC avec OSCQuery et mDNS (`star-remote`).
+- **OSC** (`src/osc.rs`) : adresses de CueStar (préfixe `/cuestar`, `/diaporama/…` accepté
+  aussi). En option, OSCQuery décrit les adresses et l'état courant, et `<préfixe>/subscribe`
+  abonne pendant 5 s au retour d'état (média, temps restant, cue en attente…).
 
 ## libmpv
 
