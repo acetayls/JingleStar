@@ -10,6 +10,7 @@ Les applications de régie de Pierrick et leurs briques communes, dans un seul d
 | [`crates/star-ui`](crates/star-ui) | Interface egui : thème, widgets, aide, EQ, éditeur de son, panneau Texte, boîtes de fichiers | aucune, suit le dépôt |
 | [`crates/star-remote`](crates/star-remote) | Télécommandes : MIDI, consoles Yamaha et Midas, correspondances et mode apprendre, serveur OSC / OSCQuery / mDNS ; option `ui` pour la fenêtre Télécommandes | aucune, suit le dépôt |
 | [`crates/star-build`](crates/star-build) | `build.rs` commun : version git, date, icône Windows | aucune, suit le dépôt |
+| [`crates/star-pptx`](crates/star-pptx) | Rendu des présentations PowerPoint (.pptx) en images, en Rust pur ; utilisé par le module Présentation de CueStar | aucune, suit le dépôt |
 
 Les crates communes sont extraites de JingleStar, l'appli la plus aboutie, puis utilisées par
 les deux applis. Elles ne connaissent pas les applis : chaque appli garde ses adresses OSC, ses

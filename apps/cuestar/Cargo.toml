@@ -10,6 +10,8 @@ license.workspace = true
 star-core.workspace = true
 star-ui.workspace = true
 star-remote = { workspace = true, features = ["ui"] }
+# Rendu des présentations PowerPoint du module Présentation.
+star-pptx.workspace = true
 eframe.workspace = true
 egui.workspace = true
 rfd = "0.17"

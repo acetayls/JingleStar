@@ -45,7 +45,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Tests
-        run: cargo test -p cuestar -p star-core -p star-ui -p star-remote -p star-build
+        run: cargo test -p cuestar -p star-core -p star-ui -p star-remote -p star-build -p star-pptx
       - name: Build release
         run: cargo build --release -p cuestar
       - name: Récupérer libmpv-2.dll (shinchiro, mpv-dev x86_64)
@@ -154,7 +154,7 @@ jobs:
       - name: libmpv, libmediainfo et dylibbundler (Homebrew)
         run: brew install mpv libmediainfo dylibbundler
       - name: Tests
-        run: cargo test -p cuestar -p star-commun
+        run: cargo test -p cuestar -p star-core -p star-ui -p star-remote -p star-build -p star-pptx
       - name: Build release
         run: cargo build --release -p cuestar --target ${{ matrix.target }}
       - name: Certificat Developer ID
@@ -202,7 +202,7 @@ jobs:
       - name: Dépendances Linux
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libxkbcommon-dev libgtk-3-dev libmpv-dev libmediainfo0v5
       - name: Tests
-        run: cargo test -p cuestar -p star-commun
+        run: cargo test -p cuestar -p star-core -p star-ui -p star-remote -p star-build -p star-pptx
       - name: Build release
         run: cargo build --release -p cuestar
       - name: AppImage
