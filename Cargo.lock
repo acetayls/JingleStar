@@ -4113,6 +4113,7 @@ name = "star-ui"
 version = "0.1.0"
 dependencies = [
  "egui",
+ "rfd",
  "star-core",
 ]
 

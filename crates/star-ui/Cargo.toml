@@ -10,3 +10,4 @@ publish = false
 [dependencies]
 egui.workspace = true
 star-core.workspace = true
+rfd = "0.17"
