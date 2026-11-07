@@ -37,7 +37,13 @@ dans la charte de JingleStar.
 - **Sortie composée par CueStar** (Direct3D 11 sous Windows, OpenGL sous macOS et Linux) avec
   deux lecteurs : fondu enchaîné image et son, fondu au noir, **mapping 4 coins**. Affichage de
   secours si l'API de rendu de mpv manque.
-- Un cue part en ~30 ms ; l'image précédente reste jusqu'à la première image du média suivant.
+- **Cue préparé d'avance** : le cue en attente de la Cuelist est ouvert sur le lecteur libre,
+  arrêté sur sa première image ; au GO, elle part vers l'écran en 10 à 50 ms (90 à 330 ms sans
+  préparation, mesuré au banc). L'image précédente reste jusqu'à la première image du suivant.
+- Un cue **Continuer** garde sa dernière image jusqu'au cue suivant, sans passer par le noir.
+- Barre du bas : temps **GO → image** du dernier chargement, mesuré par la sortie.
+- Cadence automatique : synchro audio quand l'écran tombe juste (30 i/s sur 60 Hz) et pour la
+  4K, où le recalage de vitesse perdait des images (HEVC, ProRes).
 - **Préférences** (anciennement « Video output ») en onglets : **Écran et moteur** (écran,
   décodage, cadence, interpolation, adaptation de la fréquence de l'écran), **Audio** (carte et
   volume), **Mires de test**, **Mapping 4 coins**.
