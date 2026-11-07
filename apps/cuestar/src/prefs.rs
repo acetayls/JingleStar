@@ -183,6 +183,8 @@ pub struct MachinePrefs {
     pub audio_delay_ms: f64,
     /// Unité d'affichage du délai.
     pub audio_delay_unit: DelayUnit,
+    /// Empêche la mise en veille de l'écran et du système tant que CueStar est ouvert.
+    pub prevent_sleep: bool,
     /// Langue de l'interface.
     pub language: star_core::i18n::Lang,
 }
@@ -212,7 +214,7 @@ impl Default for Warp {
 
 impl Default for MachinePrefs {
     fn default() -> Self {
-        Self { decode: Decode::Auto, render: RenderApi::Auto, light: false, screen: None, windowed_if_single: true, cadence: Cadence::Auto, fps: None, interpolation: false, adapt_refresh: false, warp: Warp::default(), audio_device: None, volume: 100.0, audio_delay_ms: 0.0, audio_delay_unit: DelayUnit::Ms, language: star_core::i18n::Lang::Fr }
+        Self { decode: Decode::Auto, render: RenderApi::Auto, light: false, screen: None, windowed_if_single: true, cadence: Cadence::Auto, fps: None, interpolation: false, adapt_refresh: false, warp: Warp::default(), audio_device: None, volume: 100.0, audio_delay_ms: 0.0, audio_delay_unit: DelayUnit::Ms, prevent_sleep: true, language: star_core::i18n::Lang::Fr }
     }
 }
 
@@ -229,6 +231,7 @@ impl MachinePrefs {
         a.volume = o.volume;
         a.audio_delay_ms = o.audio_delay_ms;
         a.audio_delay_unit = o.audio_delay_unit;
+        a.prevent_sleep = o.prevent_sleep;
         a == *o
     }
 

@@ -28,6 +28,8 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 sysinfo = { version = "0.40.1", default-features = false, features = ["system"] }
 rosc = "0.11"
 midir = "0.11"
+# Empêcher la mise en veille (Windows, macOS, Linux via D-Bus).
+keepawake = "0.6"
 crossbeam-channel = "0.5"
 
 [build-dependencies]

@@ -9,6 +9,7 @@
   "interpolation": true,
   "language": "en",
   "light": true,
+  "prevent_sleep": false,
   "render": "OpenGL",
   "screen": "DELL U2720Q",
   "volume": 80.0,

@@ -225,6 +225,15 @@ impl OutputView {
                     ui.ctx().debug_text(e);
                 }
             }
+            // Appliqué tout de suite, sans relancer la sortie.
+            if ui
+                .checkbox(&mut prefs.prevent_sleep, "Empêcher la mise en veille")
+                .on_hover_text("Ni l'écran ni l'ordinateur ne se mettent en veille tant que CueStar est ouvert")
+                .changed()
+            {
+                d.prevent_sleep = prefs.prevent_sleep;
+                prefs.save();
+            }
             let changed = !d.same_engine(prefs);
             ui.add_space(4.0);
             ui.horizontal(|ui| {
@@ -239,6 +248,7 @@ impl OutputView {
                         volume: prefs.volume,
                         audio_delay_ms: prefs.audio_delay_ms,
                         audio_delay_unit: prefs.audio_delay_unit,
+                        prevent_sleep: prefs.prevent_sleep,
                         ..d.clone()
                     };
                     prefs.save();
