@@ -47,6 +47,8 @@ pub struct OutputState {
     /// Sorties audio vues par mpv : (nom, description).
     pub audio_devices: Vec<(String, String)>,
     pub display_fps: f64,
+    /// Touches reçues de la fenêtre de sortie, pas encore traitées (module Présentation).
+    pub keys: Vec<crate::protocol::RemoteKey>,
 }
 
 pub struct OutputLink {
@@ -212,6 +214,7 @@ impl OutputLink {
                     s.display_fps = display;
                 }
                 Event::Slide { index, count, path } => s.slide = (count > 0).then_some((index, count, path)),
+                Event::Key { key } => s.keys.push(key),
             }
         }
         if closed {
