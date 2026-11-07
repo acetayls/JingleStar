@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=CueStar
+Comment=Diffusion vidéo sur écran de sortie : lecteur, diaporama, cuelist
+Exec=cuestar
+Icon=cuestar
+Categories=AudioVideo;Video;Player;
+Terminal=false

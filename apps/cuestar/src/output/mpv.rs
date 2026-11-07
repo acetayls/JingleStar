@@ -152,7 +152,8 @@ pub struct Mpv {
 // Le handle mpv est utilisable depuis n'importe quel thread (API client thread-safe).
 unsafe impl Send for Mpv {}
 
-/// Emplacements essayés, dans l'ordre : à côté de l'exécutable, dans `mpv/` à côté, puis le système.
+/// Emplacements essayés, dans l'ordre : à côté de l'exécutable, dans `mpv/` à côté, dans le paquet
+/// (`../Frameworks` sur macOS, `../lib` sur Linux), puis le système.
 fn candidates() -> Vec<PathBuf> {
     let names: &[&str] = if cfg!(windows) {
         &["libmpv-2.dll", "mpv-2.dll", "mpv-1.dll"]
@@ -171,6 +172,12 @@ pub fn library_candidates(names: &[&str]) -> Vec<PathBuf> {
         for n in names {
             out.push(dir.join(n));
             out.push(dir.join("mpv").join(n));
+            // Paquets de release : CueStar.app/Contents/Frameworks (macOS), usr/lib de l'AppImage (Linux).
+            if cfg!(target_os = "macos") {
+                out.push(dir.join("../Frameworks").join(n));
+            } else if !cfg!(windows) {
+                out.push(dir.join("../lib").join(n));
+            }
         }
         // En développement : dossier `mpv/` à la racine du projet, quelques niveaux au-dessus de `target/…`.
         for root in dir.ancestors().skip(1).take(4) {
