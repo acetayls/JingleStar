@@ -1,0 +1,98 @@
+{
+  "audio": {
+    "buffer_size": 256,
+    "device": "Carte",
+    "host": "ASIO"
+  },
+  "preferences": {
+    "console": {
+      "enabled": true,
+      "host": "10.0.0.2",
+      "port": 49281
+    },
+    "double_go_ms": 450,
+    "escape_stops_playlist": true,
+    "language": "en",
+    "m32": {
+      "enabled": true,
+      "host": "10.0.0.3",
+      "port": 10024
+    },
+    "mappings": [
+      {
+        "action": "jingle_toggle",
+        "jingle": 3,
+        "module": 0,
+        "trigger": {
+          "channel": 1,
+          "note": 60,
+          "source": "note"
+        }
+      },
+      {
+        "action": "module_volume",
+        "jingle": 0,
+        "module": 1,
+        "trigger": {
+          "cc": 7,
+          "channel": 2,
+          "source": "cc"
+        }
+      },
+      {
+        "action": "playlist_track",
+        "jingle": 0,
+        "module": 1,
+        "trigger": {
+          "channel": 1,
+          "program": 5,
+          "source": "program"
+        }
+      },
+      {
+        "action": "cue_go",
+        "jingle": 0,
+        "module": 3,
+        "trigger": {
+          "address": "MIXER:Current/InCh/Fader/On",
+          "source": "console",
+          "x": 3,
+          "y": 0
+        }
+      },
+      {
+        "action": "stop_all",
+        "jingle": 0,
+        "module": 0,
+        "trigger": {
+          "number": 12,
+          "source": "scene"
+        }
+      },
+      {
+        "action": "jingle_toggle",
+        "jingle": 0,
+        "module": 0,
+        "trigger": {
+          "source": "unset"
+        }
+      }
+    ],
+    "memory_warn_mb": 2000,
+    "midi": {
+      "enabled": true,
+      "port": "nanoKONTROL"
+    },
+    "osc": {
+      "enabled": true,
+      "name": "Régie",
+      "oscquery": false,
+      "oscquery_port": 9101,
+      "port": 9100,
+      "prefix": "/js",
+      "zeroconf": false
+    },
+    "prevent_sleep": false
+  },
+  "project_path": "/spectacles/gala.jinglestar"
+}

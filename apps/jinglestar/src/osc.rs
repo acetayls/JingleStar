@@ -1,20 +1,17 @@
-//! Pilotage à distance : réception des commandes OSC (UDP), serveur OSCQuery (HTTP/JSON)
-//! qui décrit l'arborescence, et annonce mDNS pour la découverte automatique.
+//! Pilotage à distance : adresses OSC de JingleStar et arborescence OSCQuery de son état.
+//! Le serveur (UDP, abonnements, HTTP, mDNS) est celui de `star_remote::osc`.
 //!
 //! Les numéros de module, de jingle et de morceau sont comptés à partir de 1 dans les adresses.
 
-use std::net::{SocketAddr, UdpSocket};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::sync::Arc;
 
-use crossbeam_channel::{unbounded, Receiver, Sender};
-use rosc::{OscMessage, OscPacket, OscType};
-use serde_json::{json, Map, Value};
+use rosc::{OscMessage, OscType};
+use serde_json::{json, Value};
+use star_remote::osc::{arg_bool, arg_f32, insert, is_press, leaf, trigger_leaf, ServerConfig, ACCESS_READ, ACCESS_RW, ACCESS_WRITE};
+pub use star_remote::osc::{bool_type, local_ip, normalize_prefix};
 
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
-use crate::i18n::tr;
+use star_core::i18n::tr;
 use crate::project::{ModuleMode, OscSettings};
 
 pub const MODULE_DB: (f32, f32) = (-60.0, 10.0);
@@ -112,52 +109,6 @@ pub struct PlaylistState {
 }
 
 // ------------------------------------------------------------------ adresses
-
-/// Préfixe normalisé : « /jinglestar », ou chaîne vide.
-pub fn normalize_prefix(prefix: &str) -> String {
-    let p = prefix.trim().trim_matches('/');
-    if p.is_empty() {
-        String::new()
-    } else {
-        format!("/{p}")
-    }
-}
-
-/// Nombre reçu ; une valeur non numérique (« nan », infini) est refusée.
-fn arg_f32(args: &[OscType]) -> Option<f32> {
-    let v = match args.first()? {
-        OscType::Float(v) => *v,
-        OscType::Double(v) => *v as f32,
-        OscType::Int(v) => *v as f32,
-        OscType::Long(v) => *v as f32,
-        OscType::String(s) => s.trim().parse().ok()?,
-        _ => return None,
-    };
-    v.is_finite().then_some(v)
-}
-
-fn arg_bool(args: &[OscType]) -> Option<bool> {
-    match args.first()? {
-        OscType::Bool(b) => Some(*b),
-        OscType::String(s) => match s.trim().to_lowercase().as_str() {
-            "1" | "true" | "on" | "yes" => Some(true),
-            "0" | "false" | "off" | "no" => Some(false),
-            _ => None,
-        },
-        _ => arg_f32(args).map(|v| v >= 0.5),
-    }
-}
-
-/// Un déclencheur sans argument part ; avec un nombre, seul un appui (≠ 0) part.
-/// Évite le double déclenchement des boutons qui envoient 1 à l'appui et 0 au relâché.
-fn is_press(args: &[OscType]) -> bool {
-    match args.first() {
-        None => true,
-        Some(OscType::Bool(b)) => *b,
-        Some(OscType::Nil) | Some(OscType::Inf) => true,
-        Some(_) => arg_f32(args).map(|v| v != 0.0).unwrap_or(true),
-    }
-}
 
 /// Numéro compté à partir de 1 dans l'adresse → index.
 fn index(seg: Option<&str>, count: usize) -> Result<usize, String> {
@@ -264,26 +215,6 @@ pub fn parse(prefix: &str, msg: &OscMessage) -> Result<Option<OscCommand>, Strin
 
 // ------------------------------------------------------------------ OSCQuery
 
-const ACCESS_READ: u8 = 1;
-const ACCESS_WRITE: u8 = 2;
-const ACCESS_RW: u8 = 3;
-
-/// Feuille de l'arborescence OSCQuery.
-fn leaf(ty: &str, access: u8, description: &str, value: Option<Value>, range: Option<Value>) -> Value {
-    let mut node = json!({ "TYPE": ty, "ACCESS": access, "DESCRIPTION": description });
-    if let Some(v) = value {
-        node["VALUE"] = json!([v]);
-    }
-    if let Some(r) = range {
-        node["RANGE"] = json!([r]);
-    }
-    node
-}
-
-fn trigger_leaf(description: &str) -> Value {
-    leaf("N", ACCESS_WRITE, description, None, None)
-}
-
 /// Avancement de 0 à 1, au millième ; -1 quand rien ne joue.
 fn progress_leaf(description: &str, progress: Option<f32>) -> Value {
     let v = progress.map(|p| (p.clamp(0.0, 1.0) * 1000.0).round() / 1000.0).unwrap_or(-1.0);
@@ -296,35 +227,10 @@ fn remaining_leaf(description: &str, remaining: Option<f32>) -> Value {
     leaf("f", ACCESS_READ, description, Some(json!(v)), None)
 }
 
-/// Place `node` à `path` en créant les dossiers intermédiaires.
-fn insert(root: &mut Value, path: &str, mut node: Value) {
-    let mut cur = root;
-    let mut full = String::new();
-    let segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    for (i, seg) in segs.iter().enumerate() {
-        full.push('/');
-        full.push_str(seg);
-        let contents = cur
-            .as_object_mut()
-            .expect("nœud objet")
-            .entry("CONTENTS")
-            .or_insert_with(|| Value::Object(Map::new()));
-        if i + 1 == segs.len() {
-            node["FULL_PATH"] = json!(full);
-            contents[*seg] = node;
-            return;
-        }
-        if contents.get(*seg).is_none() {
-            contents[*seg] = json!({ "FULL_PATH": full, "ACCESS": 0 });
-        }
-        cur = contents.get_mut(*seg).expect("dossier créé");
-    }
-}
-
 /// Arborescence complète, valeurs courantes comprises.
 pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
     let p = normalize_prefix(prefix);
-    let mut root = json!({ "FULL_PATH": "/", "ACCESS": 0, "DESCRIPTION": "JingleStar", "CONTENTS": {} });
+    let mut root = star_remote::osc::root("JingleStar");
     let mut add = |path: String, node: Value| insert(&mut root, &format!("{p}{path}"), node);
     add("/stop_all".into(), trigger_leaf("Arrête tous les sons"));
     add("/go".into(), trigger_leaf("GO du premier module GO"));
@@ -447,311 +353,51 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
     root
 }
 
-/// Dans OSC, le type d'un booléen porte sa valeur.
-fn bool_type(b: bool) -> &'static str {
-    if b {
-        "T"
-    } else {
-        "F"
-    }
-}
-
-const ATTRIBUTES: [&str; 7] = ["FULL_PATH", "CONTENTS", "TYPE", "ACCESS", "VALUE", "RANGE", "DESCRIPTION"];
-
 /// Réponse HTTP à une requête OSCQuery : (code, corps JSON).
+#[cfg(test)]
 pub fn answer(url: &str, settings: &OscSettings, snap: &Snapshot) -> (u16, Value) {
-    let (path, query) = url.split_once('?').unwrap_or((url, ""));
-    if query == "HOST_INFO" {
-        return (200, host_info(settings));
-    }
-    let root = tree(&settings.prefix, snap);
-    let mut node = &root;
-    for seg in path.split('/').filter(|s| !s.is_empty()) {
-        match node.get("CONTENTS").and_then(|c| c.get(seg)) {
-            Some(n) => node = n,
-            None => return (404, Value::Null),
-        }
-    }
-    if query.is_empty() {
-        return (200, node.clone());
-    }
-    let attr = query.split('&').next().unwrap_or("").to_uppercase();
-    if !ATTRIBUTES.contains(&attr.as_str()) {
-        return (400, Value::Null);
-    }
-    match node.get(&attr) {
-        Some(v) => (200, json!({ attr: v })),
-        None => (204, Value::Null),
-    }
+    star_remote::osc::answer(url, &settings.name, settings.port, || tree(&settings.prefix, snap))
 }
 
-fn host_info(settings: &OscSettings) -> Value {
-    json!({
-        "NAME": settings.name,
-        "OSC_PORT": settings.port,
-        "OSC_TRANSPORT": "UDP",
-        "EXTENSIONS": {
-            "ACCESS": true,
-            "VALUE": true,
-            "RANGE": true,
-            "DESCRIPTION": true,
-            "TAGS": false,
-            "CLIPMODE": false,
-            "UNIT": false,
-            "CRITICAL": false,
-            "LISTEN": false,
-            "PATH_CHANGED": false,
-        }
-    })
-}
-
-// ------------------------------------------------------------------ serveurs
+// ------------------------------------------------------------------ serveur
 
 /// Serveurs réseau en marche ; tout s'arrête quand on le libère.
-pub struct OscServer {
-    pub commands: Receiver<OscCommand>,
-    /// Messages refusés ou erreurs de réception, pour la barre d'état.
-    pub errors: Receiver<String>,
-    pub snapshot: Arc<Mutex<Snapshot>>,
-    /// Ports effectivement ouverts.
-    pub udp_port: Option<u16>,
-    pub http_port: Option<u16>,
-    /// Problèmes au démarrage (port occupé…).
-    pub startup_errors: Vec<String>,
-    /// Destinataires des niveaux (adresse, dernier abonnement) et socket d'envoi.
-    subscribers: Arc<Mutex<Vec<(SocketAddr, Instant)>>>,
-    sender: Option<UdpSocket>,
-    prefix: String,
-    stop: Arc<AtomicBool>,
-    threads: Vec<JoinHandle<()>>,
-    mdns: Option<mdns_sd::ServiceDaemon>,
+pub type OscServer = star_remote::osc::OscServer<OscCommand, Snapshot>;
+
+/// Démarre les serveurs selon les préférences (commandes acceptées depuis le réseau).
+pub fn start(settings: OscSettings, repaint: Arc<dyn Fn() + Send + Sync>) -> OscServer {
+    let cfg = ServerConfig {
+        name: settings.name.clone(),
+        port: settings.port,
+        network: true,
+        prefix: settings.prefix.clone(),
+        oscquery_port: settings.oscquery.then_some(settings.oscquery_port),
+        zeroconf: settings.zeroconf.then(|| "jinglestar.local.".to_string()),
+    };
+    let prefix = settings.prefix.clone();
+    let tree_prefix = settings.prefix;
+    OscServer::start(cfg, Arc::new(move |m| parse(&prefix, m)), Arc::new(move |snap| tree(&tree_prefix, snap)), repaint)
 }
 
-impl OscServer {
-    pub fn start(settings: OscSettings, repaint: Arc<dyn Fn() + Send + Sync>) -> Self {
-        let (cmd_tx, commands) = unbounded();
-        let (err_tx, errors) = unbounded();
-        let mut s = Self {
-            commands,
-            errors,
-            snapshot: Arc::new(Mutex::new(Snapshot::default())),
-            udp_port: None,
-            http_port: None,
-            startup_errors: Vec::new(),
-            subscribers: Arc::new(Mutex::new(Vec::new())),
-            sender: None,
-            prefix: normalize_prefix(&settings.prefix),
-            stop: Arc::new(AtomicBool::new(false)),
-            threads: Vec::new(),
-            mdns: None,
-        };
-        match UdpSocket::bind(("0.0.0.0", settings.port)) {
-            Ok(sock) => {
-                let _ = sock.set_read_timeout(Some(Duration::from_millis(200)));
-                s.udp_port = Some(settings.port);
-                s.sender = sock.try_clone().ok();
-                let (stop, prefix, subs) = (s.stop.clone(), settings.prefix.clone(), s.subscribers.clone());
-                let repaint = repaint.clone();
-                s.threads.push(
-                    std::thread::Builder::new()
-                        .name("osc-udp".into())
-                        .spawn(move || udp_loop(sock, prefix, stop, cmd_tx, err_tx, subs, repaint))
-                        .expect("thread OSC"),
-                );
-            }
-            Err(e) => s.startup_errors.push(format!("OSC : {} {} ({e})", tr("port UDP indisponible", "UDP port unavailable"), settings.port)),
-        }
-        if settings.oscquery {
-            match tiny_http::Server::http(("0.0.0.0", settings.oscquery_port)) {
-                Ok(http) => {
-                    s.http_port = Some(settings.oscquery_port);
-                    let (stop, snap, st) = (s.stop.clone(), s.snapshot.clone(), settings.clone());
-                    s.threads.push(
-                        std::thread::Builder::new()
-                            .name("oscquery".into())
-                            .spawn(move || http_loop(http, st, snap, stop))
-                            .expect("thread OSCQuery"),
-                    );
-                    if settings.zeroconf {
-                        match advertise(&settings) {
-                            Ok(d) => s.mdns = Some(d),
-                            Err(e) => s.startup_errors.push(format!("{} : {e}", tr("Annonce mDNS impossible", "mDNS announcement failed"))),
-                        }
-                    }
-                }
-                Err(e) => s.startup_errors.push(format!("OSCQuery : {} {} ({e})", tr("port HTTP indisponible", "HTTP port unavailable"), settings.oscquery_port)),
-            }
-        }
-        s
-    }
-
-    pub fn publish(&self, snap: Snapshot) {
-        if let Ok(mut s) = self.snapshot.lock() {
-            if *s != snap {
-                *s = snap;
-            }
-        }
-    }
-
-    /// Quelqu'un attend-il les niveaux ?
-    pub fn has_subscribers(&self) -> bool {
-        self.subscribers.lock().map(|s| !s.is_empty()).unwrap_or(false)
-    }
-
-    /// Envoie le niveau de chaque module (dB, gauche et droite) aux abonnés encore actifs.
-    pub fn send_levels(&self, levels: &[[f32; 2]]) {
-        let Some(sock) = self.sender.as_ref() else { return };
-        let targets: Vec<SocketAddr> = match self.subscribers.lock() {
-            Ok(mut subs) => {
-                subs.retain(|(_, t)| t.elapsed() < SUBSCRIPTION);
-                subs.iter().map(|(a, _)| *a).collect()
-            }
-            Err(_) => return,
-        };
-        if targets.is_empty() {
-            return;
-        }
-        let content = levels
-            .iter()
-            .enumerate()
-            .map(|(m, l)| {
-                OscPacket::Message(OscMessage {
-                    addr: format!("{}/module/{}/meter", self.prefix, m + 1),
-                    args: vec![OscType::Float(l[0].max(-120.0)), OscType::Float(l[1].max(-120.0))],
-                })
-            })
-            .collect();
-        let bundle = OscPacket::Bundle(rosc::OscBundle { timetag: rosc::OscTime { seconds: 0, fractional: 1 }, content });
-        if let Ok(bytes) = rosc::encoder::encode(&bundle) {
-            for t in targets {
-                let _ = sock.send_to(&bytes, t);
-            }
-        }
-    }
-}
-
-/// Un abonnement aux niveaux dure ce temps sans être renouvelé.
-const SUBSCRIPTION: Duration = Duration::from_secs(5);
-
-/// « …/subscribe » : l'expéditeur recevra les niveaux sur son adresse et son port d'envoi,
-/// ou sur le port donné en argument.
-fn subscribe(subs: &Mutex<Vec<(SocketAddr, Instant)>>, mut from: SocketAddr, msg: &OscMessage) {
-    if let Some(OscType::Int(p)) = msg.args.first() {
-        if (1..=65535).contains(p) {
-            from.set_port(*p as u16);
-        }
-    }
-    if let Ok(mut s) = subs.lock() {
-        s.retain(|(a, _)| *a != from);
-        if s.len() < 16 {
-            s.push((from, Instant::now()));
-        }
-    }
-}
-
-impl Drop for OscServer {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(d) = self.mdns.take() {
-            let _ = d.shutdown();
-        }
-        for t in self.threads.drain(..) {
-            let _ = t.join();
-        }
-    }
-}
-
-fn udp_loop(
-    sock: UdpSocket,
-    prefix: String,
-    stop: Arc<AtomicBool>,
-    commands: Sender<OscCommand>,
-    errors: Sender<String>,
-    subs: Arc<Mutex<Vec<(SocketAddr, Instant)>>>,
-    repaint: Arc<dyn Fn() + Send + Sync>,
-) {
-    let mut buf = vec![0u8; 65_536];
-    let subscribe_addr = format!("{}/subscribe", normalize_prefix(&prefix));
-    while !stop.load(Ordering::Relaxed) {
-        let (n, from) = match sock.recv_from(&mut buf) {
-            Ok(r) => r,
-            Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => continue,
-            // Sous Windows, un ICMP « port injoignable » remonte en erreur de réception : on l'ignore.
-            Err(_) => continue,
-        };
-        match rosc::decoder::decode_udp(&buf[..n]) {
-            Ok((_, packet)) => {
-                let mut messages = Vec::new();
-                flatten(packet, &mut messages);
-                for msg in messages {
-                    if msg.addr == subscribe_addr {
-                        subscribe(&subs, from, &msg);
-                        continue;
-                    }
-                    match parse(&prefix, &msg) {
-                        Ok(Some(cmd)) => {
-                            let _ = commands.send(cmd);
-                        }
-                        Ok(None) => {}
-                        Err(e) => {
-                            let _ = errors.send(e);
-                        }
-                    }
-                }
-                repaint();
-            }
-            Err(e) => {
-                let _ = errors.send(format!("{} ({e})", tr("paquet OSC illisible", "unreadable OSC packet")));
-                repaint();
-            }
-        }
-    }
-}
-
-fn flatten(packet: OscPacket, out: &mut Vec<OscMessage>) {
-    match packet {
-        OscPacket::Message(m) => out.push(m),
-        OscPacket::Bundle(b) => b.content.into_iter().for_each(|p| flatten(p, out)),
-    }
-}
-
-fn http_loop(http: tiny_http::Server, settings: OscSettings, snap: Arc<Mutex<Snapshot>>, stop: Arc<AtomicBool>) {
-    let json_header = tiny_http::Header::from_bytes("Content-Type", "application/json").expect("en-tête");
-    let cors = tiny_http::Header::from_bytes("Access-Control-Allow-Origin", "*").expect("en-tête");
-    while !stop.load(Ordering::Relaxed) {
-        let Ok(Some(req)) = http.recv_timeout(Duration::from_millis(200)) else { continue };
-        let current = snap.lock().map(|s| s.clone()).unwrap_or_default();
-        let (code, body) = answer(req.url(), &settings, &current);
-        let resp = if code == 200 {
-            tiny_http::Response::from_string(body.to_string()).with_header(json_header.clone())
-        } else {
-            tiny_http::Response::from_string(String::new())
-        };
-        let _ = req.respond(resp.with_status_code(code).with_header(cors.clone()));
-    }
-}
-
-/// Adresse IP de l'ordinateur sur le réseau local (aucun paquet n'est envoyé).
-pub fn local_ip() -> Option<std::net::IpAddr> {
-    let sock = UdpSocket::bind(("0.0.0.0", 0)).ok()?;
-    sock.connect(("8.8.8.8", 80)).ok()?;
-    sock.local_addr().ok().map(|a| a.ip())
-}
-
-fn advertise(settings: &OscSettings) -> Result<mdns_sd::ServiceDaemon, mdns_sd::Error> {
-    let daemon = mdns_sd::ServiceDaemon::new()?;
-    let host = "jinglestar.local.";
-    let query = mdns_sd::ServiceInfo::new("_oscjson._tcp.local.", &settings.name, host, (), settings.oscquery_port, None)?
-        .enable_addr_auto();
-    daemon.register(query)?;
-    let osc = mdns_sd::ServiceInfo::new("_osc._udp.local.", &settings.name, host, (), settings.port, None)?.enable_addr_auto();
-    daemon.register(osc)?;
-    Ok(daemon)
+/// Envoie le niveau de chaque module (dB, gauche et droite) aux abonnés.
+pub fn send_levels(server: &OscServer, levels: &[[f32; 2]]) {
+    let messages = levels
+        .iter()
+        .enumerate()
+        .map(|(m, l)| OscMessage {
+            addr: format!("{}/module/{}/meter", server.prefix, m + 1),
+            args: vec![OscType::Float(l[0].max(-120.0)), OscType::Float(l[1].max(-120.0))],
+        })
+        .collect();
+    server.send_to_subscribers(messages);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rosc::OscPacket;
+    use std::net::UdpSocket;
+    use std::time::{Duration, Instant};
 
     fn msg(addr: &str, args: Vec<OscType>) -> OscMessage {
         OscMessage { addr: addr.into(), args }
@@ -906,7 +552,7 @@ mod tests {
     #[test]
     fn server_roundtrip() {
         let settings = OscSettings { enabled: true, port: 39_871, oscquery_port: 39_872, zeroconf: false, ..Default::default() };
-        let server = OscServer::start(settings, Arc::new(|| {}));
+        let server = start(settings, Arc::new(|| {}));
         assert!(server.startup_errors.is_empty(), "{:?}", server.startup_errors);
         server.publish(snapshot());
 
@@ -919,7 +565,7 @@ mod tests {
         while !server.has_subscribers() && t0.elapsed() < Duration::from_secs(2) {
             std::thread::sleep(Duration::from_millis(10));
         }
-        server.send_levels(&[[-6.0, -12.0]]);
+        send_levels(&server, &[[-6.0, -12.0]]);
         let mut buf = [0u8; 1024];
         let (n, _) = listener.recv_from(&mut buf).unwrap();
         let OscPacket::Bundle(b) = rosc::decoder::decode_udp(&buf[..n]).unwrap().1 else { panic!("paquet groupé attendu") };

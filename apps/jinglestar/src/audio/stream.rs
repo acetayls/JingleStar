@@ -324,7 +324,7 @@ fn streamer() {
             for &b in &wanted {
                 if s.blocks[b].load(Ordering::Acquire).is_null() {
                     if let Err(e) = s.load(b) {
-                        crate::log::write(&format!("Lecture disque impossible : {e}"));
+                        star_core::log::write(&format!("Lecture disque impossible : {e}"));
                     }
                 }
             }

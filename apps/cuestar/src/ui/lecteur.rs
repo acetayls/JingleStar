@@ -7,8 +7,8 @@ use crate::link::OutputLink;
 use crate::protocol::{Command, Transition, TransitionKind};
 use crate::thumb::Thumbs;
 use egui::{pos2, vec2, Align, Color32, CornerRadius, Key, Layout, Rect, RichText, Sense};
-use star_commun::theme::*;
-use star_commun::widgets::{add_button, fmt_time, loop_icon, mode_chip, pressed, track_row, transport_button, TransportIcon};
+use star_ui::theme::*;
+use star_ui::widgets::{add_button, fmt_time, loop_icon, mode_chip, pressed, track_row, transport_button, TransportIcon};
 use std::path::{Path, PathBuf};
 
 const EXTENSIONS: &[&str] = &[
@@ -110,6 +110,11 @@ impl Lecteur {
     /// Aléatoire et Tout boucler (pour les touches qui les basculent).
     pub fn flags(&self) -> (bool, bool) {
         (self.shuffle, self.loop_all)
+    }
+
+    /// État publié par OSC.
+    pub fn osc_state(&self) -> crate::osc::LecteurState {
+        crate::osc::LecteurState { items: self.items.len(), playing: self.playing.map_or(0, |i| i + 1), shuffle: self.shuffle, looping: self.loop_all }
     }
 
     /// Commande OSC « lecteur/… ».

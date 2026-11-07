@@ -16,7 +16,7 @@ use std::sync::Arc;
 use crossbeam_channel::{Receiver, Sender};
 
 use super::buffer::AudioBuffer;
-use super::eq::{EqCoeffs, EqProcessor};
+use star_core::eq::{EqCoeffs, EqProcessor};
 use super::limiter::Limiter;
 use super::stream::ReaderSlot;
 
@@ -1132,7 +1132,7 @@ mod tests {
 
     #[test]
     fn slot_and_module_eq_are_applied() {
-        use crate::audio::eq::EqSettings;
+        use star_core::eq::EqSettings;
         let mut eq = EqSettings::default();
         eq.low_cut.on = true;
         eq.low_cut.freq = 50.0;

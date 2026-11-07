@@ -43,7 +43,7 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libxkbcommon-dev libgtk-3-dev
       - name: Tests
-        run: cargo test -p jinglestar
+        run: cargo test -p jinglestar -p star-core -p star-ui -p star-remote -p star-build
       - name: Build release
         run: cargo build --release -p jinglestar
       - uses: actions/upload-artifact@v4
@@ -87,7 +87,7 @@ jobs:
           key: ${{ matrix.target }}
       - name: Tests
         if: matrix.target == 'aarch64-apple-darwin'
-        run: cargo test -p jinglestar
+        run: cargo test -p jinglestar -p star-core -p star-ui -p star-remote -p star-build
       - name: Build release
         run: cargo build --release -p jinglestar --target ${{ matrix.target }}
       - name: Vérifier l'architecture

@@ -18,7 +18,7 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 
 use super::buffer::{db_to_gain, AudioBuffer};
 use super::decode::decode_file;
-use super::eq::{Band, CutSlope, EqCoeffs, EqProcessor, EqSettings, EqState};
+use star_core::eq::{Band, CutSlope, EqCoeffs, EqProcessor, EqSettings, EqState};
 use super::mixer::{Command, Event, Mixer, Queued, Region, Telemetry, MAX_MODULES, PLAYLIST_SLOTS, SLOTS};
 
 const SR: u32 = 48_000;

@@ -1,0 +1,6 @@
+{
+  "enabled": true,
+  "network": true,
+  "port": 9100,
+  "prefix": "/diaporama"
+}

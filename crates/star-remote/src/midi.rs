@@ -5,14 +5,13 @@ use std::sync::Arc;
 use crossbeam_channel::{unbounded, Receiver};
 use midir::{Ignore, MidiInput, MidiInputConnection};
 
-use crate::i18n::tr;
-use crate::remote::InputEvent;
+use star_core::i18n::tr;
+use crate::input::InputEvent;
+use star_core::app::App;
 
-const CLIENT: &str = "JingleStar";
-
-/// Ports d'entrée MIDI disponibles.
-pub fn port_names() -> Vec<String> {
-    let Ok(input) = MidiInput::new(CLIENT) else { return Vec::new() };
+/// Ports d'entrée MIDI disponibles. `app` : nom du client MIDI (« JingleStar »).
+pub fn port_names(app: App) -> Vec<String> {
+    let Ok(input) = MidiInput::new(app.name) else { return Vec::new() };
     input.ports().iter().filter_map(|p| input.port_name(p).ok()).collect()
 }
 
@@ -24,9 +23,10 @@ pub struct MidiListener {
 }
 
 impl MidiListener {
-    /// Ouvre le port nommé, ou le premier disponible.
-    pub fn open(port: Option<&str>, repaint: Arc<dyn Fn() + Send + Sync>) -> Result<Self, String> {
-        let mut input = MidiInput::new(CLIENT).map_err(|e| format!("{} ({e})", tr("MIDI indisponible", "MIDI unavailable")))?;
+    /// Ouvre le port nommé, ou le premier disponible, au nom de `app` (client « JingleStar »,
+    /// entrée « jinglestar-in »).
+    pub fn open(app: App, port: Option<&str>, repaint: Arc<dyn Fn() + Send + Sync>) -> Result<Self, String> {
+        let mut input = MidiInput::new(app.name).map_err(|e| format!("{} ({e})", tr("MIDI indisponible", "MIDI unavailable")))?;
         input.ignore(Ignore::All);
         let ports = input.ports();
         let found = ports
@@ -42,7 +42,7 @@ impl MidiListener {
         let conn = input
             .connect(
                 &found,
-                "jinglestar-in",
+                &format!("{}-in", app.name.to_lowercase()),
                 move |_, bytes, _| {
                     if let Some(ev) = parse(bytes) {
                         let _ = tx.send(ev);

@@ -14,7 +14,7 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 
 use super::buffer::AudioBuffer;
 use super::decode::decode;
-use super::eq::EqCoeffs;
+use star_core::eq::EqCoeffs;
 use super::mixer::{Command, Event, Mixer, Region, Telemetry};
 use super::stream::{take_underrun_frames, BLOCK_FRAMES};
 

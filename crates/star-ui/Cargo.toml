@@ -1,0 +1,13 @@
+[package]
+name = "star-ui"
+version = "0.1.0"
+description = "Interface commune aux applis Star : thème, widgets, aide (extraits de JingleStar)"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+egui.workspace = true
+star-core.workspace = true
+rfd = "0.17"

@@ -1,9 +1,12 @@
-# Dépôt MediaStar : JingleStar, CueStar et la crate commune star-commun.
+# Dépôt MediaStar : JingleStar, CueStar et les crates communes (crates/star-*).
 # Chaque application garde sa propre version et ses propres releases (tags jinglestar-vX.Y.Z, cuestar-vX.Y.Z).
 [workspace]
 resolver = "2"
 members = [
-    "crates/star-commun",
+    "crates/star-core",
+    "crates/star-ui",
+    "crates/star-remote",
+    "crates/star-build",
     "apps/jinglestar",
     "apps/cuestar",
 ]
@@ -17,7 +20,10 @@ authors = ["Pierrick"]
 # Une seule version d'egui pour toutes les applications.
 eframe = "0.37"
 egui = "0.37"
-star-commun = { path = "crates/star-commun" }
+star-core = { path = "crates/star-core" }
+star-ui = { path = "crates/star-ui" }
+star-remote = { path = "crates/star-remote" }
+star-build = { path = "crates/star-build" }
 
 # Build de développement plus rapide à l'exécution : dépendances optimisées pour toutes les
 # applications, et CueStar lui-même en opt-level 1 (lecture vidéo, vignettes, régie).

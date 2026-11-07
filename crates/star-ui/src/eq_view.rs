@@ -6,9 +6,9 @@ use std::hash::Hash;
 
 use egui::{pos2, vec2, Align2, Color32, CornerRadius, FontId, Pos2, Rect, RichText, Sense, Shape, Stroke, Ui};
 
-use super::theme::*;
-use crate::audio::eq::{BandKind, CutSlope, EqSettings, GAIN_RANGE, MAX_FREQ, MIN_FREQ};
-use crate::i18n::tr;
+use crate::theme::*;
+use star_core::eq::{BandKind, CutSlope, EqSettings, GAIN_RANGE, MAX_FREQ, MIN_FREQ};
+use star_core::i18n::tr;
 
 fn band_color(k: BandKind) -> Color32 {
     match k {

@@ -2,7 +2,7 @@
 //!
 //! Ces consoles n'envoient leurs changements qu'aux clients abonnés : il faut leur envoyer
 //! « /xremote » au moins toutes les 10 s. Une écoute sans aucun envoi est donc impossible.
-//! CueStar n'envoie que les requêtes de [`Query`] (abonnement et demande d'information) :
+//! L'appli n'envoie que les requêtes de [`Query`] (abonnement et demande d'information) :
 //! la socket n'est accessible qu'à travers [`link::Link`], qui n'a pas d'autre moyen d'écrire.
 
 use std::collections::HashMap;
@@ -16,14 +16,11 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use rosc::{OscMessage, OscPacket, OscType};
 
 use crate::console::ConsoleStatus;
-/// Textes de CueStar en deux langues : CueStar est en français.
-fn tr<'a>(fr: &'a str, _en: &'a str) -> &'a str {
-    fr
-}
-use crate::remote::M32Settings;
-use crate::remote::{InputEvent, CONSOLE_MIN};
+use star_core::i18n::tr;
+use crate::settings::M32Settings;
+use crate::input::{InputEvent, CONSOLE_MIN};
 
-/// Seules requêtes que CueStar peut envoyer : aucune ne modifie la console.
+/// Seules requêtes que l'appli peut envoyer : aucune ne modifie la console.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Query {
     /// Abonnement aux changements pour 10 s, renouvelé toutes les 8 s.
@@ -234,7 +231,7 @@ pub fn fader_db(f: f32) -> Option<f32> {
 }
 
 /// Changement de paramètre → événement. Les niveaux sont convertis en centièmes de dB,
-/// comme ceux des consoles Yamaha, pour partager les mêmes correspondances.
+/// comme ceux des consoles Yamaha, pour partager les mêmes assignations.
 fn to_event(msg: &OscMessage, values: &mut HashMap<String, i32>) -> Option<InputEvent> {
     // Rappel de scène : numéro affiché sur la console.
     if msg.addr == "/-show/prepos/current" {

@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "name": "Régie vidéo",
+  "network": true,
+  "oscquery": true,
+  "oscquery_port": 9101,
+  "port": 9100,
+  "prefix": "/diaporama",
+  "zeroconf": true
+}

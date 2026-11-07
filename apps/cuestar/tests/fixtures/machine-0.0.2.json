@@ -1,0 +1,34 @@
+{
+  "adapt_refresh": true,
+  "audio_device": "wasapi/Haut-parleurs",
+  "cadence": "Resample",
+  "decode": "Cpu",
+  "interpolation": true,
+  "language": "en",
+  "light": true,
+  "render": "OpenGL",
+  "screen": "DELL U2720Q",
+  "volume": 80.0,
+  "warp": {
+    "corners": [
+      [
+        0.10000000149011612,
+        0.0
+      ],
+      [
+        0.8999999761581421,
+        0.05000000074505806
+      ],
+      [
+        1.0,
+        1.0
+      ],
+      [
+        0.0,
+        0.949999988079071
+      ]
+    ],
+    "enabled": true
+  },
+  "windowed_if_single": false
+}

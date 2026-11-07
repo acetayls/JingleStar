@@ -6,8 +6,8 @@ use crate::link::OutputLink;
 use crate::project::{CueData, CueFollow, CuelistData};
 use crate::protocol::{Command, TransitionKind};
 use egui::{pos2, vec2, Align2, Color32, CornerRadius, FontId, Id, Key, Rect, RichText, Sense, Stroke, StrokeKind};
-use star_commun::theme::*;
-use star_commun::widgets::{add_button, fmt_time, loop_icon, transport_button, TransportIcon};
+use star_ui::theme::*;
+use star_ui::widgets::{add_button, fmt_time, loop_icon, transport_button, TransportIcon};
 use std::path::{Path, PathBuf};
 
 const ROW_H: f32 = 26.0;
@@ -170,6 +170,17 @@ impl Cuelist {
     }
 
     /// Commande OSC « cuelist/… ».
+    /// État publié par OSC.
+    pub fn osc_state(&self) -> crate::osc::CuelistState {
+        let name = |i: usize| self.cues.get(i).map(|c| c.name.clone()).unwrap_or_default();
+        crate::osc::CuelistState {
+            cues: self.cues.len(),
+            standby: if self.standby < self.cues.len() { self.standby + 1 } else { 0 },
+            standby_name: name(self.standby),
+            running_name: self.running.map(name).unwrap_or_default(),
+        }
+    }
+
     pub fn handle_osc(&mut self, cmd: &str, m: &crate::osc::Msg, out: &mut OutputLink) {
         match cmd {
             "go" => self.go(out),

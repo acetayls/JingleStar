@@ -3,7 +3,7 @@
 //! La console envoie une ligne « NOTIFY set <adresse> <x> <y> <valeur> "<texte>" » à chaque
 //! changement de paramètre (fader, ON…) et « NOTIFY sscurrent_ex … <n> » au rappel d'une scène.
 //!
-//! JingleStar ne fait qu'écouter et n'écrit aucun octet sur la connexion : la socket n'est
+//! L'appli ne fait qu'écouter et n'écrit aucun octet sur la connexion : la socket n'est
 //! accessible qu'à travers [`link::Link`], qui ne sait que lire.
 
 use std::collections::HashMap;
@@ -15,9 +15,9 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
-use crate::i18n::tr;
-use crate::project::ConsoleSettings;
-use crate::remote::InputEvent;
+use star_core::i18n::tr;
+use crate::settings::ConsoleSettings;
+use crate::input::InputEvent;
 
 mod link {
     use std::io::Read;
@@ -265,7 +265,7 @@ mod tests {
         assert_eq!(tokens(r#"a "b c" d"#), vec!["a", "b c", "d"]);
     }
 
-    /// Fausse console : envoie quelques changements puis renvoie tout ce que JingleStar a écrit.
+    /// Fausse console : envoie quelques changements puis renvoie tout ce que l'appli a écrit.
     fn fake_console(listener: TcpListener) -> std::thread::JoinHandle<Vec<u8>> {
         std::thread::spawn(move || {
             let (mut sock, _) = listener.accept().unwrap();
