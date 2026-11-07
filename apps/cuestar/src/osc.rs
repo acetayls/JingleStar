@@ -145,7 +145,8 @@ fn flatten(p: OscPacket, out: &mut Vec<rosc::OscMessage>) {
     }
 }
 
-/// Aide affichée dans la fenêtre OSC.
+/// Liste de référence des adresses (plus affichée dans la fenêtre, comme dans JingleStar).
+#[allow(dead_code)]
 pub const HELP: &[(&str, &str)] = &[
     ("noir", "écran de sortie au noir"),
     ("lecteur/go", "lance l'élément sélectionné (ou reprend)"),

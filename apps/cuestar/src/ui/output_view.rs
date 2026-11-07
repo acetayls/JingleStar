@@ -1,4 +1,4 @@
-//! Onglet Video output : écran et moteur de la sortie, mires de test, mapping 4 coins.
+//! Fenêtre Préférences, en onglets : écran et moteur de la sortie, audio, mires de test, mapping 4 coins.
 
 use crate::link::OutputLink;
 use crate::output::warp::map_point;
@@ -10,11 +10,29 @@ use std::time::{Duration, Instant};
 
 const CORNER_NAMES: [&str; 4] = ["Haut gauche", "Haut droit", "Bas droit", "Bas gauche"];
 
+/// Onglets de la fenêtre Préférences.
+#[derive(Default, Clone, Copy, PartialEq)]
+enum Tab {
+    #[default]
+    Engine,
+    Audio,
+    Patterns,
+    Mapping,
+}
+
+const TABS: [(Tab, &str); 4] = [
+    (Tab::Engine, "Écran et moteur"),
+    (Tab::Audio, "Audio"),
+    (Tab::Patterns, "Mires de test"),
+    (Tab::Mapping, "Mapping 4 coins"),
+];
+
 pub struct OutputView {
     /// Fenêtre flottante ouverte.
     pub open: bool,
     /// Réglages moteur en cours d'édition (appliqués en relançant la sortie).
     draft: Option<MachinePrefs>,
+    tab: Tab,
     selected: usize,
     last_warp_send: Instant,
     warp_dirty: bool,
@@ -22,7 +40,7 @@ pub struct OutputView {
 
 impl Default for OutputView {
     fn default() -> Self {
-        Self { open: false, draft: None, selected: 0, last_warp_send: Instant::now(), warp_dirty: false }
+        Self { open: false, draft: None, tab: Tab::Engine, selected: 0, last_warp_send: Instant::now(), warp_dirty: false }
     }
 }
 
@@ -74,9 +92,9 @@ impl OutputView {
         if !self.open {
             return Action::None;
         }
-        let vp = egui::ViewportBuilder::default().with_title("CueStar — Video output").with_inner_size([1040.0, 660.0]).with_min_inner_size([600.0, 400.0]);
+        let vp = egui::ViewportBuilder::default().with_title("CueStar — Préférences").with_inner_size([1040.0, 660.0]).with_min_inner_size([600.0, 400.0]);
         let mut close = false;
-        let action = ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("cuestar-video-output"), vp, |ui, _| {
+        let action = ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("cuestar-preferences"), vp, |ui, _| {
             close = ui.ctx().input(|i| i.viewport().close_requested());
             let typing = ui.ctx().egui_wants_keyboard_input();
             egui::CentralPanel::default()
@@ -93,15 +111,21 @@ impl OutputView {
 
     fn ui(&mut self, ui: &mut egui::Ui, prefs: &mut MachinePrefs, out: &mut OutputLink, pattern: &mut Option<PatternKind>, typing: bool) -> Action {
         let mut action = Action::None;
-        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            ui.columns(2, |cols| {
-                if self.engine(&mut cols[0], prefs, out) {
+        ui.horizontal_wrapped(|ui| {
+            for (tab, label) in TABS {
+                ui.selectable_value(&mut self.tab, tab, RichText::new(label).size(15.0));
+            }
+        });
+        ui.separator();
+        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match self.tab {
+            Tab::Engine => {
+                if self.engine(ui, prefs, out) {
                     action = Action::Restart;
                 }
-                self.patterns(&mut cols[0], out, pattern);
-                self.audio(&mut cols[0], prefs, out);
-                self.mapping(&mut cols[1], prefs, out, pattern, typing);
-            });
+            }
+            Tab::Audio => self.audio(ui, prefs, out),
+            Tab::Patterns => self.patterns(ui, out, pattern),
+            Tab::Mapping => self.mapping(ui, prefs, out, pattern, typing),
         });
         // Envoi du mapping limité pendant un glisser : mpv recompile le shader à chaque envoi.
         if self.warp_dirty && self.last_warp_send.elapsed() >= Duration::from_millis(40) {

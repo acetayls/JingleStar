@@ -378,6 +378,7 @@ impl CueStarApp {
                     });
                     return;
                 }
+                ui.heading("OSC");
                 let d = &mut self.osc_draft;
                 egui::Grid::new("osc").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
                     ui.label("Commande OSC");
@@ -415,18 +416,6 @@ impl CueStarApp {
                 if let Some(l) = &self.osc_last {
                     ui.label(RichText::new(format!("Dernier message : {l}")).monospace().color(TEXT_DIM));
                 }
-                ui.separator();
-                let prefix = self.osc.settings.prefix.trim_end_matches('/').to_string();
-                ui.label(RichText::new(format!("Adresses (préfixe {prefix} ; /diaporama/… est aussi accepté)")).strong());
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    egui::Grid::new("osc-help").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-                        for (a, t) in crate::osc::HELP {
-                            ui.label(RichText::new(format!("{prefix}/{a}")).monospace());
-                            ui.label(RichText::new(*t).color(TEXT_DIM));
-                            ui.end_row();
-                        }
-                    });
-                });
             });
         });
         if apply {
@@ -545,8 +534,8 @@ impl CueStarApp {
                     self.monitor.toggle(&mut self.out);
                 }
                 if ui
-                    .selectable_label(self.output_view.open, "Video output")
-                    .on_hover_text("Fenêtre flottante : écran et moteur de sortie, mires de test, mapping 4 coins")
+                    .selectable_label(self.output_view.open, "Préférences")
+                    .on_hover_text("Fenêtre flottante en onglets : écran et moteur de sortie, audio, mires de test, mapping 4 coins")
                     .clicked()
                 {
                     self.output_view.open = !self.output_view.open;
