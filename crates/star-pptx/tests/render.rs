@@ -228,6 +228,7 @@ fn demo_fixture_metadata() {
     assert_eq!(pres.next_visible(8), None);
     assert_eq!(pres.notes(1).as_deref(), Some("Penser à lancer la musique."));
     assert_eq!(pres.notes(0), None);
+    assert_eq!(pres.slide_title(8).as_deref(), Some("Graphique en histogramme"));
 }
 
 #[test]
@@ -249,4 +250,11 @@ fn demo_fixture_renders() {
     let img = pres.render_slide(7, 400, 225).unwrap();
     let (a, b) = (px(&img, 0.02, 0.97), px(&img, 0.98, 0.03));
     assert!(a[2] < b[2] && a[0] < 0x30, "{a:?} {b:?}");
+    // Histogramme (valeurs 1, 3, 2) en couleur accent1 (4F81BD) : la barre B est plus haute
+    // que la barre A.
+    let img = pres.render_slide(8, 1280, 720).unwrap();
+    let accent = [0x4F, 0x81, 0xBD];
+    assert!(close(px(&img, 0.31, 0.58), accent));
+    assert!(close(px(&img, 0.175, 0.69), accent));
+    assert!(close(px(&img, 0.175, 0.55), [255, 255, 255]));
 }

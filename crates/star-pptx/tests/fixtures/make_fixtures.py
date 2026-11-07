@@ -174,7 +174,7 @@ def demo():
 
     # 9. Graphique (non pris en charge : la zone reste vide) et texte
     s = prs.slides.add_slide(L[5])
-    s.shapes.title.text = "Graphique (non rendu)"
+    s.shapes.title.text = "Graphique en histogramme"
     cd = CategoryChartData()
     cd.categories = ["A", "B", "C"]
     cd.add_series("Série", (1, 3, 2))

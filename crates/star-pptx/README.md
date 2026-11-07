@@ -82,13 +82,20 @@ jamais de panique, les éléments inconnus sont ignorés.
   `tableStyles.xml` (ligne d'en-tête, lignes à bandes…) et style par défaut de PowerPoint.
 - **SmartArt** : dessiné à partir du rendu enregistré par PowerPoint
   (`ppt/diagrams/drawingN.xml`).
+- **Graphiques** (`c:chart`) simples, dessinés à partir des valeurs en cache du fichier :
+  histogrammes et barres (groupés, empilés, 100 %), courbes (avec marqueurs), aires,
+  secteurs et anneaux ; titre, légende, axe des valeurs gradué avec quadrillage, étiquettes
+  des catégories, couleurs des séries et des points. Le rendu suit la mise en page de
+  PowerPoint de manière approchée (positions calculées, pas celles de `c:layout`).
 - `mc:AlternateContent` : la variante de repli est utilisée.
 
 ## Pas pris en charge (pour l'instant)
 
 - Animations et transitions (volontairement : chaque diapositive est une image fixe).
-- **Graphiques** (`c:chart`) : la zone reste vide. Équations : seulement si une image de
-  repli est présente.
+- Graphiques : étiquettes de données, graphiques 3D, nuages de points, bulles, radar,
+  boursiers, combinés à axe secondaire, nouveaux graphiques Office 2016 (`cx:chart`, cascade,
+  entonnoir…), formats de nombre personnalisés des axes. Équations : seulement si une image
+  de repli est présente.
 - Images vectorielles EMF / WMF / SVG seules (sans PNG de repli) : rien n'est dessiné.
 - Effets autres que l'ombre extérieure : lueur, reflet, ombre intérieure, biseaux et 3D,
   flou artistique, effets d'image (duotone, luminosité…).

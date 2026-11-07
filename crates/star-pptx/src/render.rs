@@ -625,6 +625,8 @@ impl<'a> Renderer<'a, '_> {
             }
         } else if uri.ends_with("/diagram") {
             self.draw_diagram(data, part, parent.pre_concat(Transform::from_translate(x.x, x.y)), depth);
+        } else if uri.ends_with("/chart") && self.draw_chart(data, part, parent.pre_concat(x.transform(false)), x.w, x.h) {
+            // Graphique dessiné à partir des valeurs en cache.
         } else {
             // Objet OLE, graphique… : on dessine l'aperçu s'il y en a un.
             let mut pics = Vec::new();
@@ -646,6 +648,17 @@ impl<'a> Renderer<'a, '_> {
                 }
             }
         }
+    }
+
+    /// Graphique `c:chart` : renvoie `false` si la partie est introuvable.
+    fn draw_chart(&mut self, data: &Elem, part: &Part, tf: Transform, w: f32, h: f32) -> bool {
+        let Some(id) = data.child("chart").and_then(|c| c.attr("r:id")) else { return false };
+        let Some(target) = part.rels.iter().find(|r| r.id == id).map(|r| r.target.clone()) else { return false };
+        let Ok(root) = self.ctx.pres.pkg.xml(&target) else { return false };
+        let cc = self.cctx();
+        let mut env = crate::chart::ChartEnv { pix: &mut self.pix, fonts: self.fonts, theme: &self.ctx.theme, cc, scale: self.scale };
+        crate::chart::draw_chart(&mut env, &root, w, h, tf);
+        true
     }
 
     /// SmartArt : PowerPoint enregistre un dessin précalculé (`ppt/diagrams/drawingN.xml`).

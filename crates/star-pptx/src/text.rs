@@ -123,6 +123,8 @@ struct LaidPara {
 pub struct Laid {
     paras: Vec<LaidPara>,
     pub height: f32,
+    /// Largeur de la plus longue ligne, en points.
+    pub width: f32,
 }
 
 pub struct LayoutOpts {
@@ -149,6 +151,7 @@ pub fn layout(paras: &[Para], opts: &LayoutOpts, fonts: &mut Fonts, theme: &Them
     let mut laid = Vec::with_capacity(paras.len());
     let mut y = 0.0f32;
     let mut counters: Vec<Counter> = Vec::new();
+    let mut max_w = 0.0f32;
     for (i, para) in paras.iter().enumerate() {
         let pp = &para.props;
         let scale = opts.font_scale;
@@ -321,6 +324,7 @@ pub fn layout(paras: &[Para], opts: &LayoutOpts, fonts: &mut Fonts, theme: &Them
         let mut h = 0.0;
         for run in buf.layout_runs() {
             h += run.line_height;
+            max_w = max_w.max(run.line_w + mar_l);
         }
         if h == 0.0 {
             h = line_pct(end_size, end_ratio);
@@ -331,7 +335,13 @@ pub fn layout(paras: &[Para], opts: &LayoutOpts, fonts: &mut Fonts, theme: &Them
             y += para_spacing(pp.space_after);
         }
     }
-    Laid { paras: laid, height: y }
+    Laid { paras: laid, height: y, width: max_w }
+}
+
+/// Paragraphe d'une seule série de caractères (étiquettes de graphique…).
+pub fn simple_para(text: &str, run: RunProps, align: Align) -> Para {
+    let props = ParaProps { align: Some(align), run: run.clone(), ..Default::default() };
+    Para { level: 0, props, runs: vec![Run { text: text.to_string(), props: run.clone() }], end: run }
 }
 
 /// Texte d'un numéro automatique (`arabicPeriod`, `alphaUcParenR`, `romanLcPeriod`…).

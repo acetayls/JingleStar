@@ -13,6 +13,7 @@
 //! # Ok::<(), star_pptx::Error>(())
 //! ```
 
+mod chart;
 mod color;
 mod effects;
 mod error;
