@@ -295,7 +295,7 @@ impl Presentation {
     fn send(&mut self, index: usize, path: PathBuf, out: &mut OutputLink) {
         self.want = None;
         let p = path.to_string_lossy().into_owned();
-        out.send(Command::Load { path: p, paused: false, looping: false, hold: true, transition: self.transition, clip: Clip::default() });
+        out.send(Command::Load { path: p, paused: false, looping: false, hold: true, transition: self.transition, clip: Clip::default(), signal_end: false });
         self.shown = Some((index, path));
     }
 

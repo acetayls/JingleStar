@@ -38,6 +38,8 @@ pub struct Cuelist {
     preview: crate::preview::Preview,
     /// Fenêtres « Informations sur le fichier » ouvertes.
     infos: Vec<super::file_info::FileInfo>,
+    /// Dernier cue préparé sur la sortie (chemin, boucle, réglages, génération de la sortie).
+    prepared: Option<(String, bool, crate::protocol::Clip, u64)>,
 }
 
 fn stem(p: &Path) -> String {
@@ -137,8 +139,10 @@ impl Cuelist {
                 paused: false,
                 looping: c.clip.sound.looping,
                 clip: c.clip.clone(),
-                // Un cue qui enchaîne doit signaler sa fin ; sinon sa dernière image reste.
-                hold: c.follow == CueFollow::Stop,
+                // La dernière image reste jusqu'au cue suivant ; un cue qui enchaîne signale
+                // quand même sa fin, et le suivant part sans passer par le noir.
+                hold: true,
+                signal_end: c.follow == CueFollow::Continue,
                 transition: c.transition,
             }),
             None => out.send(Command::Stop),
@@ -157,6 +161,25 @@ impl Cuelist {
             let i = self.standby;
             self.play(i, out);
             self.standby = i + 1;
+        }
+    }
+
+    /// Le cue en attente est ouvert d'avance sur la sortie : le GO part sans attendre le fichier.
+    /// Seulement pour une coupe ou un fondu enchaîné (le fondu au noir laisse le temps de charger).
+    fn sync_prepare(&mut self, out: &mut OutputLink) {
+        if !out.state.ready || out.state.slide.is_some() {
+            return;
+        }
+        let Some(c) = self.cues.get(self.standby) else { return };
+        let Some(p) = &c.path else { return };
+        let quick = c.transition.kind == TransitionKind::Cut || c.transition.kind == TransitionKind::Crossfade;
+        if !quick || c.clip.sound.fade_in > 0.0 {
+            return;
+        }
+        let key = (p.to_string_lossy().into_owned(), c.clip.sound.looping, c.clip.clone(), out.generation);
+        if self.prepared.as_ref() != Some(&key) {
+            out.send(Command::Prepare { path: key.0.clone(), looping: key.1, clip: key.2.clone() });
+            self.prepared = Some(key);
         }
     }
 
@@ -211,9 +234,15 @@ impl Cuelist {
         if out.state.ended != self.seen_end {
             self.seen_end = out.state.ended;
             if let Some(i) = self.running {
-                if out.state.slide.is_none() && self.cues.get(i).is_some_and(|c| c.follow == CueFollow::Continue) && self.standby == i + 1 {
+                let chained = self.cues.get(i).is_some_and(|c| c.follow == CueFollow::Continue);
+                if out.state.slide.is_none() && chained && self.standby == i + 1 && self.standby < self.cues.len() {
                     self.go(out);
                 } else {
+                    // Un cue qui enchaîne garde sa dernière image en attendant le suivant :
+                    // sans suite, la sortie passe au noir comme avant.
+                    if chained && out.state.slide.is_none() {
+                        out.send(Command::Stop);
+                    }
                     self.running = None;
                 }
             }
@@ -224,6 +253,7 @@ impl Cuelist {
                 self.running = None;
             }
         }
+        self.sync_prepare(out);
         if !typing {
             let none = egui::Modifiers::NONE;
             let (go, pause, up, down) = ui.input_mut(|i| {

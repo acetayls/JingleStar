@@ -39,6 +39,8 @@ pub(super) struct State {
     shown: [bool; DECKS],
     /// Rendre le lecteur visible dès sa prochaine image (média qui vient d'être chargé).
     reveal: [bool; DECKS],
+    /// Signaler à la régie la première image affichée de ce lecteur (média qui vient d'être lancé).
+    announce: [bool; DECKS],
     /// Nouveau réglage du monitoring à prendre en compte : None = arrêt.
     monitor: Option<Option<(MonitorFeed, Duration)>>,
     /// Réglage changé : il faut recomposer l'image.
@@ -146,6 +148,7 @@ impl Screen {
                 vsync_us: vsync_us(refresh_hz),
                 shown: [false; DECKS],
                 reveal: [false; DECKS],
+                announce: [false; DECKS],
                 monitor: None,
                 dirty: true,
                 wake: false,
@@ -231,12 +234,16 @@ impl Screen {
         self.with(|s| {
             s.shown[deck] = on;
             s.reveal[deck] = false;
+            s.announce[deck] = on;
         });
     }
 
     /// Le lecteur s'affichera dès sa prochaine image (l'image précédente reste jusque-là).
     pub fn reveal(&self, deck: usize) {
-        self.with(|s| s.reveal[deck] = true);
+        self.with(|s| {
+            s.reveal[deck] = true;
+            s.announce[deck] = true;
+        });
     }
 
     pub fn monitor(&self, feed: Option<(MonitorFeed, Duration)>) {
@@ -371,6 +378,16 @@ fn run<B: Backend>(shared: Arc<Shared>, mut g: B, mut decks: Vec<DeckRc>) {
         }
         g.present();
         stat.3 += 1;
+        // Première image d'un média lancé : elle est partie vers l'écran (lecteur visible et mélangé).
+        if let Ok(mut s) = shared.st.lock() {
+            for i in 0..DECKS {
+                let weight = if i == 0 { 1.0 - params.misc[0] } else { params.misc[0] };
+                if s.announce[i] && params.misc[2 + i] > 0.5 && weight > 0.01 && decks.get(i).is_some_and(|d| d.drawn) {
+                    s.announce[i] = false;
+                    super::emit(&crate::protocol::Event::OnScreen);
+                }
+            }
+        }
         if debug && stat.0.elapsed() >= Duration::from_secs(1) {
             eprintln!("rendus {:?} images reçues {:?} affichages {} avance max µs {:?}", stat.1, stat.2, stat.3, stat.4);
             stat = (Instant::now(), [0; DECKS], [0; DECKS], 0, [i64::MIN / 2; DECKS]);

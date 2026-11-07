@@ -227,7 +227,7 @@ impl Lecteur {
         // La liste s'enchaîne : la fin du média est signalée ; le dernier garde son image.
         let (path, looping, clip) = (it.path.to_string_lossy().into_owned(), it.clip.sound.looping, it.clip.clone());
         self.queued = self.next_after(i);
-        out.send(Command::Load { path, paused: false, looping, hold: self.queued.is_none(), transition: self.transition, clip });
+        out.send(Command::Load { path, paused: false, looping, hold: self.queued.is_none(), transition: self.transition, clip, signal_end: false });
         self.playing = Some(i);
         self.seen_end = out.state.ended;
         self.selected = self.queued.or(Some(i));

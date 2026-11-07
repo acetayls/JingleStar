@@ -17,6 +17,19 @@ pub enum Command {
         /// Réglages d'édition du média : points, boucle, fondus au noir, volume, EQ.
         #[serde(default)]
         clip: Clip,
+        /// Avec `hold` : la dernière image reste, mais la fin est quand même signalée (Ended),
+        /// pour enchaîner sur le cue suivant sans passer par le noir.
+        #[serde(default)]
+        signal_end: bool,
+    },
+    /// Prépare un média sans l'afficher : ouvert sur le lecteur en attente, arrêté sur sa
+    /// première image. Le `Load` suivant du même média (coupe ou fondu enchaîné) part alors
+    /// tout de suite. Sans effet avec un seul lecteur (affichage de secours).
+    Prepare {
+        path: String,
+        looping: bool,
+        #[serde(default)]
+        clip: Clip,
     },
     /// Réglages d'édition du média en cours, modifiés pendant la lecture : volume, EQ et
     /// fondus s'appliquent tout de suite ; les points au prochain chargement.
@@ -213,6 +226,8 @@ pub enum Event {
     Drops { dropped: i64, delayed: i64 },
     /// Images par seconde : vidéo affichée et rafraîchissement de l'écran.
     Fps { video: f64, display: f64 },
+    /// La première image du média chargé vient d'être affichée sur l'écran de sortie.
+    OnScreen,
     Ended,
     Idle,
     /// Position dans le diaporama (index à partir de 0). `count` = 0 : diaporama terminé.
