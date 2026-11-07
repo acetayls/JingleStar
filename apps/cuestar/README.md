@@ -1,7 +1,7 @@
 # CueStar
 
 Diffusion vidéo sur écran de sortie (Windows, macOS, Linux), dans la charte de JingleStar.
-Modules : Lecteur, Diaporama, Cuelist (PowerPoint plus tard).
+Modules : Lecteur, Diaporama, Présentation (PowerPoint, rendu par `star-pptx`), Cuelist.
 
 ## Architecture
 

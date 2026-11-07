@@ -1,6 +1,6 @@
 [package]
 name = "cuestar"
-version = "0.0.1"
+version = "0.1.1"
 description = "Diffusion vidéo sur écran de sortie : lecteur, diaporama, cuelist (Windows, macOS, Linux)"
 authors = ["Pierrick"]
 edition.workspace = true
