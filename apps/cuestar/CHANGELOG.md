@@ -40,10 +40,22 @@ dans la charte de JingleStar.
 - **Sortie composée par CueStar** (Direct3D 11 sous Windows, OpenGL sous macOS et Linux) avec
   deux lecteurs : fondu enchaîné image et son, fondu au noir, **mapping 4 coins**. Affichage de
   secours si l'API de rendu de mpv manque.
-- Un cue part en ~30 ms ; l'image précédente reste jusqu'à la première image du média suivant.
-- **Préférences** (anciennement « Video output ») en onglets : **Écran et moteur** (écran,
-  décodage, cadence, interpolation, adaptation de la fréquence de l'écran), **Audio** (carte et
-  volume), **Mires de test**, **Mapping 4 coins**.
+- **Cue préparé d'avance** : le cue en attente de la Cuelist est ouvert sur le lecteur libre,
+  arrêté sur sa première image ; au GO, elle part vers l'écran en 10 à 50 ms (90 à 330 ms sans
+  préparation, mesuré au banc). L'image précédente reste jusqu'à la première image du suivant.
+- Un cue **Continuer** garde sa dernière image jusqu'au cue suivant, sans passer par le noir.
+- Barre du bas : temps **GO → image** du dernier chargement, mesuré par la sortie.
+- Cadence automatique : synchro audio quand l'écran tombe juste (30 i/s sur 60 Hz) et pour la
+  4K, où le recalage de vitesse perdait des images (HEVC, ProRes).
+- **Préférences** (anciennement « Video output ») en onglets : **Vidéo** (écran, décodage,
+  **FPS**, calage des images, interpolation, adaptation de la fréquence de l'écran,
+  **empêcher la mise en veille**), **Audio** (carte, volume, **délai de sortie** en ms, images
+  ou mètres), **Mires de test**, **Mapping 4 coins**.
+- **FPS** : l'écran de sortie est forcé sur la fréquence choisie (24 à 144 Hz) et la retrouve en
+  quittant, sous Windows, macOS et Linux X11 (sous Wayland, message invitant à la régler dans
+  le système).
+- **Mires de synchro 25 et 60 i/s** : timecode, mouvement, images perdues (carrés 1/2 à 1/5),
+  bip 1 kHz calé sur une image, son continu 440 Hz, zones de sécurité, recadrage, proportions.
 - **Monitoring** : fenêtre flottante avec le retour de l'image de sortie, fps, CPU et GPU.
 - Compteur d'**images perdues et retardées** cumulé sur tous les médias, avec remise à zéro
   (clic droit, bouton, OSC `output/drops/reset`).

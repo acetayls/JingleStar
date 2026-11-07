@@ -1011,6 +1011,7 @@ dependencies = [
  "gl",
  "glutin",
  "image",
+ "keepawake",
  "libloading 0.8.9",
  "midir",
  "raw-window-handle",

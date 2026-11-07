@@ -7,6 +7,7 @@ use std::process::{Child, ChildStdin, Stdio};
 use std::net::TcpListener;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 /// Vignette de monitoring : largeur, hauteur, pixels RGBA, numéro d'image.
 #[derive(Default)]
@@ -49,12 +50,19 @@ pub struct OutputState {
     pub display_fps: f64,
     /// Touches reçues de la fenêtre de sortie, pas encore traitées (module Présentation).
     pub keys: Vec<crate::protocol::RemoteKey>,
+    /// Temps entre le dernier chargement envoyé et sa première image à l'écran (ms).
+    pub go_latency_ms: Option<f64>,
 }
 
 pub struct OutputLink {
     child: Option<Child>,
     stdin: Option<ChildStdin>,
-    rx: Option<Receiver<Option<Event>>>,
+    rx: Option<Receiver<Option<(Instant, Event)>>>,
+    /// Heure d'envoi du dernier chargement (pour mesurer son arrivée à l'écran).
+    load_sent: Option<Instant>,
+    /// Change à chaque commande qui peut occuper le lecteur en attente (chargement, arrêt,
+    /// diaporama, mire, relance) : la préparation du cue suivant est alors à refaire.
+    pub generation: u64,
     pub state: OutputState,
     /// Dernière vignette reçue de la sortie.
     pub monitor: Arc<Mutex<MonitorFrame>>,
@@ -62,12 +70,13 @@ pub struct OutputLink {
 
 impl OutputLink {
     pub fn new() -> Self {
-        Self { child: None, stdin: None, rx: None, state: OutputState::default(), monitor: Arc::new(Mutex::new(MonitorFrame::default())) }
+        Self { child: None, stdin: None, rx: None, load_sent: None, generation: 0, state: OutputState::default(), monitor: Arc::new(Mutex::new(MonitorFrame::default())) }
     }
 
     /// (Re)lance le moteur de sortie avec les préférences de la machine.
     pub fn start(&mut self, prefs: &MachinePrefs, repaint: Arc<dyn Fn() + Send + Sync>) {
         self.stop();
+        self.generation += 1;
         let exe = match std::env::current_exe() {
             Ok(e) => e,
             Err(e) => {
@@ -112,7 +121,7 @@ impl OutputLink {
                 for line in BufReader::new(stdout).lines() {
                     let Ok(line) = line else { break };
                     if let Ok(ev) = serde_json::from_str::<Event>(&line) {
-                        if tx.send(Some(ev)).is_err() {
+                        if tx.send(Some((Instant::now(), ev))).is_err() {
                             return;
                         }
                         repaint();
@@ -154,6 +163,12 @@ impl OutputLink {
 
     pub fn send(&mut self, cmd: Command) {
         let Some(stdin) = self.stdin.as_mut() else { return };
+        if matches!(cmd, Command::Load { .. }) {
+            self.load_sent = Some(Instant::now());
+        }
+        if matches!(cmd, Command::Load { .. } | Command::Stop | Command::Slideshow { .. } | Command::Pattern { .. }) {
+            self.generation += 1;
+        }
         let mut line = serde_json::to_string(&cmd).unwrap_or_default();
         line.push('\n');
         if stdin.write_all(line.as_bytes()).and_then(|_| stdin.flush()).is_err() {
@@ -166,12 +181,17 @@ impl OutputLink {
         let Some(rx) = &self.rx else { return };
         let mut closed = false;
         while let Ok(msg) = rx.try_recv() {
-            let Some(ev) = msg else {
+            let Some((at, ev)) = msg else {
                 closed = true;
                 break;
             };
             let s = &mut self.state;
             match ev {
+                Event::OnScreen => {
+                    if let Some(t) = self.load_sent.take() {
+                        s.go_latency_ms = Some(at.saturating_duration_since(t).as_secs_f64() * 1000.0);
+                    }
+                }
                 Event::Ready { mpv, monitor, fullscreen, monitors } => {
                     s.ready = true;
                     s.mpv = mpv;

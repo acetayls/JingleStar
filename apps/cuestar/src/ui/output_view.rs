@@ -2,7 +2,7 @@
 
 use crate::link::OutputLink;
 use crate::output::warp::map_point;
-use crate::prefs::{Cadence, Decode, MachinePrefs, RenderApi, Warp};
+use crate::prefs::{fps_label, Cadence, Decode, DelayUnit, MachinePrefs, RenderApi, Warp, FPS_CHOICES};
 use crate::protocol::{Command, PatternKind};
 use egui::{pos2, vec2, Color32, Key, Pos2, Rect, RichText, Sense, Stroke};
 use star_ui::theme::*;
@@ -21,7 +21,7 @@ enum Tab {
 }
 
 const TABS: [(Tab, &str); 4] = [
-    (Tab::Engine, "Écran et moteur"),
+    (Tab::Engine, "Vidéo"),
     (Tab::Audio, "Audio"),
     (Tab::Patterns, "Mires de test"),
     (Tab::Mapping, "Mapping 4 coins"),
@@ -140,7 +140,7 @@ impl OutputView {
     fn engine(&mut self, ui: &mut egui::Ui, prefs: &mut MachinePrefs, out: &OutputLink) -> bool {
         let mut restart = false;
         let d = self.draft.get_or_insert_with(|| prefs.clone());
-        section(ui, "Écran et moteur", |ui| {
+        section(ui, "Vidéo", |ui| {
             let s = &out.state;
             if let Some(m) = &s.monitor {
                 let mode = if s.fullscreen { "plein écran" } else { "dans une fenêtre" };
@@ -182,7 +182,18 @@ impl OutputView {
                 ui.checkbox(&mut d.light, "Rendu léger");
                 ui.end_row();
 
-                ui.label("Cadence");
+                ui.label("FPS");
+                egui::ComboBox::from_id_salt("fps").selected_text(fps_label(d.fps)).width(280.0).show_ui(ui, |ui| {
+                    ui.selectable_value(&mut d.fps, None, fps_label(None));
+                    for f in FPS_CHOICES {
+                        ui.selectable_value(&mut d.fps, Some(f), fps_label(Some(f)));
+                    }
+                })
+                .response
+                .on_hover_text("Choisir une valeur essaie de passer l'écran de sortie sur cette fréquence (Windows, macOS, Linux X11 ; pas sous Wayland), rétablie en quittant. Noir un instant au changement.");
+                ui.end_row();
+
+                ui.label("Calage des images");
                 egui::ComboBox::from_id_salt("cadence").selected_text(d.cadence.label()).width(280.0).show_ui(ui, |ui| {
                     for v in Cadence::ALL {
                         ui.selectable_value(&mut d.cadence, v, v.label());
@@ -198,8 +209,9 @@ impl OutputView {
                 ui.end_row();
 
                 ui.label("");
-                ui.checkbox(&mut d.adapt_refresh, "Adapter la fréquence de l'écran à la vidéo")
-                    .on_hover_text("Passe l'écran de sortie en 50, 60… Hz selon la vidéo (Windows), et rétablit sa fréquence en quittant. Noir un instant au changement.");
+                ui.add_enabled(d.fps.is_none(), egui::Checkbox::new(&mut d.adapt_refresh, "Adapter la fréquence de l'écran à la vidéo"))
+                    .on_disabled_hover_text("Sans effet quand un FPS est choisi : l'écran reste sur cette fréquence")
+                    .on_hover_text("Passe l'écran de sortie en 50, 60… Hz selon la vidéo (Windows, macOS, Linux X11), et rétablit sa fréquence en quittant. Noir un instant au changement.");
                 ui.end_row();
             });
             let dec = if s.hwdec.is_empty() || s.hwdec == "no" { "CPU".to_string() } else { format!("GPU ({})", s.hwdec) };
@@ -213,15 +225,32 @@ impl OutputView {
                     ui.ctx().debug_text(e);
                 }
             }
+            // Appliqué tout de suite, sans relancer la sortie.
+            if ui
+                .checkbox(&mut prefs.prevent_sleep, "Empêcher la mise en veille")
+                .on_hover_text("Ni l'écran ni l'ordinateur ne se mettent en veille tant que CueStar est ouvert")
+                .changed()
+            {
+                d.prevent_sleep = prefs.prevent_sleep;
+                prefs.save();
+            }
             let changed = !d.same_engine(prefs);
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 let b = egui::Button::new(RichText::new("Appliquer").color(if changed { PLAYING_INK } else { TEXT_DIM })).fill(if changed { ACCENT } else { PANEL_HI });
                 if ui.add_enabled(changed, b).clicked() {
-                    let warp = prefs.warp;
-                    // La langue se règle ailleurs (menu du projet) : elle n'est pas dans le brouillon.
-                    *prefs = MachinePrefs { language: prefs.language, ..d.clone() };
-                    prefs.warp = warp;
+                    // La langue (menu du projet), le mapping et l'audio se règlent ailleurs, à chaud :
+                    // le brouillon ne les remplace pas.
+                    *prefs = MachinePrefs {
+                        language: prefs.language,
+                        warp: prefs.warp,
+                        audio_device: prefs.audio_device.clone(),
+                        volume: prefs.volume,
+                        audio_delay_ms: prefs.audio_delay_ms,
+                        audio_delay_unit: prefs.audio_delay_unit,
+                        prevent_sleep: prefs.prevent_sleep,
+                        ..d.clone()
+                    };
                     prefs.save();
                     restart = true;
                 }
@@ -240,6 +269,7 @@ impl OutputView {
     fn audio(&mut self, ui: &mut egui::Ui, prefs: &mut MachinePrefs, out: &mut OutputLink) {
         section(ui, "Audio", |ui| {
             let before = (prefs.audio_device.clone(), prefs.volume);
+            let before_delay = (prefs.audio_delay_ms, prefs.audio_delay_unit);
             egui::Grid::new("audio").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
                 ui.label("Sortie audio");
                 let auto = "Par défaut du système";
@@ -262,6 +292,34 @@ impl OutputView {
                 ui.label("Volume");
                 ui.add(egui::Slider::new(&mut prefs.volume, 0.0..=100.0).suffix(" %").step_by(1.0));
                 ui.end_row();
+                ui.label("Délai de sortie");
+                ui.horizontal(|ui| {
+                    let fps = prefs.fps.unwrap_or(25.0);
+                    let unit = prefs.audio_delay_unit;
+                    let mut v = unit.from_ms(prefs.audio_delay_ms, fps);
+                    let (max, speed, decimals) = match unit {
+                        DelayUnit::Ms => (2000.0, 1.0, 0),
+                        DelayUnit::Frames => (2.0 * fps, 0.1, 1),
+                        DelayUnit::Meters => (2.0 * crate::prefs::SOUND_SPEED, 0.1, 1),
+                    };
+                    if ui.add(egui::DragValue::new(&mut v).range(0.0..=max).speed(speed).max_decimals(decimals)).changed() {
+                        prefs.audio_delay_ms = unit.to_ms(v, fps);
+                    }
+                    egui::ComboBox::from_id_salt("delay-unit").selected_text(unit.label()).width(90.0).show_ui(ui, |ui| {
+                        for u in DelayUnit::ALL {
+                            ui.selectable_value(&mut prefs.audio_delay_unit, u, u.label());
+                        }
+                    });
+                    let detail = match prefs.audio_delay_unit {
+                        DelayUnit::Ms => String::new(),
+                        DelayUnit::Frames => format!("à {fps:.0} i/s, {:.0} ms", prefs.audio_delay_ms),
+                        DelayUnit::Meters => format!("{:.0} ms", prefs.audio_delay_ms),
+                    };
+                    ui.label(RichText::new(detail).color(TEXT_DIM));
+                })
+                .response
+                .on_hover_text("Retarde le son par rapport à l'image : pour caler un vidéoprojecteur lent, ou des enceintes loin de la scène (343 m/s)");
+                ui.end_row();
             });
             if out.state.audio_devices.is_empty() {
                 ui.label(RichText::new("La liste des sorties apparaît quand la sortie vidéo est prête.").color(TEXT_DIM));
@@ -273,6 +331,12 @@ impl OutputView {
                 }
                 if prefs.volume != before.1 {
                     out.send(Command::Volume { value: prefs.volume });
+                }
+                prefs.save();
+            }
+            if (prefs.audio_delay_ms, prefs.audio_delay_unit) != before_delay {
+                if prefs.audio_delay_ms != before_delay.0 {
+                    out.send(Command::AudioDelay { ms: prefs.audio_delay_ms });
                 }
                 prefs.save();
             }

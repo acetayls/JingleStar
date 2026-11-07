@@ -12,6 +12,8 @@ members = [
     "apps/jinglestar",
     "apps/cuestar",
 ]
+# Outil de mesure de la sortie CueStar (Windows), construit à part.
+exclude = ["tools/bench-sortie"]
 
 [workspace.package]
 edition = "2021"
