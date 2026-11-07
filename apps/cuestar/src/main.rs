@@ -7,6 +7,7 @@
 //!   Il possède la fenêtre plein écran et libmpv ; si la régie rame, l'image continue.
 
 mod link;
+mod media_info;
 mod osc;
 mod output;
 mod prefs;
@@ -32,6 +33,12 @@ fn main() {
     if args.get(1).map(String::as_str) == Some("--preview") {
         star_core::log::install_panic_hook("Démarrage de l'aperçu de CueStar");
         preview::run();
+        return;
+    }
+    if args.get(1).map(String::as_str) == Some("--info") {
+        if let Some(media) = args.get(2) {
+            media_info::run(media, args.get(3).map(String::as_str) == Some("complet"));
+        }
         return;
     }
     if args.get(1).map(String::as_str) == Some("--thumb") {

@@ -52,6 +52,8 @@ pub struct Lecteur {
     editing: Option<usize>,
     /// « Lire sur la sortie » demandé depuis l'éditeur.
     pending_play: Option<usize>,
+    /// Fenêtres « Informations sur le fichier » ouvertes.
+    infos: Vec<super::file_info::FileInfo>,
 }
 
 impl Default for Lecteur {
@@ -74,6 +76,7 @@ impl Default for Lecteur {
             preview: Default::default(),
             editing: None,
             pending_play: None,
+            infos: Vec::new(),
         }
     }
 }
@@ -254,6 +257,7 @@ impl Lecteur {
         self.preview.poll();
         self.preview.settle(ui.ctx());
         self.editor_window(ui.ctx(), out);
+        self.infos.retain_mut(|w| w.show(ui.ctx()));
         // Fin d'un média : on enchaîne.
         if out.state.ended != self.seen_end {
             self.seen_end = out.state.ended;
@@ -480,6 +484,7 @@ impl Lecteur {
             let row_w = (area.right() - ui.cursor().left()).max(40.0);
             let mut play = None;
             let mut remove = None;
+            let mut info: Option<usize> = None;
             egui::ScrollArea::vertical().auto_shrink([false, false]).max_width(row_w).show(ui, |ui| {
                 ui.set_max_width(row_w);
                 if self.items.is_empty() {
@@ -516,6 +521,10 @@ impl Lecteur {
                             self.editing = Some(i);
                             ui.close();
                         }
+                        if ui.button(tr("Informations sur le fichier…", "File information…")).on_hover_text(tr("Conteneur, pistes, codecs, couleurs… comme MediaInfo", "Container, tracks, codecs, colours… like MediaInfo")).clicked() {
+                            info = Some(i);
+                            ui.close();
+                        }
                         if ui.button(if on { "Lire une seule fois" } else { "Lire en boucle" }).clicked() {
                             self.items[i].clip.sound.looping = !on;
                             ui.close();
@@ -529,6 +538,9 @@ impl Lecteur {
             });
             if let Some(i) = play {
                 self.play(i, out);
+            }
+            if let Some(p) = info.and_then(|i| self.items.get(i)).map(|it| it.path.clone()) {
+                super::file_info::open_once(&mut self.infos, &p);
             }
             if let Some(i) = remove {
                 self.editing = None;
