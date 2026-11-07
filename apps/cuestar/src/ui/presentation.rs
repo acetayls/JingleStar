@@ -621,3 +621,55 @@ impl Presentation {
         resp.double_clicked()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    fn wait(w: &Worker, mut f: impl FnMut(Done) -> bool) {
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_secs(60) {
+            if let Ok(d) = w.rx.recv_timeout(Duration::from_millis(100)) {
+                if f(d) {
+                    return;
+                }
+            }
+        }
+        panic!("le rendu n'a pas répondu");
+    }
+
+    #[test]
+    fn worker_opens_and_renders_slides_to_png() {
+        let path = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../crates/star-pptx/tests/fixtures/demo.pptx"));
+        let w = Worker::start(egui::Context::default());
+        w.push(Job::Open { gen: 1, path }, true);
+        let mut count = 0;
+        wait(&w, |d| match d {
+            Done::Opened { slides, .. } => {
+                count = slides.len();
+                assert!(slides[6].hidden);
+                assert_eq!(slides[0].title.as_deref(), Some("Présentation de démonstration"));
+                true
+            }
+            Done::Failed { message, .. } => panic!("{message}"),
+            _ => false,
+        });
+        assert_eq!(count, 9);
+        w.push(Job::Slide { gen: 1, index: 2, w: 640, h: 480 }, true);
+        // Un travail d'une ancienne génération est ignoré.
+        w.push(Job::Slide { gen: 0, index: 1, w: 640, h: 480 }, true);
+        wait(&w, |d| match d {
+            Done::Slide { index, path, .. } => {
+                assert_eq!(index, 2);
+                let img = image::open(&path).unwrap();
+                assert_eq!((img.width(), img.height()), (640, 360));
+                true
+            }
+            Done::SlideFailed { message, .. } => panic!("{message}"),
+            _ => false,
+        });
+        w.push(Job::Thumb { gen: 1, index: 0 }, false);
+        wait(&w, |d| matches!(d, Done::Thumb { index: 0, .. }));
+    }
+}
