@@ -1,5 +1,7 @@
 {
   "adapt_refresh": true,
+  "audio_delay_ms": 40.0,
+  "audio_delay_unit": "Frames",
   "audio_device": "wasapi/Haut-parleurs",
   "cadence": "Resample",
   "decode": "Cpu",

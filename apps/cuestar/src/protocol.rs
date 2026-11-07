@@ -51,6 +51,8 @@ pub enum Command {
     SlideshowSettings { photo_seconds: f64, looping: bool, shuffle: bool, video_sound: bool },
     /// Sortie audio (nom mpv `audio-device` ; None = automatique), à chaud.
     AudioDevice { name: Option<String> },
+    /// Délai de la sortie audio en millisecondes, à chaud.
+    AudioDelay { ms: f64 },
     /// Change l'ajustement des images en cours de diaporama.
     SetFit { fit: Fit },
     Next,

@@ -369,6 +369,7 @@ impl OutputApp {
             let _ = m.set_option("audio-device", dev);
         }
         let _ = m.set_option("volume", &format!("{:.1}", p.volume.clamp(0.0, 100.0)));
+        let _ = m.set_option("audio-delay", &format!("{:.4}", p.audio_delay_ms / 1000.0));
         // Réglages « régie » : pas d'interface mpv, pas de clavier.
         for (k, v) in [
             ("terminal", "no"),
@@ -781,6 +782,11 @@ impl OutputApp {
                 let dev = name.as_deref().unwrap_or("auto").to_string();
                 let out = self.out();
                 (0..out.decks()).map(|i| out.deck(i).set_property("audio-device", &dev)).collect::<Result<Vec<_>, _>>().map(|_| ())
+            }
+            Command::AudioDelay { ms } => {
+                let secs = format!("{:.4}", ms / 1000.0);
+                let out = self.out();
+                (0..out.decks()).map(|i| out.deck(i).set_property("audio-delay", &secs)).collect::<Result<Vec<_>, _>>().map(|_| ())
             }
             Command::SetFit { fit } => {
                 if let Some(s) = &mut self.show {
