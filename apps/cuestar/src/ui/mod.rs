@@ -24,6 +24,9 @@ use star_ui::theme::{self, *};
 use star_ui::widgets;
 use std::time::Duration;
 
+const AIDE_FR: &str = include_str!("../../docs/aide.md");
+const HELP_EN: &str = include_str!("../../docs/help.md");
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Lecteur,
@@ -33,6 +36,8 @@ enum Tab {
 
 pub struct CueStarApp {
     tab: Tab,
+    /// Manuel (F1).
+    help: star_ui::help::HelpWindow,
     prefs: MachinePrefs,
     out: OutputLink,
     lecteur: lecteur::Lecteur,
@@ -112,6 +117,7 @@ impl CueStarApp {
             },
             osc_draft: crate::osc::OscSettings::load(),
             osc_open: false,
+            help: star_ui::help::HelpWindow::new(AIDE_FR, HELP_EN),
             remotes: {
                 let ctx = cc.egui_ctx.clone();
                 remote_view::Remotes::new(std::sync::Arc::new(move || ctx.request_repaint()))
@@ -588,6 +594,9 @@ impl CueStarApp {
                     self.out.send(Command::Stop);
                 }
                 ui.add_space(8.0);
+                if ui.selectable_label(self.help.open, tr("? Aide", "? Help")).on_hover_text("F1").clicked() {
+                    self.help.toggle();
+                }
                 if ui
                     .selectable_label(self.osc_open, "Télécommandes")
                     .on_hover_text("OSC, MIDI, consoles Yamaha et Midas, correspondances, raccourcis")
@@ -720,6 +729,9 @@ impl eframe::App for CueStarApp {
             self.on_picked(pick, files);
         }
         let typing = ctx.egui_wants_keyboard_input();
+        if ctx.input(|i| i.key_pressed(Key::F1)) {
+            self.help.toggle();
+        }
         if !typing && ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.out.send(Command::Stop);
         }
@@ -790,6 +802,7 @@ impl eframe::App for CueStarApp {
         });
 
         self.monitor.show(&ctx, &mut self.out);
+        self.help.show(&ctx);
         self.osc_window(&ctx);
         if let output_view::Action::Restart = self.output_view.show(&ctx, &mut self.prefs, &mut self.out, &mut self.pattern) {
             self.restart_output();
@@ -809,5 +822,17 @@ impl eframe::App for CueStarApp {
     fn on_exit(&mut self) {
         self.flush_session();
         self.out.stop();
+    }
+}
+
+#[cfg(test)]
+mod manual_tests {
+    /// Les liens internes des deux manuels mènent tous à un titre.
+    #[test]
+    fn manual_links_resolve() {
+        for src in [super::AIDE_FR, super::HELP_EN] {
+            let broken = star_ui::help::broken_links(src);
+            assert!(broken.is_empty(), "liens sans titre : {broken:?}");
+        }
     }
 }

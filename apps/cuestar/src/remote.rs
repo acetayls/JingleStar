@@ -31,10 +31,11 @@ pub enum ActionKind {
     CuePause,
     CueStop,
     Black,
+    ResetDrops,
 }
 
 impl ActionKind {
-    pub const ALL: [ActionKind; 19] = [
+    pub const ALL: [ActionKind; 20] = [
         ActionKind::LecteurGo,
         ActionKind::LecteurPause,
         ActionKind::LecteurStop,
@@ -54,6 +55,7 @@ impl ActionKind {
         ActionKind::CuePause,
         ActionKind::CueStop,
         ActionKind::Black,
+        ActionKind::ResetDrops,
     ];
 
     pub fn label(self) -> &'static str {
@@ -77,6 +79,7 @@ impl ActionKind {
             ActionKind::CuePause => "Cuelist : pause / reprise",
             ActionKind::CueStop => "Cuelist : arrêt",
             ActionKind::Black => "Noir (couper la sortie)",
+            ActionKind::ResetDrops => "Compteur d'images perdues : remise à zéro",
         }
     }
 }
@@ -129,6 +132,7 @@ impl Mapping {
             ActionKind::CuePause => press("cuelist/toggle"),
             ActionKind::CueStop => press("cuelist/stop"),
             ActionKind::Black => press("noir"),
+            ActionKind::ResetDrops => press("output/drops/reset"),
             _ => None,
         }
     }
