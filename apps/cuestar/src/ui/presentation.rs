@@ -7,7 +7,7 @@
 //! d'avance, pour un passage immédiat.
 
 use crate::link::OutputLink;
-use crate::protocol::{Command, Transition, TransitionKind};
+use crate::protocol::{Clip, Command, Transition, TransitionKind};
 use egui::{vec2, Color32, Key, Rect, RichText, Sense, Stroke, StrokeKind};
 use star_ui::theme::*;
 use star_ui::widgets::{pressed, transport_button, TransportIcon};
@@ -295,7 +295,7 @@ impl Presentation {
     fn send(&mut self, index: usize, path: PathBuf, out: &mut OutputLink) {
         self.want = None;
         let p = path.to_string_lossy().into_owned();
-        out.send(Command::Load { path: p, paused: false, looping: false, hold: true, transition: self.transition, clip: Default::default() });
+        out.send(Command::Load { path: p, paused: false, looping: false, hold: true, transition: self.transition, clip: Clip::default() });
         self.shown = Some((index, path));
     }
 

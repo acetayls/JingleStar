@@ -25,6 +25,7 @@ star-core = { path = "crates/star-core" }
 star-ui = { path = "crates/star-ui" }
 star-remote = { path = "crates/star-remote" }
 star-build = { path = "crates/star-build" }
+star-pptx = { path = "crates/star-pptx" }
 
 # Build de développement plus rapide à l'exécution : dépendances optimisées pour toutes les
 # applications, et CueStar lui-même en opt-level 1 (lecture vidéo, vignettes, régie).

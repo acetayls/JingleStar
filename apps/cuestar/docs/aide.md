@@ -4,8 +4,9 @@ CueStar envoie des vidéos, des images et des sons sur un écran de sortie (vid�
 écran de scène, régie vidéo). La régie, où vous travaillez, et la **sortie**, qui affiche
 l'image, tournent dans deux programmes séparés : une régie qui rame ne retarde aucune image.
 
-Trois modules se partagent l'écran : le **Lecteur** (une playlist), le **Diaporama** (un
-dossier de photos et de vidéos) et la **Cuelist** (une conduite de cues lancés au GO). Le
+Quatre modules se partagent l'écran : le **Lecteur** (une playlist), le **Diaporama** (un
+dossier de photos et de vidéos), la **Présentation** (un fichier PowerPoint) et la **Cuelist**
+(une conduite de cues lancés au GO). Le
 panneau **Texte** s'affiche à côté pour garder la conduite écrite sous les yeux.
 
 ## Prise en main
@@ -32,10 +33,10 @@ GIF, TIFF, WebP) et sons (MP3, WAV, FLAC, AAC/M4A, OGG). Le décodage passe par 
 |---|---|
 | Nom du projet | Menu : Nouveau, Ouvrir, Enregistrer sous, Renommer |
 | **Enregistrer** | Enregistre le projet (**Ctrl+S**) |
-| **Lecteur**, **Diaporama**, **Cuelist** | Change de module ; celui qui ne s'affiche plus continue de jouer |
+| **Lecteur**, **Diaporama**, **Présentation**, **Cuelist** | Change de module ; celui qui ne s'affiche plus continue de jouer |
 | **Texte** | Affiche ou masque le panneau Texte |
 | **? Aide** | Ouvre cette aide (**F1**) |
-| **Video output** | Écran et moteur de sortie, son, mires de test, mapping 4 coins |
+| **Préférences** | Fenêtre en onglets : écran et moteur de sortie, audio, mires de test, mapping 4 coins |
 | **Monitoring** | Fenêtre flottante qui montre l'image envoyée sur la sortie |
 | **Télécommandes** | OSC, MIDI, consoles Yamaha et Midas, correspondances, raccourcis |
 | **NOIR** | Coupe l'image : écran de sortie au noir (**Échap**) |
@@ -137,6 +138,24 @@ Lit un dossier de photos et de vidéos.
 
 Les changements s'appliquent tout de suite, sans relancer le diaporama.
 
+## La Présentation
+
+Diffuse une présentation PowerPoint (**.pptx**) sur la sortie, sans PowerPoint : CueStar
+dessine lui-même chaque diapositive à la résolution de la sortie.
+
+- **Choisir…** ou glissez un fichier .pptx ; **Relire** reprend le fichier après une
+  modification dans PowerPoint.
+- Les **vignettes** montrent toutes les diapositives : clic pour sélectionner, double-clic pour
+  l'afficher sur la sortie. Les diapositives masquées sont sautées.
+- **LANCER** affiche la diapositive sélectionnée, puis **SUIVANTE** (**Espace** ou **→**) et
+  **←** passent d'une diapositive à l'autre ; **Aller à** saute à un numéro. La suivante est
+  préparée d'avance.
+- **Transition** : **Coupe**, **Noir** (fondu au noir puis d'ouverture) ou **Fondu enchaîné**.
+- **Échap** met au noir ; **LANCER** réaffiche la diapositive.
+
+Textes, puces, formes, images, tableaux, SmartArt et graphiques simples sont rendus ; les
+animations ne le sont pas : une vidéo intégrée apparaît comme son image d'aperçu.
+
 ## La Cuelist
 
 Une conduite de cues : chacun est un média, ou du **noir**. Le cue **en attente** part au GO.
@@ -161,7 +180,8 @@ taille. **Importer…** reprend un texte existant. Il est enregistré avec le pr
 
 ## Sortie vidéo et son
 
-**Video output** ouvre les réglages de la sortie :
+**Préférences** ouvre les réglages de la sortie, en onglets (Écran et moteur, Audio, Mires de
+test, Mapping 4 coins) :
 
 - **Écran de sortie** : automatique (premier écran secondaire) ou un écran précis ; **Sortie
   dans une fenêtre** quand il n'y a qu'un écran.
@@ -314,9 +334,9 @@ n'agissent pas pendant la saisie d'un texte.
   `libmpv-2.dll` à côté de CueStar ou dans son dossier `mpv`, puis relancez.
 - **Sortie arrêtée** (voyant rouge) : **Relancer la sortie** dans la barre du bas.
 - **Images perdues ou retardées qui montent** : essayez le décodage **GPU**, le **Rendu léger**
-  ou **Adapter la fréquence de l'écran à la vidéo** dans **Video output** ; **Informations sur
+  ou **Adapter la fréquence de l'écran à la vidéo** dans **Préférences** ; **Informations sur
   le fichier** montre si le média est très lourd (débit, résolution, 10 bits).
-- **Pas de son** : choisissez la carte dans **Video output → Sortie audio**.
+- **Pas de son** : choisissez la carte dans **Préférences → Audio**.
 - **Médias introuvables** : **Relocaliser…** dans le bandeau.
 - **Un comportement étrange ou un plantage** : le journal `cuestar.log`, dans le dossier de
   configuration, garde les erreurs et la trace des plantages.
