@@ -26,14 +26,27 @@ pub const STRIP_W: u32 = 160;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum PreviewCmd {
     /// Ouvre un média, en pause sur l'image à `at` secondes.
-    Open { path: String, at: f64 },
+    Open {
+        path: String,
+        at: f64,
+    },
     Close,
     /// `exact` faux : saut à l'image clé la plus proche (fluide pendant un glisser).
-    Seek { seconds: f64, exact: bool },
+    Seek {
+        seconds: f64,
+        exact: bool,
+    },
     Play,
     Pause,
+    /// Image suivante ou précédente (en pause).
+    Step {
+        back: bool,
+    },
     /// Une image toutes les durée / `count` secondes, pour la frise de l'éditeur.
-    Strip { path: String, count: usize },
+    Strip {
+        path: String,
+        count: usize,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -240,7 +253,7 @@ pub fn run() {
     let mut current: Option<String> = None;
     let mut job: Option<StripJob> = None;
     let mut last_pos = Instant::now();
-    let mut sent_pos = (f64::NAN, true);
+    let mut sent_pos: Option<(f64, bool)> = None;
     loop {
         match rx.recv_timeout(Duration::from_millis(8)) {
             Ok(None) | Err(RecvTimeoutError::Disconnected) => return,
@@ -252,6 +265,7 @@ pub fn run() {
                         send_event(&PreviewEvent::Error { message: e });
                     }
                     current = Some(path);
+                    sent_pos = None;
                 }
                 PreviewCmd::Close => {
                     let _ = live.m.command(&["stop"]);
@@ -265,6 +279,9 @@ pub fn run() {
                 }
                 PreviewCmd::Pause => {
                     let _ = live.m.set_property("pause", "yes");
+                }
+                PreviewCmd::Step { back } => {
+                    let _ = live.m.command(&[if back { "frame-back-step" } else { "frame-step" }]);
                 }
                 PreviewCmd::Strip { path, count } => {
                     if let Some(s) = &strip {
@@ -291,8 +308,8 @@ pub fn run() {
             last_pos = Instant::now();
             let t = live.get_f64("time-pos").unwrap_or(0.0);
             let paused = live.m.get_property("pause").as_deref() != Some("no");
-            if (t - sent_pos.0).abs() > 0.001 || paused != sent_pos.1 {
-                sent_pos = (t, paused);
+            if sent_pos.is_none_or(|(st, sp)| (t - st).abs() > 0.001 || paused != sp) {
+                sent_pos = Some((t, paused));
                 send_event(&PreviewEvent::Position { time: t, paused });
             }
         }
@@ -389,6 +406,8 @@ pub struct Preview {
     started: bool,
     /// Dernière demande de déplacement envoyée (pour ne pas inonder le processus).
     last_seek: Option<(f64, bool)>,
+    /// Position approchée pendant un glisser, à rendre exacte au relâché.
+    pending_exact: Option<f64>,
 }
 
 impl Default for Preview {
@@ -403,6 +422,7 @@ impl Default for Preview {
             strip_seen: 0,
             started: false,
             last_seek: None,
+            pending_exact: None,
         }
     }
 }
@@ -536,14 +556,8 @@ impl Preview {
         self.send(ctx, PreviewCmd::Open { path: path.to_string_lossy().into_owned(), at });
     }
 
-    pub fn close(&mut self, ctx: &egui::Context) {
-        if self.state.path.take().is_some() {
-            self.live_tex = None;
-            self.send(ctx, PreviewCmd::Close);
-        }
-    }
-
     pub fn seek(&mut self, ctx: &egui::Context, seconds: f64, exact: bool) {
+        self.pending_exact = (!exact).then_some(seconds);
         if self.last_seek == Some((seconds, exact)) {
             return;
         }
@@ -552,9 +566,28 @@ impl Preview {
         self.send(ctx, PreviewCmd::Seek { seconds, exact });
     }
 
+    /// À chaque image : un glisser terminé ramène l'aperçu sur l'image exacte.
+    pub fn settle(&mut self, ctx: &egui::Context) {
+        if self.pending_exact.is_some() && !ctx.input(|i| i.pointer.any_down()) {
+            if let Some(t) = self.pending_exact.take() {
+                self.seek(ctx, t, true);
+            }
+        }
+    }
+
     pub fn play(&mut self, ctx: &egui::Context, on: bool) {
         self.last_seek = None;
         self.send(ctx, if on { PreviewCmd::Play } else { PreviewCmd::Pause });
+    }
+
+    pub fn step(&mut self, ctx: &egui::Context, back: bool) {
+        self.last_seek = None;
+        self.send(ctx, PreviewCmd::Step { back });
+    }
+
+    /// Vrai si l'aperçu montre `path` et en connaît la durée.
+    pub fn shows(&self, path: &Path) -> bool {
+        self.state.path.as_deref() == Some(path) && (self.state.duration > 0.0 || self.state.image)
     }
 
     /// Demande la frise de `path` (vignettes réparties sur toute la durée).
