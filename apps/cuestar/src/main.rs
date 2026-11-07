@@ -10,6 +10,7 @@ mod link;
 mod osc;
 mod output;
 mod prefs;
+mod preview;
 mod project;
 mod protocol;
 mod remote;
@@ -26,6 +27,11 @@ fn main() {
         let cfg = args.get(2).and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default();
         let monitor_port = args.get(3).and_then(|s| s.parse().ok());
         output::run(cfg, monitor_port);
+        return;
+    }
+    if args.get(1).map(String::as_str) == Some("--preview") {
+        star_core::log::install_panic_hook("Démarrage de l'aperçu de CueStar");
+        preview::run();
         return;
     }
     if args.get(1).map(String::as_str) == Some("--thumb") {

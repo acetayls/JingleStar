@@ -8,6 +8,7 @@
 //! mpv, ce qui permet le fondu enchaîné, le fondu au noir, le mapping et un monitoring sans
 //! perte. Si l'API de rendu manque, affichage de secours (`embed`) : mpv seul dans la fenêtre.
 
+mod audio_filter;
 mod embed;
 mod monitor;
 pub mod mpv;
@@ -22,7 +23,7 @@ mod slideshow;
 pub mod warp;
 
 use crate::prefs::{Cadence, MachinePrefs};
-use crate::protocol::{Command, Event, Fit, Monitor, TransitionKind};
+use crate::protocol::{Clip, Command, Event, Fit, Monitor, TransitionKind};
 use mpv::Mpv;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slideshow::Show;
@@ -132,6 +133,8 @@ struct FadeAnim {
     to: f64,
     start: Instant,
     secs: f64,
+    /// Le son suit l'image (fondus d'un élément édité ; la transition « Noir » ne touche qu'à l'image).
+    audio: bool,
 }
 
 /// Fondu enchaîné en cours : de `from` vers `to` (lecteurs).
@@ -147,6 +150,48 @@ struct PendingLoad {
     paused: bool,
     looping: bool,
     hold: bool,
+    clip: Clip,
+}
+
+/// Points, boucle, durée d'image et filtres son d'un élément, posés sur le lecteur juste
+/// avant `loadfile`. Sans réglage (`None`), le lecteur revient à la lecture brute.
+/// Renvoie les filtres son posés (pour les changer ensuite à chaud).
+fn apply_clip(m: &Mpv, clip: Option<&Clip>, looping: bool) -> Vec<audio_filter::Stage> {
+    let secs = |v: f64| format!("{:.3}", v.max(0.0));
+    let none = "none".to_string();
+    let (start, end, ab, image, stages) = match clip {
+        None => (none.clone(), none.clone(), None, "inf".to_string(), Vec::new()),
+        Some(c) => {
+            let s = &c.sound;
+            let start = if s.start > 0.0 { secs(s.start) } else { none.clone() };
+            let end_opt = s.end.filter(|e| *e > s.start);
+            // En boucle avec des traits de boucle : mpv saute de la fin de boucle à son début.
+            let ab = (looping && (s.loop_start.is_some() || s.loop_end.is_some()))
+                .then(|| (s.loop_start.unwrap_or(s.start), s.loop_end.or(end_opt)))
+                .and_then(|(a, b)| b.filter(|b| *b > a).map(|b| (a, b)));
+            // La fin coupe le média ; en boucle, c'est la fin de boucle qui compte.
+            let end = if looping { none.clone() } else { end_opt.map(secs).unwrap_or_else(|| none.clone()) };
+            let image = c.image_secs.map(|d| format!("{d:.3}")).unwrap_or_else(|| "inf".into());
+            (start, end, ab, image, audio_filter::stages(s))
+        }
+    };
+    let _ = m.set_property("start", &start);
+    let _ = m.set_property("end", &end);
+    match ab {
+        Some((a, b)) => {
+            let _ = m.set_property("loop-file", "no");
+            let _ = m.set_property("ab-loop-a", &secs(a));
+            let _ = m.set_property("ab-loop-b", &secs(b));
+            let _ = m.set_property("ab-loop-count", "inf");
+        }
+        None => {
+            let _ = m.set_property("ab-loop-a", "no");
+            let _ = m.set_property("ab-loop-b", "no");
+        }
+    }
+    let _ = m.set_property("image-display-duration", &image);
+    let _ = m.set_property("af", &audio_filter::af_value(&stages));
+    stages
 }
 
 struct OutputApp {
@@ -179,6 +224,15 @@ struct OutputApp {
     pending: Option<PendingLoad>,
     /// Durée du fondu d'ouverture à lancer dès la première image du média chargé.
     fade_in_after: Option<f64>,
+    /// Le fondu d'ouverture à venir fait aussi monter le son (élément édité).
+    fade_in_audio: bool,
+    /// Réglages d'édition du média de chaque lecteur, et les filtres son posés.
+    clips: [Clip; 2],
+    filters: [Vec<audio_filter::Stage>; 2],
+    /// Fondu de sortie de l'élément déjà lancé (une fois par lecture).
+    out_fade_started: bool,
+    /// Image fixe en cours : début de son fondu de sortie.
+    image_fade_at: Option<Instant>,
     monitor_port: Option<u16>,
     feed: Option<monitor::MonitorFeed>,
     /// Monitoring par capture (affichage de secours seulement).
@@ -428,6 +482,7 @@ impl OutputApp {
             let m = out.deck(i);
             let _ = m.set_property("keep-open", "no");
             let _ = m.set_property("loop-file", "no");
+            apply_clip(m, None, false);
             let ok = m.command(&["loadfile", "av://lavfi:color=c=black:s=64x36:r=25:d=0.1", "replace"]).is_ok()
                 && m.command(&["loadfile", SILENCE, "append-play"]).is_ok();
             // En attente tant qu'un vrai média ne remplace pas le silence.
@@ -444,6 +499,7 @@ impl OutputApp {
         let _ = m.set_property("loop-file", "no");
         let _ = m.set_property("pause", "no");
         let _ = m.set_property("volume", &format!("{:.1}", self.volume));
+        apply_clip(m, None, false);
         out.show(deck, false);
         // En attente : ses événements (fin du média remplacé, silence) ne remontent pas à la régie.
         if m.command(&["loadfile", SILENCE, "replace"]).is_ok() {
@@ -520,6 +576,7 @@ impl OutputApp {
                     let _ = m.set_property("loop-file", "no");
                     let _ = m.set_property("keep-open", "yes");
                     let _ = m.set_property("pause", "no");
+                    apply_clip(m, None, false);
                     let r = m.command(&["loadfile", &k.lavfi(w, h), "replace"]);
                     self.out().reveal(a);
                     r
@@ -541,13 +598,16 @@ impl OutputApp {
             return;
         }
         let res = match cmd {
-            Command::Load { path, paused, looping, hold, transition } => {
+            Command::Load { path, paused, looping, hold, transition, clip } => {
                 self.end_show();
                 self.pattern_on = false;
-                let load = PendingLoad { path, paused, looping, hold };
+                // Un élément avec un fondu d'entrée part du noir, quelle que soit la transition.
+                let item_in = (clip.sound.fade_in > 0.0).then_some(clip.sound.fade_in).filter(|_| self.out().can_fade());
+                let load = PendingLoad { path, paused, looping, hold, clip };
                 let on_air = self.current.is_some();
-                let cross = transition.kind == TransitionKind::Crossfade && transition.secs > 0.0 && self.out().decks() > 1 && on_air;
-                let black = transition.kind != TransitionKind::Cut && transition.secs > 0.0 && self.out().can_fade() && !cross;
+                let cross = item_in.is_none() && transition.kind == TransitionKind::Crossfade && transition.secs > 0.0 && self.out().decks() > 1 && on_air;
+                let black = (item_in.is_some() || transition.kind != TransitionKind::Cut && transition.secs > 0.0) && self.out().can_fade() && !cross;
+                self.fade_in_audio = item_in.is_some();
                 if cross {
                     // Fondu enchaîné : le média part sur l'autre lecteur, le mélange commence à sa première image.
                     self.anim = None;
@@ -561,16 +621,18 @@ impl OutputApp {
                     self.load_now(load)
                 } else {
                     self.cancel_transitions();
-                    let half = transition.secs / 2.0;
-                    if on_air && self.fade_level > 0.0 {
+                    self.fade_in_audio = item_in.is_some();
+                    let half = if transition.kind != TransitionKind::Cut { transition.secs / 2.0 } else { 0.0 };
+                    let fade_in = item_in.unwrap_or(half);
+                    if on_air && self.fade_level > 0.0 && half > 0.0 {
                         // Fondu sortant, puis chargement, puis fondu d'ouverture.
-                        self.anim = Some(FadeAnim { from: self.fade_level, to: 0.0, start: Instant::now(), secs: half });
+                        self.anim = Some(FadeAnim { from: self.fade_level, to: 0.0, start: Instant::now(), secs: half, audio: false });
                         self.pending = Some(load);
-                        self.fade_in_after = Some(half);
+                        self.fade_in_after = Some(fade_in);
                         Ok(())
                     } else {
                         self.set_fade(0.0);
-                        self.fade_in_after = Some(half);
+                        self.fade_in_after = Some(fade_in);
                         self.load_now(load)
                     }
                 }
@@ -604,7 +666,33 @@ impl OutputApp {
                     self.m().command(&["stop"])
                 }
             }
-            Command::Seek { seconds } => self.m().command(&["seek", &format!("{seconds:.3}"), "absolute+exact"]),
+            Command::Seek { seconds } => {
+                // Retour avant le fondu de sortie : l'image et le son reviennent.
+                if self.out_fade_started {
+                    self.out_fade_started = false;
+                    if self.xfade.is_none() {
+                        self.anim = None;
+                        self.set_fade(1.0);
+                        let _ = self.m().set_property("volume", &format!("{:.1}", self.volume));
+                    }
+                }
+                self.m().command(&["seek", &format!("{seconds:.3}"), "absolute+exact"])
+            }
+            Command::SetClip { clip } => {
+                // Volume et EQ à chaud, sans couper le son quand les filtres restent les mêmes.
+                let a = self.active.min(1);
+                let stages = audio_filter::stages(&clip.sound);
+                let m = self.m();
+                let live = audio_filter::live_commands(&self.filters[a], &stages);
+                let r = match live {
+                    Some(cmds) => cmds.iter().try_for_each(|[l, k, v, t]| m.command(&["af-command", l, k, v, t])),
+                    None => Err(String::new()),
+                };
+                let res = if r.is_err() { m.set_property("af", &audio_filter::af_value(&stages)) } else { Ok(()) };
+                self.filters[a] = stages;
+                self.clips[a] = clip;
+                res
+            }
             Command::Volume { value } => {
                 self.volume = value;
                 if self.xfade.is_some() || self.xfade_after.is_some() {
@@ -713,7 +801,17 @@ impl OutputApp {
             let _ = m.set_property("volume", &vol);
         }
         let _ = m.set_property("pause", if l.paused { "yes" } else { "no" });
+        let filters = apply_clip(m, Some(&l.clip), l.looping);
+        // Fondu d'entrée de l'élément : le son part du silence avec l'image.
+        if self.fade_in_audio {
+            let _ = m.set_property("volume", "0");
+        }
         let r = m.command(&["loadfile", &l.path, "replace"]);
+        let a = a.min(1);
+        self.clips[a] = l.clip;
+        self.filters[a] = filters;
+        self.out_fade_started = false;
+        self.image_fade_at = None;
         // L'image précédente reste jusqu'à la première image du nouveau média (pas de noir).
         self.out().reveal(a);
         r
@@ -767,7 +865,11 @@ impl OutputApp {
         if let Some(a) = &self.anim {
             let k = if a.secs <= 0.0 { 1.0 } else { (a.start.elapsed().as_secs_f64() / a.secs).min(1.0) };
             let v = a.from + (a.to - a.from) * k;
+            let audio = a.audio;
             self.set_fade(v);
+            if audio && self.xfade.is_none() {
+                let _ = self.m().set_property("volume", &format!("{:.1}", self.volume * v));
+            }
             if k < 1.0 {
                 busy = true;
             } else {
@@ -917,6 +1019,7 @@ impl OutputApp {
         let _ = m.set_property("keep-open", "no");
         let _ = m.set_property("loop-file", "no");
         let _ = m.set_property("mute", if video && !sound { "yes" } else { "no" });
+        apply_clip(m, None, false);
         let r = m.command(&["loadfile", &path, "replace"]);
         self.out().reveal(a);
         self.current = Some(path.clone());
@@ -1045,11 +1148,20 @@ impl OutputApp {
             }
             self.apply_cadence(deck);
         }
+        if first_frame && mine {
+            // Image fixe à durée réglée : son fondu de sortie part à l'heure (sa position ne bouge pas).
+            let c = &self.clips[deck.min(1)];
+            if let Some(d) = c.image_secs.filter(|_| c.sound.fade_out > 0.0) {
+                if self.out().deck(deck).get_property("current-tracks/video/image").as_deref() == Some("yes") {
+                    self.image_fade_at = Some(Instant::now() + Duration::from_secs_f64((d - c.sound.fade_out).max(0.0)));
+                }
+            }
+        }
         if first_frame {
             // Première image du nouveau média : fondu d'ouverture, ou fondu enchaîné.
             if self.pending.is_none() {
                 if let Some(secs) = self.fade_in_after.take() {
-                    self.anim = Some(FadeAnim { from: self.fade_level, to: 1.0, start: Instant::now(), secs });
+                    self.anim = Some(FadeAnim { from: self.fade_level, to: 1.0, start: Instant::now(), secs, audio: std::mem::take(&mut self.fade_in_audio) });
                 }
             }
             if let (Some(secs), Some(from)) = (self.xfade_after.take(), self.outgoing) {
@@ -1069,6 +1181,24 @@ impl OutputApp {
         }
     }
 
+    /// Fondu de sortie d'un élément édité : il démarre quand la lecture atteint
+    /// « fin − durée du fondu », et l'image (et le son) arrivent au noir pile à la fin.
+    fn check_out_fade(&mut self, t: f64) {
+        let c = &self.clips[self.active.min(1)].sound;
+        if self.out_fade_started || c.fade_out <= 0.0 || c.looping || self.anim.is_some() || self.xfade.is_some() || self.pending.is_some() {
+            return;
+        }
+        let end = c.end.filter(|e| *e > c.start).unwrap_or(self.duration);
+        if end <= 0.0 || t < end - c.fade_out || t >= end {
+            return;
+        }
+        if !self.out.as_ref().is_some_and(Out::can_fade) {
+            return;
+        }
+        self.out_fade_started = true;
+        self.anim = Some(FadeAnim { from: self.fade_level, to: 0.0, start: Instant::now(), secs: (end - t).max(0.05), audio: true });
+    }
+
     fn property(&mut self, id: u64, p: &mpv::RawProperty) {
         let double = || (p.format == mpv::FORMAT_DOUBLE && !p.data.is_null()).then(|| unsafe { *(p.data as *const f64) });
         let int = || (p.format == mpv::FORMAT_INT64 && !p.data.is_null()).then(|| unsafe { *(p.data as *const i64) });
@@ -1080,6 +1210,7 @@ impl OutputApp {
                         self.last_pos = Instant::now();
                         emit(&Event::Position { time: t, duration: self.duration });
                     }
+                    self.check_out_fade(t);
                 }
             }
             P_DURATION => self.duration = double().unwrap_or(0.0),
@@ -1155,6 +1286,14 @@ impl ApplicationHandler<UserEv> for OutputApp {
 
     /// Minutage des photos et des fondus : on se réveille pile à l'échéance.
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+        if self.image_fade_at.is_some_and(|at| at <= Instant::now()) {
+            self.image_fade_at = None;
+            let secs = self.clips[self.active.min(1)].sound.fade_out;
+            if self.anim.is_none() && self.xfade.is_none() && !self.out_fade_started {
+                self.out_fade_started = true;
+                self.anim = Some(FadeAnim { from: self.fade_level, to: 0.0, start: Instant::now(), secs, audio: true });
+            }
+        }
         let fading = self.step_anims();
         let now = Instant::now();
         if let Some(d) = self.show.as_ref().and_then(|s| s.deadline) {
@@ -1175,7 +1314,7 @@ impl ApplicationHandler<UserEv> for OutputApp {
         }
         // Pendant un fondu, on se réveille à chaque image (~120 Hz) ; sinon fin de photo ou prochaine vignette.
         let fade_tick = fading.then(|| now + Duration::from_millis(8));
-        let next = [self.show.as_ref().and_then(|s| s.deadline), self.monitor_every.map(|_| self.monitor_next), fade_tick].into_iter().flatten().min();
+        let next = [self.show.as_ref().and_then(|s| s.deadline), self.monitor_every.map(|_| self.monitor_next), fade_tick, self.image_fade_at].into_iter().flatten().min();
         el.set_control_flow(match next {
             Some(d) => ControlFlow::WaitUntil(d),
             None => ControlFlow::Wait,
@@ -1247,6 +1386,11 @@ pub fn run(prefs: MachinePrefs, monitor_port: Option<u16>) {
         anim: None,
         pending: None,
         fade_in_after: None,
+        fade_in_audio: false,
+        clips: Default::default(),
+        filters: Default::default(),
+        out_fade_started: false,
+        image_fade_at: None,
         monitor_port,
         feed: None,
         monitor_every: None,
@@ -1263,4 +1407,84 @@ pub fn run(prefs: MachinePrefs, monitor_port: Option<u16>) {
         refresh_changed: false,
     };
     let _ = event_loop.run_app(&mut app);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Essai avec une vraie libmpv : `CUESTAR_TEST_MEDIA=<vidéo avec son> cargo test -- --ignored`.
+    #[test]
+    #[ignore]
+    fn clip_options_play_on_real_mpv() {
+        let media = std::env::var("CUESTAR_TEST_MEDIA").expect("CUESTAR_TEST_MEDIA");
+        let m = Mpv::create().unwrap();
+        for (k, v) in [("vo", "null"), ("ao", "null"), ("untimed", "yes"), ("idle", "yes"), ("keep-open", "no"), ("terminal", "no")] {
+            m.set_option(k, v).unwrap();
+        }
+        m.initialize().unwrap();
+        let mut clip = Clip::default();
+        clip.sound.start = 2.0;
+        clip.sound.end = Some(5.0);
+        clip.sound.volume_db = -6.0;
+        clip.sound.eq.low_cut.on = true;
+        clip.sound.eq.low_cut_slope = star_core::eq::CutSlope::Db24;
+        clip.sound.eq.peak1.on = true;
+        clip.sound.eq.peak1.gain_db = 4.0;
+        clip.sound.eq.low_shelf.on = true;
+        clip.sound.eq.low_shelf.gain_db = -2.0;
+        clip.sound.eq.high_shelf.on = true;
+        clip.sound.eq.high_shelf.gain_db = 3.0;
+        let stages = apply_clip(&m, Some(&clip), false);
+        m.command(&["loadfile", &media, "replace"]).unwrap();
+        let (mut first, mut last, mut eof, mut err) = (None, 0.0f64, false, false);
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_secs(20) && !eof {
+            if let Some(ev) = m.wait_event(0.05) {
+                if ev.event_id == mpv::EVENT_PLAYBACK_RESTART && first.is_none() {
+                    first = m.get_property("time-pos").and_then(|s| s.parse::<f64>().ok());
+                    // Changement à chaud d'un gain : sans reconstruire la chaîne.
+                    let mut c2 = clip.clone();
+                    c2.sound.eq.peak1.gain_db = -5.0;
+                    c2.sound.volume_db = -3.0;
+                    for [l, k, v, t] in audio_filter::live_commands(&stages, &audio_filter::stages(&c2.sound)).unwrap() {
+                        m.command(&["af-command", &l, &k, &v, &t]).unwrap();
+                    }
+                }
+                if ev.event_id == mpv::EVENT_END_FILE {
+                    let end = unsafe { &*(ev.data as *const mpv::RawEndFile) };
+                    eof = true;
+                    err = end.reason == mpv::END_FILE_ERROR;
+                }
+            }
+            if let Some(t) = m.get_property("time-pos").and_then(|s| s.parse::<f64>().ok()) {
+                last = last.max(t);
+            }
+        }
+        let af = m.get_property("af").unwrap_or_default();
+        assert!(eof && !err, "lecture : eof={eof} erreur={err}");
+        assert!((first.unwrap() - 2.0).abs() < 0.1, "début {first:?}");
+        assert!(last <= 5.05 && last > 4.5, "fin {last}");
+        assert!(af.contains("cs_p1"), "af = {af}");
+        // Boucle entre les traits : la lecture repasse par le début de boucle.
+        let mut clip = Clip::default();
+        clip.sound.looping = true;
+        clip.sound.loop_start = Some(1.0);
+        clip.sound.loop_end = Some(2.0);
+        apply_clip(&m, Some(&clip), true);
+        m.command(&["loadfile", &media, "replace"]).unwrap();
+        let (mut max, mut wrapped, mut prev) = (0.0f64, false, 0.0f64);
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_secs(3) {
+            let _ = m.wait_event(0.01);
+            if let Some(t) = m.get_property("time-pos").and_then(|s| s.parse::<f64>().ok()) {
+                max = max.max(t);
+                if t + 0.5 < prev {
+                    wrapped = true;
+                }
+                prev = t;
+            }
+        }
+        assert!(wrapped && max < 2.2, "boucle : max {max}, retour {wrapped}");
+    }
 }
