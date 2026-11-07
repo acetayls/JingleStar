@@ -1,15 +1,17 @@
-//! Fenêtre des télécommandes : OSC, entrée MIDI, consoles Yamaha et Midas, et correspondances vers les actions.
+//! Fenêtre des télécommandes : OSC, entrée MIDI, consoles Yamaha et Midas, et assignations vers les actions.
 
 use egui::{RichText, Ui};
 
 use super::theme::*;
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 use crate::controller::Controller;
-use crate::i18n::tr;
+use star_core::i18n::tr;
 use crate::project::{ConsoleSettings, M32Settings, OscSettings};
 use crate::remote::{ActionKind, Mapping, Trigger};
+use star_remote::ui::{Apply, MappingRows};
+use star_remote::Inputs;
 
-/// Onglets de la fenêtre : un par protocole, puis les correspondances et les raccourcis clavier.
+/// Onglets de la fenêtre : un par protocole, puis les assignations et les raccourcis clavier.
 #[derive(Default, Clone, Copy, PartialEq)]
 enum Tab {
     #[default]
@@ -37,13 +39,13 @@ impl RemoteWindow {
     pub fn toggle(&mut self) {
         self.open = !self.open;
         if self.open {
-            self.midi_ports = crate::midi::port_names();
+            self.midi_ports = star_remote::midi::port_names(crate::project::APP);
         }
     }
 
     pub fn show(&mut self, ctx: &egui::Context, ctrl: &mut Controller) {
         if !self.open {
-            ctrl.learn = None;
+            ctrl.inputs.learn = None;
             return;
         }
         let mut open = true;
@@ -60,7 +62,7 @@ impl RemoteWindow {
                         (Tab::Midi, "MIDI"),
                         (Tab::Yamaha, "Yamaha"),
                         (Tab::M32, "Midas M32 / X32"),
-                        (Tab::Mappings, tr("Correspondances", "Mappings")),
+                        (Tab::Mappings, tr("Assignations", "Mappings")),
                         (Tab::Keyboard, tr("Raccourcis", "Shortcuts")),
                     ] {
                         ui.selectable_value(&mut self.tab, tab, label);
@@ -69,7 +71,7 @@ impl RemoteWindow {
                 ui.separator();
                 // « Apprendre » ne reste pas actif dans un onglet où on ne le voit pas.
                 if self.tab != Tab::Mappings {
-                    ctrl.learn = None;
+                    ctrl.inputs.learn = None;
                 }
                 let max_h = (ctx.content_rect().height() - 120.0).max(200.0);
                 egui::ScrollArea::vertical().id_salt("remote-scroll").max_height(max_h).auto_shrink([false, true]).show(ui, |ui| match self.tab {
@@ -88,7 +90,7 @@ impl RemoteWindow {
             });
         if !open {
             self.open = false;
-            ctrl.learn = None;
+            ctrl.inputs.learn = None;
         }
     }
 
@@ -106,349 +108,149 @@ impl RemoteWindow {
     }
 
     fn midi_section(&mut self, ui: &mut Ui, ctrl: &mut Controller) {
-        ui.heading("MIDI");
         let mut midi = ctrl.project.preferences.midi.clone();
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut midi.enabled, tr("Activer l'entrée MIDI", "Enable MIDI input"));
-            ui.add_enabled_ui(midi.enabled, |ui| {
-                let first = tr("Premier port disponible", "First available port");
-                let label = midi.port.clone().unwrap_or_else(|| first.into());
-                egui::ComboBox::from_id_salt("midi-port").selected_text(label).width(240.0).show_ui(ui, |ui| {
-                    ui.selectable_value(&mut midi.port, None, first);
-                    for p in &self.midi_ports {
-                        ui.selectable_value(&mut midi.port, Some(p.clone()), p);
-                    }
-                });
-                if ui.small_button("⟳").on_hover_text(tr("Rafraîchir la liste et reconnecter", "Refresh list and reconnect")).clicked() {
-                    self.midi_ports = crate::midi::port_names();
-                    ctrl.restart_midi();
-                }
-            });
-        });
+        if star_remote::ui::midi_section(ui, &mut midi, &mut self.midi_ports, &ctrl.inputs) {
+            ctrl.restart_midi();
+        }
         ctrl.set_midi_settings(midi);
-        if ctrl.project.preferences.midi.enabled {
-            match (&ctrl.midi, &ctrl.midi_error) {
-                (Some(l), _) => {
-                    ui.label(RichText::new(format!("{} {}", tr("Connecté à", "Connected to"), l.port)).small().color(GO));
-                }
-                (None, Some(e)) => {
-                    ui.label(RichText::new(e).small().color(STOP));
-                }
-                (None, None) => {}
-            }
-        }
     }
-}
 
-impl RemoteWindow {
     fn console_section(&mut self, ui: &mut Ui, ctrl: &mut Controller) {
-        ui.heading(tr("Console Yamaha (réseau)", "Yamaha console (network)"));
         let current = ctrl.project.preferences.console.clone();
-        let draft = self.console.get_or_insert_with(|| current.clone());
-        let mut enabled = current.enabled;
-        let mut apply = false;
-        ui.horizontal(|ui| {
-            if ui.checkbox(&mut enabled, tr("Écouter la console", "Listen to the console")).changed() {
-                apply = true;
-            }
-            ui.label(tr("IP", "IP"));
-            let r = ui.add(egui::TextEdit::singleline(&mut draft.host).desired_width(130.0));
-            apply |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            ui.label(tr("port", "port"));
-            ui.add(egui::DragValue::new(&mut draft.port).range(1..=65535));
-            let changed = draft.host != current.host || draft.port != current.port;
-            if ui.add_enabled(changed || ctrl.console.is_some(), egui::Button::new(tr("Connecter", "Connect"))).clicked() {
-                apply = true;
-                enabled = true;
-            }
-        });
-        if apply {
-            draft.enabled = enabled;
-            let settings = draft.clone();
-            if settings == current {
-                ctrl.restart_console();
-            } else {
-                ctrl.set_console_settings(settings);
-            }
-        }
-        ui.label(RichText::new(tr(
-            "QL, CL, TF, DM7, Rivage : port 49280. JingleStar écoute les changements \
-             (ON de canal, fader, rappel de scène) et n'envoie aucune donnée à la console.",
-            "QL, CL, TF, DM7, Rivage: port 49280. JingleStar listens to changes \
-             (channel ON, fader, scene recall) and sends no data to the console.",
-        )).small().color(TEXT_DIM));
-        if let Some(c) = ctrl.console.as_ref() {
-            let st = c.status();
-            if st.connected {
-                let model = st.model.unwrap_or_else(|| tr("console", "console").into());
-                ui.label(RichText::new(format!("{} {model} ({})", tr("Connecté à", "Connected to"), current.host)).small().color(GO));
-            } else if let Some(e) = st.error {
-                ui.label(RichText::new(format!("{e} · {}", tr("nouvel essai en cours", "retrying"))).small().color(STOP));
-            } else {
-                ui.label(RichText::new(tr("Connexion…", "Connecting…")).small().color(TEXT_DIM));
-            }
-            if let Some(line) = st.last_line {
-                let ago = st.last_rx.map(|t| t.elapsed().as_secs()).unwrap_or(0);
-                ui.label(RichText::new(format!("{} ({} {ago} s) : {line}", tr("Reçu", "Received"), tr("il y a", "ago"))).small().monospace().color(TEXT_DIM));
-            }
+        match star_remote::ui::console_section(ui, &current, &mut self.console, &ctrl.inputs) {
+            Some(Apply::Settings(s)) => ctrl.set_console_settings(s),
+            Some(Apply::Restart) => ctrl.restart_console(),
+            None => {}
         }
     }
-}
 
-impl RemoteWindow {
     fn m32_section(&mut self, ui: &mut Ui, ctrl: &mut Controller) {
-        ui.heading(tr("Console Midas M32 / Behringer X32 (réseau)", "Midas M32 / Behringer X32 console (network)"));
         let current = ctrl.project.preferences.m32.clone();
-        let draft = self.m32.get_or_insert_with(|| current.clone());
-        let mut enabled = current.enabled;
-        let mut apply = false;
-        ui.horizontal(|ui| {
-            apply |= ui.checkbox(&mut enabled, tr("Écouter la console", "Listen to the console")).changed();
-            ui.label("IP");
-            let r = ui.add(egui::TextEdit::singleline(&mut draft.host).desired_width(130.0));
-            apply |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            ui.label(tr("port", "port"));
-            ui.add(egui::DragValue::new(&mut draft.port).range(1..=65535));
-            let changed = draft.host != current.host || draft.port != current.port;
-            if ui.add_enabled(changed || ctrl.m32.is_some(), egui::Button::new(tr("Connecter", "Connect"))).clicked() {
-                apply = true;
-                enabled = true;
-            }
-        });
-        if apply {
-            draft.enabled = enabled;
-            let settings = draft.clone();
-            if settings == current {
-                ctrl.restart_m32();
-            } else {
-                ctrl.set_m32_settings(settings);
-            }
-        }
-        ui.label(RichText::new(tr(
-            "Port 10023. La M32 n'envoie ses changements qu'aux clients abonnés : JingleStar envoie \
-             « /xremote » toutes les 8 s et « /info », deux requêtes sans argument qui ne modifient rien. \
-             Aucune autre donnée n'est envoyée.",
-            "Port 10023. The M32 only sends its changes to subscribed clients: JingleStar sends \
-             “/xremote” every 8 s and “/info”, two requests with no argument that change nothing. \
-             No other data is sent.",
-        )).small().color(TEXT_DIM));
-        if let Some(c) = ctrl.m32.as_ref() {
-            let st = c.status();
-            if st.connected {
-                let model = st.model.unwrap_or_else(|| "M32".into());
-                ui.label(RichText::new(format!("{} {model} ({})", tr("Connecté à", "Connected to"), current.host)).small().color(GO));
-            } else if let Some(e) = st.error {
-                ui.label(RichText::new(e).small().color(STOP));
-            } else {
-                ui.label(RichText::new(tr("En attente de réponse de la console…", "Waiting for the console to answer…")).small().color(TEXT_DIM));
-            }
-            if let Some(line) = st.last_line {
-                let ago = st.last_rx.map(|t| t.elapsed().as_secs()).unwrap_or(0);
-                ui.label(RichText::new(format!("{} ({} {ago} s) : {line}", tr("Reçu", "Received"), tr("il y a", "ago"))).small().monospace().color(TEXT_DIM));
-            }
+        match star_remote::ui::m32_section(ui, &current, &mut self.m32, &ctrl.inputs) {
+            Some(Apply::Settings(s)) => ctrl.set_m32_settings(s),
+            Some(Apply::Restart) => ctrl.restart_m32(),
+            None => {}
         }
     }
 }
 
-/// Édition à la main d'un déclencheur appris (ou saisi sans apprentissage).
-/// Canaux, programmes et touches de console sont affichés à partir de 1, comme sur le matériel.
-fn trigger_editor(ui: &mut Ui, t: &mut Trigger) {
-    ui.set_min_width(220.0);
-    let kinds = [
-        (tr("Note MIDI", "MIDI note"), Trigger::Note { channel: 0, note: 60 }),
-        ("Control Change (CC)", Trigger::Cc { channel: 0, cc: 1 }),
-        ("Program Change", Trigger::Program { channel: 0, program: 0 }),
-        (tr("Touche de console", "Console key"), Trigger::Console { address: "MIXER:Current/InCh/Fader/On".into(), x: 0, y: 0 }),
-        (tr("Scène de console", "Console scene"), Trigger::Scene { number: 1 }),
-        (tr("Paramètre M32", "M32 parameter"), Trigger::Console { address: "/ch/01/mix/on".into(), x: 0, y: 0 }),
-    ];
-    let current = std::mem::discriminant(t);
-    ui.horizontal(|ui| {
-        ui.label(tr("Type", "Type"));
-        let name = kinds.iter().find(|(_, k)| std::mem::discriminant(k) == current).map_or(tr("(non appris)", "(not learned)"), |(n, _)| n);
-        egui::ComboBox::from_id_salt("trigger-kind").selected_text(name).show_ui(ui, |ui| {
-            for (n, k) in &kinds {
-                if ui.selectable_label(std::mem::discriminant(k) == current, *n).clicked() && std::mem::discriminant(k) != current {
-                    *t = k.clone();
-                }
-            }
-        });
-    });
-    let one_based = |ui: &mut Ui, label: &str, v: &mut u8, max: u8| {
-        ui.horizontal(|ui| {
-            ui.label(label);
-            let mut n = *v as u32 + 1;
-            ui.add(egui::DragValue::new(&mut n).range(1..=max as u32 + 1));
-            *v = (n - 1) as u8;
-        });
-    };
-    let raw = |ui: &mut Ui, label: &str, v: &mut u8| {
-        ui.horizontal(|ui| {
-            ui.label(label);
-            ui.add(egui::DragValue::new(v).range(0..=127));
-        });
-    };
-    let channel = tr("Canal", "Channel");
-    match t {
-        Trigger::Unset => {
-            ui.label(RichText::new(tr("Choisissez un type ou utilisez « Apprendre ».", "Pick a type or use “Learn”.")).small().color(TEXT_DIM));
-        }
-        Trigger::Note { channel: c, note } => {
-            one_based(ui, channel, c, 15);
-            raw(ui, "Note", note);
-        }
-        Trigger::Cc { channel: c, cc } => {
-            one_based(ui, channel, c, 15);
-            raw(ui, "CC", cc);
-        }
-        Trigger::Program { channel: c, program } => {
-            one_based(ui, channel, c, 15);
-            one_based(ui, "Program", program, 127);
-        }
-        Trigger::Console { address, x, y } => {
-            ui.horizontal(|ui| {
-                ui.label(tr("Adresse", "Address"));
-                ui.add(egui::TextEdit::singleline(address).desired_width(260.0));
-            });
-            // Les adresses OSC de la M32 contiennent déjà la voie.
-            if !address.starts_with('/') {
-                ui.horizontal(|ui| {
-                    ui.label(tr("Voie", "Channel"));
-                    let mut n = *x + 1;
-                    ui.add(egui::DragValue::new(&mut n).range(1..=512));
-                    *x = n - 1;
-                    ui.label(tr("Index", "Index"));
-                    let mut n = *y + 1;
-                    ui.add(egui::DragValue::new(&mut n).range(1..=64));
-                    *y = n - 1;
-                });
-            }
-        }
-        Trigger::Scene { number } => {
-            ui.horizontal(|ui| {
-                ui.label(tr("Scène", "Scene"));
-                ui.add(egui::DragValue::new(number).range(0..=999));
-            });
-        }
-    }
-}
-
-/// Tableau des correspondances, modifié en direct.
 fn mappings(ui: &mut Ui, ctrl: &mut Controller) {
-    ui.heading(tr("Correspondances", "Mappings"));
-    ui.label(RichText::new(tr(
-        "Cliquez sur « Apprendre » puis appuyez sur la touche ou bougez le contrôle à affecter.",
-        "Click “Learn”, then press the key or move the control to assign.",
-    )).small().color(TEXT_DIM));
-    let last = ctrl.last_input.clone().unwrap_or_else(|| "—".into());
-    ui.label(RichText::new(format!("{} : {last}", tr("Dernier message reçu", "Last message received"))).small().color(TEXT_DIM));
-    ui.add_space(4.0);
+    star_remote::ui::mappings_table(ui, &mut Rows(ctrl));
+}
 
-    let mut remove = None;
-    let count = ctrl.project.preferences.mappings.len();
-    egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, true]).show(ui, |ui| {
-        egui::Grid::new("mappings").num_columns(5).spacing([8.0, 6.0]).striped(true).show(ui, |ui| {
-            for i in 0..count {
-                let mut m = ctrl.project.preferences.mappings[i].clone();
-                let learning = ctrl.learn == Some(i);
-                ui.horizontal(|ui| {
-                    let text = if learning { tr("En attente…", "Waiting…") } else { tr("Apprendre", "Learn") };
-                    if ui.selectable_label(learning, text).clicked() {
-                        ctrl.learn = if learning { None } else { Some(i) };
-                    }
-                    ui.label(m.trigger.label());
-                    ui.menu_button("✏", |ui| trigger_editor(ui, &mut m.trigger))
-                        .response
-                        .on_hover_text(tr("Modifier la valeur apprise", "Edit the learned value"));
-                    if let Some(v) = ctrl.pickup_waiting(i) {
-                        ui.label(RichText::new(format!("{} {v:.1} dB", tr("amener le fader à", "bring the fader to"))).small().color(ACCENT))
-                            .on_hover_text(tr(
-                                "Reprise en douceur : le fader agit quand il atteint le volume actuel, pour éviter un saut.",
-                                "Soft takeover: the fader takes effect once it reaches the current volume, to avoid a jump.",
-                            ));
-                    }
-                });
-                egui::ComboBox::from_id_salt(("map-action", i)).selected_text(m.action.label()).width(220.0).show_ui(ui, |ui| {
-                    for a in ActionKind::ALL {
-                        ui.selectable_value(&mut m.action, a, a.label());
-                    }
-                });
-                if m.action.needs_module() {
-                    ui.horizontal(|ui| {
-                        ui.label(tr("Module", "Module"));
-                        let mut n = m.module + 1;
-                        ui.add(egui::DragValue::new(&mut n).range(1..=MAX_MODULES));
-                        m.module = n - 1;
-                        // Dit tout de suite si la correspondance ne fera rien : module absent
-                        // ou dans un autre mode que celui de l'action.
-                        let p = &ctrl.project;
-                        let (txt, warn) = if m.module >= p.module_count {
-                            (format!("{} ({} {})", tr("absent", "missing"), tr("le projet en a", "the project has"), p.module_count), true)
-                        } else {
-                            let md = &p.modules[m.module];
-                            match m.action.required_mode() {
-                                Some(need) if md.mode != need => (
-                                    format!("{} : {} {}", md.name, tr("sans effet, module en mode", "no effect, module in"), super::mode_label(md.mode)),
-                                    true,
-                                ),
-                                _ => (md.name.clone(), false),
-                            }
-                        };
-                        let txt = if warn { format!("⚠ {txt}") } else { txt };
-                        let resp = ui.label(RichText::new(txt).small().color(if warn { ACCENT } else { TEXT_DIM }));
-                        if warn {
-                            resp.on_hover_text(tr(
-                                "Cette correspondance n'agit que sur un module présent et dans le mode de l'action (Jingles, Playlist ou Cuelist).",
-                                "This mapping only acts on a module that exists and is in the action's mode (Jingles, Playlist or Cuelist).",
-                            ));
-                        }
-                    });
-                } else {
-                    ui.label("");
-                }
-                if m.action.needs_jingle() {
-                    ui.horizontal(|ui| {
-                        ui.label("Jingle");
-                        let mut n = m.jingle + 1;
-                        ui.add(egui::DragValue::new(&mut n).range(1..=JINGLE_SLOTS));
-                        m.jingle = n - 1;
-                        let name = ctrl.project.modules.get(m.module).and_then(|md| md.jingles[m.jingle].as_ref()).map(|j| j.name.clone());
-                        match name {
-                            Some(name) => ui.label(RichText::new(name).small().color(TEXT_DIM)),
-                            None => ui.label(RichText::new(tr("⚠ emplacement vide", "⚠ empty slot")).small().color(ACCENT)),
-                        };
-                    });
-                } else {
-                    ui.label("");
-                }
-                if ui.small_button("🗑").on_hover_text(tr("Supprimer", "Delete")).clicked() {
-                    remove = Some(i);
-                }
-                ui.end_row();
-                ctrl.update_mapping(i, m);
+/// Assignations de JingleStar dans la table commune : action, module et jingle.
+struct Rows<'a>(&'a mut Controller);
+
+impl MappingRows for Rows<'_> {
+    type Mapping = Mapping;
+
+    fn mappings(&self) -> &[Mapping] {
+        &self.0.project.preferences.mappings
+    }
+
+    fn trigger_mut(m: &mut Mapping) -> &mut Trigger {
+        &mut m.trigger
+    }
+
+    fn inputs(&mut self) -> &mut Inputs {
+        &mut self.0.inputs
+    }
+
+    fn action_columns(&self) -> usize {
+        3
+    }
+
+    fn trigger_note(&mut self, ui: &mut Ui, i: usize) {
+        if let Some(v) = self.0.pickup_waiting(i) {
+            ui.label(RichText::new(format!("{} {v:.1} dB", tr("amener le fader à", "bring the fader to"))).small().color(ACCENT)).on_hover_text(tr(
+                "Reprise en douceur : le fader agit quand il atteint le volume actuel, pour éviter un saut.",
+                "Soft takeover: the fader takes effect once it reaches the current volume, to avoid a jump.",
+            ));
+        }
+    }
+
+    fn action_cells(&mut self, ui: &mut Ui, i: usize, m: &mut Mapping) {
+        let ctrl = &*self.0;
+        egui::ComboBox::from_id_salt(("map-action", i)).selected_text(m.action.label()).width(220.0).show_ui(ui, |ui| {
+            for a in ActionKind::ALL {
+                ui.selectable_value(&mut m.action, a, a.label());
             }
         });
-    });
-    if let Some(i) = remove {
-        ctrl.remove_mapping(i);
+        if m.action.needs_module() {
+            ui.horizontal(|ui| {
+                ui.label(tr("Module", "Module"));
+                let mut n = m.module + 1;
+                ui.add(egui::DragValue::new(&mut n).range(1..=MAX_MODULES));
+                m.module = n - 1;
+                // Dit tout de suite si l'assignation ne fera rien : module absent
+                // ou dans un autre mode que celui de l'action.
+                let p = &ctrl.project;
+                let (txt, warn) = if m.module >= p.module_count {
+                    (format!("{} ({} {})", tr("absent", "missing"), tr("le projet en a", "the project has"), p.module_count), true)
+                } else {
+                    let md = &p.modules[m.module];
+                    match m.action.required_mode() {
+                        Some(need) if md.mode != need => (
+                            format!("{} : {} {}", md.name, tr("sans effet, module en mode", "no effect, module in"), super::mode_label(md.mode)),
+                            true,
+                        ),
+                        _ => (md.name.clone(), false),
+                    }
+                };
+                let txt = if warn { format!("⚠ {txt}") } else { txt };
+                let resp = ui.label(RichText::new(txt).small().color(if warn { ACCENT } else { TEXT_DIM }));
+                if warn {
+                    resp.on_hover_text(tr(
+                        "Cette assignation n'agit que sur un module présent et dans le mode de l'action (Jingles, Playlist ou Cuelist).",
+                        "This mapping only acts on a module that exists and is in the action's mode (Jingles, Playlist or Cuelist).",
+                    ));
+                }
+            });
+        } else {
+            ui.label("");
+        }
+        if m.action.needs_jingle() {
+            ui.horizontal(|ui| {
+                ui.label("Jingle");
+                let mut n = m.jingle + 1;
+                ui.add(egui::DragValue::new(&mut n).range(1..=JINGLE_SLOTS));
+                m.jingle = n - 1;
+                let name = ctrl.project.modules.get(m.module).and_then(|md| md.jingles[m.jingle].as_ref()).map(|j| j.name.clone());
+                match name {
+                    Some(name) => ui.label(RichText::new(name).small().color(TEXT_DIM)),
+                    None => ui.label(RichText::new(tr("⚠ emplacement vide", "⚠ empty slot")).small().color(ACCENT)),
+                };
+            });
+        } else {
+            ui.label("");
+        }
     }
-    if count == 0 {
-        ui.label(RichText::new(tr("Aucune correspondance.", "No mapping yet.")).color(TEXT_DIM));
+
+    fn update(&mut self, i: usize, m: Mapping) {
+        self.0.update_mapping(i, m);
     }
-    ui.add_space(4.0);
-    if ui.button(tr("＋ Ajouter et apprendre", "＋ Add and learn")).clicked() {
-        // Reprend l'action de la dernière ligne, au jingle suivant : pratique pour un pad.
-        let next = ctrl.project.preferences.mappings.last().map(|m| Mapping {
-            trigger: Default::default(),
-            jingle: if m.action.needs_jingle() { (m.jingle + 1) % JINGLE_SLOTS } else { m.jingle },
-            ..m.clone()
-        });
-        ctrl.add_mapping(next.unwrap_or_default());
-        ctrl.learn = Some(ctrl.project.preferences.mappings.len() - 1);
+
+    fn remove(&mut self, i: usize) {
+        self.0.remove_mapping(i);
+    }
+
+    /// Reprend l'action de la dernière ligne, au jingle suivant : pratique pour un pad.
+    fn next(&self) -> Mapping {
+        self.mappings()
+            .last()
+            .map(|m| Mapping {
+                trigger: Default::default(),
+                jingle: if m.action.needs_jingle() { (m.jingle + 1) % JINGLE_SLOTS } else { m.jingle },
+                ..m.clone()
+            })
+            .unwrap_or_default()
+    }
+
+    fn add(&mut self, m: Mapping) {
+        self.0.add_mapping(m);
     }
 }
 
-/// Réglages OSC ; les changements partent avec « Appliquer ».
 fn osc_settings(ui: &mut Ui, osc: &mut OscSettings, ctrl: &Controller) {
     ui.checkbox(&mut osc.enabled, tr("Activer le pilotage OSC", "Enable OSC control"));
     ui.add_enabled_ui(osc.enabled, |ui| {

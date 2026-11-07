@@ -11,7 +11,7 @@ use symphonia::core::probe::Hint;
 
 use super::buffer::AudioBuffer;
 use super::loudness::{Loudness, Meter};
-use crate::i18n::tr;
+use star_core::i18n::tr;
 
 pub const AUDIO_EXTENSIONS: &[&str] = &[
     "wav", "wave", "aif", "aiff", "mp3", "flac", "ogg", "oga", "m4a", "aac", "mp4", "caf",
@@ -137,7 +137,7 @@ fn downmix_matrix(channels: Option<Channels>, count: usize) -> Vec<(f32, f32)> {
 fn decode_planar(path: &Path) -> Result<Planar> {
     let p = decode_planar_with(path, true)?;
     if p.trimmed > GAPLESS_MAX_TRIM {
-        crate::log::write(&format!("En-tête gapless ignoré ({} images à couper) : {}", p.trimmed, path.display()));
+        star_core::log::write(&format!("En-tête gapless ignoré ({} images à couper) : {}", p.trimmed, path.display()));
         return decode_planar_with(path, false);
     }
     Ok(p)
@@ -317,6 +317,38 @@ mod tests {
         assert_eq!(out_r.len(), 48_000);
         let peak = out_l[1000..47_000].iter().fold(0f32, |a, b| a.max(b.abs()));
         assert!((peak - 0.5).abs() < 0.02, "crête {peak}");
+    }
+}
+
+#[cfg(test)]
+mod gapless_check {
+    /// Silence d'encodage des fichiers d'un dossier, sans et avec découpage :
+    /// `JS_GAPLESS_DIR=dossier cargo test gapless_report -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn gapless_report() {
+        let dir = std::env::var("JS_GAPLESS_DIR").expect("JS_GAPLESS_DIR");
+        let first_sound = |p: &super::Planar| p.left.iter().zip(&p.right).position(|(l, r)| l.abs().max(r.abs()) > 1e-4);
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = e.path();
+            if !super::is_audio_file(&path) {
+                continue;
+            }
+            let raw = super::decode_planar_with(&path, false).unwrap();
+            let cut = super::decode_planar(&path).unwrap();
+            let ms = |f: usize| f as f64 * 1000.0 / raw.rate as f64;
+            println!(
+                "{:<26} {} Hz | sans : {} images, 1er son à {:.1} ms | avec : {} images (−{:.1} ms), 1er son à {:.1} ms, découpage format {}",
+                path.file_name().unwrap().to_string_lossy(),
+                raw.rate,
+                raw.left.len(),
+                first_sound(&raw).map_or(f64::NAN, ms),
+                cut.left.len(),
+                ms(raw.left.len().saturating_sub(cut.left.len())),
+                first_sound(&cut).map_or(f64::NAN, ms),
+                cut.trimmed
+            );
+        }
     }
 }
 

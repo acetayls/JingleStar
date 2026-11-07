@@ -67,12 +67,12 @@ Each module has, from top to bottom:
 
 The module frame turns green while something is playing in it.
 
-- **Volume**: drag the fader. A **double-click** resets it to 0 dB. **Click the dB value** to type it on the keyboard (Enter confirms, Escape cancels). A number typed without a sign is negative: `6` gives -6 dB; type `+3` to go above 0 dB.
+- **Volume**: drag the fader. A **double-click** resets it to 0 dB. **Click the dB value** to type it on the keyboard (Enter confirms, Escape cancels). A number typed without a sign is negative: `6` gives -6 dB; type `+3` to go above 0 dB. The **+** and **−** keys raise and lower the volume by 1 dB while the mouse is over the fader (or after clicking it).
 - **Change type**: switch to edit mode (✏), pick **Jingles**, **Playlist**, **Cuelist** or **Text** in the **Type** menu, then click **Apply** (**Cancel** otherwise). The type cannot change by mistake during the show. If the module is playing, a red warning says its sound will be cut. The jingles, the playlist, the cue list and the text are all kept: switch back to find them again.
 - **Rename**: **double-click the module name**, type the new name and press Enter (Escape cancels). In edit mode (✏) the name is also directly editable.
 - **Text module**: a large free text field to write your running order, saved with the project. Escape still stops the jingles from there; the space bar types a space (no GO).
   - **Formatting**: select text, then click **G** (bold), **I** (italic), **S** (underline), **B** (strikethrough) or a colour dot (red, blue, green, pink), or use Ctrl+B / Ctrl+I / Ctrl+U. The buttons of the styles of the selected text (or the text at the cursor) light up. A second click removes the style. With nothing selected, the style applies to the word at the cursor. Only the formatted text shows: the tags saved in the project (`{b}`, `{i}`, `{u}`, `{s}`, `{rouge}`, `{bleu}`, `{vert}`, `{rose}`, closed by `{/b}`, `{/rouge}`…) stay invisible. The cursor goes through them: at the edge of a style, an arrow key may need one more press.
-  - **Zoom**: the **−** and **+** toolbar buttons make the text smaller or larger (60 % to 300 %).
+  - **Zoom**: the **−** and **+** toolbar buttons make the text smaller or larger (60 % to 300 %). The zoom is saved with the project.
   - **Import…** appends a text file (.txt, .md) to the end of the running order.
 - **Delete**: in edit mode, click **🗑** then confirm with **Delete?**. The following modules move up one place. The last remaining module cannot be deleted.
 
@@ -252,7 +252,7 @@ fired one by one.
 - In **edit mode** (✏), cue names are directly editable and **🗑** clears the list.
 
 The space bar drives the first Cuelist on screen (except while typing text). Remote controls have
-the **Cue list: GO**, **Cue list: next cue** and **Cue list: previous cue** actions, and OSC has the
+the **Cuelist: GO**, **Cuelist: next cue** and **Cuelist: previous cue** actions, and OSC has the
 `go` and `cue/…` addresses (see [OSC control](#osc-control)).
 
 ## The equalizer
@@ -570,7 +570,7 @@ The list of keys is also in **Remote → Shortcuts**.
 | Add to a playlist | Drag and drop files or a folder onto the playlist |
 | Play a playlist track | Double-click the track |
 | Module volume to 0 dB | Double-click the fader |
-| Raise / lower a module's volume by 1 dB | Click the fader, then **+** / **−** (the arrows don't move it) |
+| Raise / lower a module's volume by 1 dB | **+** / **−** (numeric keypad or main keyboard) with the mouse over the fader, or after clicking it (the arrows don't move it) |
 | Type a dB value (fader, jingle, track) | Click the value, then Enter (Escape cancels); no sign = negative |
 | Module widths | Drag the divider; double-click to equalize |
 | Search the help | Ctrl+F in the help window |

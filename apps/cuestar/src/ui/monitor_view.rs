@@ -4,8 +4,8 @@
 use crate::link::OutputLink;
 use crate::protocol::Command;
 use egui::{pos2, vec2, Color32, Rect, RichText};
-use star_commun::theme::*;
-use star_commun::widgets::fmt_time;
+use star_ui::theme::*;
+use star_ui::widgets::fmt_time;
 use std::path::Path;
 
 #[derive(Default)]

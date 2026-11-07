@@ -2,9 +2,8 @@
 
 mod theme;
 mod dialogs;
-mod eq_view;
+
 mod go_view;
-mod help;
 mod hotkeys;
 mod notes;
 mod remote_view;
@@ -16,13 +15,17 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, TryLockError};
 use std::time::{Duration, Instant};
 
+/// Manuel de JingleStar, affiché par la fenêtre d'aide.
+const AIDE_FR: &str = include_str!("../../docs/aide.md");
+const HELP_EN: &str = include_str!("../../docs/help.md");
+
 use egui::{vec2, Align, Color32, CornerRadius, FontId, Key, Layout, Rect, RichText, Stroke, UiBuilder};
 
 use crate::audio::engine::{host_names, list_devices, DeviceDesc};
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 use crate::audio::loudness::{Loudness, NormalizeMode};
 use crate::controller::{Controller, TrackGain};
-use crate::i18n::{tr, Lang};
+use star_core::i18n::{tr, Lang};
 use crate::project::{AudioSettings, ModuleMode, Transition, DEFAULT_COLORS};
 use dialogs::{Dialogs, Kind, Pick};
 use theme::*;
@@ -110,7 +113,7 @@ pub struct JingleStarApp {
     /// Module dont l'égaliseur est ouvert.
     module_eq: Option<usize>,
     settings: Option<SettingsDraft>,
-    help: help::HelpWindow,
+    help: star_ui::help::HelpWindow,
     remote: remote_view::RemoteWindow,
     /// Niveaux affichés (dB), avec retombée progressive.
     meters: [[f32; 2]; MAX_MODULES],
@@ -156,7 +159,7 @@ impl JingleStarApp {
             mode_draft: None,
             module_eq: None,
             settings: None,
-            help: help::HelpWindow::default(),
+            help: star_ui::help::HelpWindow::new(AIDE_FR, HELP_EN),
             remote: remote_view::RemoteWindow::default(),
             meters: [[-120.0; 2]; MAX_MODULES],
             last_frame: Instant::now(),
@@ -241,7 +244,7 @@ impl JingleStarApp {
                 }
                 if ui
                     .selectable_label(self.remote.open, tr("Télécommandes", "Remote"))
-                    .on_hover_text(tr("Pilotage MIDI et console Yamaha : correspondances et mode apprendre", "MIDI and Yamaha console control: mappings and learn mode"))
+                    .on_hover_text(tr("Pilotage MIDI et console Yamaha : assignations et mode apprendre", "MIDI and Yamaha console control: mappings and learn mode"))
                     .clicked()
                 {
                     self.remote.toggle();
@@ -690,7 +693,8 @@ impl JingleStarApp {
         let meter_rect = Rect::from_min_max(egui::pos2(fader_area.right() - 12.0, fader_area.top() + 6.0), egui::pos2(fader_area.right(), fader_area.bottom() - 6.0));
         meter(ui, meter_rect, self.meters[m]);
 
-        let slider_rect = Rect::from_min_max(fader_area.min, egui::pos2(meter_rect.left() - 2.0, fader_area.bottom()));
+        // Le curseur est décalé vers la droite pour laisser la place aux valeurs des repères.
+        let slider_rect = Rect::from_min_max(egui::pos2(fader_area.left() + 10.0, fader_area.top()), egui::pos2(meter_rect.left() - 2.0, fader_area.bottom()));
         let mut db = self.ctrl.project.modules[m].volume_db;
         ui.spacing_mut().slider_width = slider_rect.height() - 8.0;
         let resp = ui.put(
@@ -702,6 +706,22 @@ impl JingleStarApp {
         db_marks(ui, resp.rect, true, &(-60.0..=10.0), true);
         if resp.double_clicked() {
             db = 0.0;
+        }
+        // + / - avec la souris sur le fader : 1 dB par appui (le fader sélectionné, lui, est
+        // géré par `fader_keys`). Pas pendant la saisie d'un texte ailleurs.
+        if resp.hovered() && !resp.has_focus() && !ui.ctx().egui_wants_keyboard_input() {
+            let step = ui.input(|i| {
+                i.events.iter().fold(0.0f32, |acc, e| match e {
+                    egui::Event::Key { key: Key::Plus | Key::Equals, pressed: true, modifiers, .. } if !modifiers.command => acc + 1.0,
+                    egui::Event::Key { key: Key::Minus, pressed: true, modifiers, .. } if !modifiers.command => acc - 1.0,
+                    _ => acc,
+                })
+            });
+            if step != 0.0 {
+                // Depuis -∞, + remonte à -59 dB ; sinon on se cale sur le dB entier suivant.
+                let base = if step > 0.0 { db.floor() } else { db.ceil() };
+                db = (base + step).clamp(-60.0, 10.0);
+            }
         }
         if db != self.ctrl.project.modules[m].volume_db {
             self.ctrl.set_module_volume(m, db);
@@ -1036,7 +1056,7 @@ impl JingleStarApp {
                     "S'applique à tout le module : jingles et playlist.",
                     "Applies to the whole module: jingles and playlist.",
                 )).small().color(TEXT_DIM));
-                if eq_view::eq_editor(ui, ("module", m), &mut eq, rate) {
+                if star_ui::eq_view::eq_editor(ui, ("module", m), &mut eq, rate) {
                     self.ctrl.set_module_eq(m, eq);
                 }
             });
@@ -1666,7 +1686,7 @@ fn os_cursor_pos(_ctx: &egui::Context, _frame: &eframe::Frame) -> Option<egui::P
 fn fmt_bytes(b: usize) -> String {
     let mb = b as f64 / 1_000_000.0;
     let s = if mb >= 1000.0 { format!("{:.1} {}", mb / 1000.0, tr("Go", "GB")) } else { format!("{mb:.0} {}", tr("Mo", "MB")) };
-    if crate::i18n::is_en() { s } else { s.replace('.', ",") }
+    if star_core::i18n::is_en() { s } else { s.replace('.', ",") }
 }
 
 pub(super) fn load_status(ctrl: &Controller, path: &std::path::Path) -> Option<RichText> {
@@ -1682,8 +1702,8 @@ pub fn build_version() -> String {
     format!(
         "JingleStar {} · {} · {}",
         env!("CARGO_PKG_VERSION"),
-        env!("JINGLESTAR_GIT"),
-        env!("JINGLESTAR_BUILD_DATE")
+        env!("STAR_GIT"),
+        env!("STAR_BUILD_DATE")
     )
 }
 
@@ -1835,5 +1855,17 @@ fn mode_label(mode: ModuleMode) -> &'static str {
         ModuleMode::Playlist => "Playlist",
         ModuleMode::Go => "Cuelist",
         ModuleMode::Text => tr("Texte", "Text"),
+    }
+}
+
+#[cfg(test)]
+mod manual_tests {
+    /// Les liens internes des deux manuels mènent tous à un titre.
+    #[test]
+    fn manual_links_resolve() {
+        for src in [super::AIDE_FR, super::HELP_EN] {
+            let broken = star_ui::help::broken_links(src);
+            assert!(broken.is_empty(), "liens sans titre : {broken:?}");
+        }
     }
 }

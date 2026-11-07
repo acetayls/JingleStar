@@ -14,12 +14,10 @@ use crate::audio::buffer::{db_to_gain, AudioBuffer};
 use crate::audio::decode::{analyze_file, decode, Decoded};
 use crate::audio::loudness::{Loudness, LoudnessCache};
 use crate::audio::engine::{AudioEngine, DeviceInfo};
-use crate::audio::eq::{EqCoeffs, EqSettings};
+use star_core::eq::{EqCoeffs, EqSettings};
 use crate::audio::mixer::{is_playlist_slot, Command, Event, Queued, Region, MAX_MODULES, PLAYLIST_SLOTS};
-use crate::i18n::{set_lang, tr, Lang};
-use crate::console::ConsoleClient;
-use crate::m32::M32Client;
-use crate::midi::MidiListener;
+use star_core::i18n::{set_lang, tr, Lang};
+use star_remote::{Inputs, Learn};
 use crate::remote::{Flag, InputEvent, Mapping, Pickup};
 use crate::osc::{self, OscCommand, OscServer};
 mod cues;
@@ -210,20 +208,10 @@ pub struct Controller {
     /// Niveaux affichés par les vumètres (dB, G et D), envoyés aux abonnés OSC.
     pub meters_db: [[f32; 2]; MAX_MODULES],
     last_levels_sent: Instant,
-    /// Entrée MIDI ouverte, ou l'erreur d'ouverture.
-    pub midi: Option<MidiListener>,
-    pub midi_error: Option<String>,
-    midi_retry: Instant,
-    /// Écoute de la console Yamaha.
-    pub console: Option<ConsoleClient>,
-    /// Écoute de la console Midas M32 / Behringer X32.
-    pub m32: Option<M32Client>,
-    /// Reprise en douceur des volumes, par correspondance.
+    /// Télécommandes : entrée MIDI, consoles Yamaha et Midas, apprentissage.
+    pub inputs: Inputs,
+    /// Reprise en douceur des volumes, par assignation.
     pickup: HashMap<usize, Pickup>,
-    /// Correspondance en attente d'apprentissage.
-    pub learn: Option<usize>,
-    /// Dernier message reçu d'une télécommande, pour les préférences.
-    pub last_input: Option<String>,
     /// Dernier déclenchement de chaque jingle, pour le délai anti double-GO.
     last_trigger: HashMap<(usize, usize), Instant>,
 }
@@ -267,6 +255,7 @@ impl Controller {
         let repaint: Arc<dyn Fn() + Send + Sync> = Arc::new(repaint);
         let (urgent, jobs, done) = spawn_loaders(repaint.clone());
         let (analysis_jobs, analysis_done) = spawn_analyzers(repaint.clone());
+        let inputs = Inputs::new(crate::project::APP, repaint.clone());
         let mut c = Self {
             project,
             engine: AudioEngine::new(),
@@ -314,14 +303,8 @@ impl Controller {
             last_osc_publish: Instant::now(),
             meters_db: [[-120.0; 2]; MAX_MODULES],
             last_levels_sent: Instant::now(),
-            midi: None,
-            midi_error: None,
-            midi_retry: Instant::now(),
-            console: None,
-            m32: None,
+            inputs,
             pickup: HashMap::new(),
-            learn: None,
-            last_input: None,
             last_trigger: HashMap::new(),
         };
         for rt in c.playlists.iter_mut() {
@@ -398,7 +381,7 @@ impl Controller {
             }
         }
         while let Ok(err) = self.engine.stream_errors.try_recv() {
-            crate::log::write(&format!("Erreur du flux audio : {err}"));
+            star_core::log::write(&format!("Erreur du flux audio : {err}"));
             self.device_error = Some(err);
         }
         // Flux mort : le callback audio n'est plus appelé (carte débranchée, pilote arrêté).
@@ -409,7 +392,7 @@ impl Controller {
             self.device_lost = true;
             self.next_reconnect = Instant::now();
             let name = self.device.as_ref().map(|d| d.name.clone()).unwrap_or_default();
-            crate::log::write(&format!("Sortie audio perdue : {name}"));
+            star_core::log::write(&format!("Sortie audio perdue : {name}"));
             self.device_error.get_or_insert_with(|| format!("{} : {name}", tr("Sortie audio perdue", "Audio output lost")));
         }
         if self.opening.is_none() && Instant::now() >= self.next_reconnect {
@@ -431,7 +414,7 @@ impl Controller {
         match res {
             Ok(info) => {
                 if auto {
-                    crate::log::write(&format!("Sortie audio rétablie : {}", info.name));
+                    star_core::log::write(&format!("Sortie audio rétablie : {}", info.name));
                     if self.device_lost {
                         self.status = Some(format!("{} : {}", tr("Sortie audio rétablie", "Audio output restored"), info.name));
                     }
@@ -449,7 +432,7 @@ impl Controller {
                     }
                     return;
                 }
-                crate::log::write(&format!("Ouverture de la sortie audio impossible : {e}"));
+                star_core::log::write(&format!("Ouverture de la sortie audio impossible : {e}"));
                 self.device = None;
                 self.device_lost = false;
                 self.device_error = Some(e);
@@ -592,7 +575,7 @@ impl Controller {
                 "{dropped} {}",
                 tr("commande(s) audio perdue(s) : la sortie audio ne répond pas", "audio command(s) lost: the audio output is not responding")
             );
-            crate::log::write(&msg);
+            star_core::log::write(&msg);
             self.status = Some(msg);
         }
         let late = crate::audio::stream::take_underrun_frames();
@@ -603,7 +586,7 @@ impl Controller {
                 late as f64 * 1000.0 / self.rate().max(1) as f64,
                 tr("de silence (disque lent ou débranché ?)", "of silence (slow or unplugged drive?)")
             );
-            crate::log::write(&msg);
+            star_core::log::write(&msg);
             self.status = Some(msg);
         }
         for m in 0..self.project.module_count {
@@ -621,7 +604,7 @@ impl Controller {
             if let Some(p) = self.autosave.clone() {
                 if let Err(e) = self.save_session(&p) {
                     let msg = format!("{} : {e}", tr("Sauvegarde automatique impossible", "Autosave failed"));
-                    crate::log::write(&msg);
+                    star_core::log::write(&msg);
                     self.status = Some(msg);
                 }
             }
@@ -659,7 +642,7 @@ impl Controller {
             .cloned()
             .collect();
         for p in changed {
-            crate::log::write(&format!("Fichier modifié, relu : {}", p.display()));
+            star_core::log::write(&format!("Fichier modifié, relu : {}", p.display()));
             self.cache.remove(&p);
             self.stamps.remove(&p);
             self.request_jingle_load(&p);
@@ -717,7 +700,7 @@ impl Controller {
             self.on_analyzed(done.path.clone(), Ok(l));
         }
         if let Some(w) = &done.warning {
-            crate::log::write(&format!("{} : {w}", done.path.display()));
+            star_core::log::write(&format!("{} : {w}", done.path.display()));
         }
         if done.rate != self.rate() {
             // Périphérique changé entre-temps : on relance au bon taux.
@@ -809,7 +792,7 @@ impl Controller {
                             tr("Lecture impossible", "Cannot play"),
                             done.path.file_name().unwrap_or_default().to_string_lossy()
                         );
-                        crate::log::write(&msg);
+                        star_core::log::write(&msg);
                         self.status = Some(msg);
                         let rt = &mut self.playlists[module];
                         rt.failures += 1;
@@ -974,6 +957,11 @@ impl Controller {
 
     pub fn set_module_notes(&mut self, m: usize, notes: String) {
         self.project.modules[m].notes = notes;
+        self.mark_dirty();
+    }
+
+    pub fn set_notes_zoom(&mut self, m: usize, zoom: f32) {
+        self.project.modules[m].notes_zoom = zoom;
         self.mark_dirty();
     }
 
@@ -1679,7 +1667,7 @@ impl Controller {
         if !settings.enabled {
             return;
         }
-        let server = OscServer::start(settings, self.repaint.clone());
+        let server = osc::start(settings, self.repaint.clone());
         if let Some(e) = server.startup_errors.first() {
             self.status = Some(e.clone());
         }
@@ -1708,7 +1696,7 @@ impl Controller {
         if self.last_levels_sent.elapsed() >= Duration::from_millis(45) {
             self.last_levels_sent = Instant::now();
             if let Some(server) = self.osc.as_ref().filter(|s| s.has_subscribers()) {
-                server.send_levels(&self.meters_db[..self.project.module_count]);
+                osc::send_levels(server, &self.meters_db[..self.project.module_count]);
             }
         }
     }
@@ -1767,17 +1755,7 @@ impl Controller {
 
     /// (Ré)ouvre le port MIDI selon les préférences.
     pub fn restart_midi(&mut self) {
-        self.midi = None;
-        self.midi_error = None;
-        self.midi_retry = Instant::now();
-        let settings = self.project.preferences.midi.clone();
-        if !settings.enabled {
-            return;
-        }
-        match MidiListener::open(settings.port.as_deref(), self.repaint.clone()) {
-            Ok(l) => self.midi = Some(l),
-            Err(e) => self.midi_error = Some(e),
-        }
+        self.inputs.restart_midi(&self.project.preferences.midi);
     }
 
     pub fn set_console_settings(&mut self, settings: ConsoleSettings) {
@@ -1790,11 +1768,7 @@ impl Controller {
 
     /// (Re)lance l'écoute de la console selon les préférences.
     pub fn restart_console(&mut self) {
-        self.console = None;
-        let settings = self.project.preferences.console.clone();
-        if settings.enabled {
-            self.console = Some(ConsoleClient::start(settings, self.repaint.clone()));
-        }
+        self.inputs.restart_console(&self.project.preferences.console);
     }
 
     pub fn set_m32_settings(&mut self, settings: M32Settings) {
@@ -1807,11 +1781,7 @@ impl Controller {
 
     /// (Re)lance l'écoute de la M32 selon les préférences.
     pub fn restart_m32(&mut self) {
-        self.m32 = None;
-        let settings = self.project.preferences.m32.clone();
-        if settings.enabled {
-            self.m32 = Some(M32Client::start(settings, self.repaint.clone()));
-        }
+        self.inputs.restart_m32(&self.project.preferences.m32);
     }
 
     pub fn add_mapping(&mut self, mapping: Mapping) {
@@ -1834,57 +1804,28 @@ impl Controller {
         if i < self.project.preferences.mappings.len() {
             self.project.preferences.mappings.remove(i);
             self.pickup.clear();
-            self.learn = match self.learn {
-                Some(l) if l == i => None,
-                Some(l) if l > i => Some(l - 1),
-                other => other,
-            };
+            self.inputs.mapping_removed(i);
             self.mark_prefs_dirty();
         }
     }
 
     fn poll_remote(&mut self) {
-        let mut events = Vec::new();
-        if let Some(l) = self.midi.as_ref() {
-            events.extend(l.events.try_iter().map(|e| ("MIDI", e)));
-        }
-        if let Some(c) = self.console.as_ref() {
-            events.extend(c.events.try_iter().map(|e| ("QL", e)));
-        }
-        if let Some(c) = self.m32.as_ref() {
-            events.extend(c.events.try_iter().map(|e| ("M32", e)));
-        }
-        // Port débranché puis rebranché : on retente régulièrement.
-        if self.project.preferences.midi.enabled && self.midi_retry.elapsed() > Duration::from_secs(3) {
-            self.midi_retry = Instant::now();
-            let ports = crate::midi::port_names();
-            match self.midi.as_ref().map(|l| l.port.clone()) {
-                Some(port) if !ports.contains(&port) => {
-                    self.midi = None;
-                    self.midi_error = Some(format!("{} : {port}", tr("port MIDI débranché", "MIDI port unplugged")));
-                }
-                None if !ports.is_empty() => self.restart_midi(),
-                _ => {}
-            }
-        }
-        for (source, ev) in events {
+        for (source, ev) in self.inputs.poll(&self.project.preferences.midi) {
             self.on_input(source, ev);
         }
     }
 
     fn on_input(&mut self, source: &str, ev: InputEvent) {
-        // Les déclencheurs des consoles portent déjà leur source (« QL · … », « M32 · … »).
-        let labelled = matches!(ev, InputEvent::Console { .. } | InputEvent::Scene { .. });
-        self.last_input = Some(if labelled { ev.label() } else { format!("{source} · {}", ev.label()) });
-        if let Some(i) = self.learn {
-            if ev.learnable() {
+        match self.inputs.receive(source, &ev) {
+            Learn::Off => {}
+            Learn::Ignored => return,
+            Learn::Learned(i, trigger) => {
                 if let Some(m) = self.project.preferences.mappings.get(i) {
-                    let learned = Mapping { trigger: ev.trigger(), ..m.clone() };
+                    let learned = Mapping { trigger, ..m.clone() };
                     self.update_mapping(i, learned);
                 }
-                self.learn = None;
+                return;
             }
-            return;
         }
         let commands: Vec<(usize, OscCommand)> = self
             .project
@@ -1923,7 +1864,7 @@ impl Controller {
         }
     }
 
-    /// Volume que le fader de la correspondance `i` doit rejoindre avant d'agir.
+    /// Volume que le fader de l'assignation `i` doit rejoindre avant d'agir.
     pub fn pickup_waiting(&self, i: usize) -> Option<f32> {
         self.pickup.get(&i).and_then(|p| p.waiting)
     }
@@ -2066,7 +2007,7 @@ impl Controller {
             .flat_map(|m| m.jingles.iter().flatten().map(|j| j.path.clone()).chain(m.cues.iter().map(|c| c.path.clone())))
             .collect();
         self.cache.retain(|p, _| used.contains(p));
-        self.learn = None;
+        self.inputs.learn = None;
         self.project_path = path;
         self.playlists = Default::default();
         self.gos = Default::default();
@@ -2120,7 +2061,7 @@ impl Controller {
     pub fn flush(&mut self) {
         if let Some(p) = self.autosave.clone() {
             if let Err(e) = self.save_session(&p) {
-                crate::log::write(&format!("Sauvegarde à la fermeture impossible : {e}"));
+                star_core::log::write(&format!("Sauvegarde à la fermeture impossible : {e}"));
             }
         }
         self.dirty = false;
@@ -2170,7 +2111,7 @@ struct MachinePrefs {
 
 impl MachinePrefs {
     fn load(path: &Path) -> Option<Self> {
-        let mut m: Self = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+        let mut m: Self = star_core::prefs::load(path)?;
         // Mêmes garde-fous que le projet (valeurs aberrantes).
         let mut p = Project { preferences: m.preferences, ..Project::default() };
         p.sanitize();
@@ -2179,14 +2120,7 @@ impl MachinePrefs {
     }
 
     fn save(&self, path: &Path) -> anyhow::Result<()> {
-        use std::io::Write;
-        let tmp = crate::project::with_suffix(path, ".tmp");
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(serde_json::to_string_pretty(self)?.as_bytes())?;
-        f.sync_all()?;
-        drop(f);
-        std::fs::rename(tmp, path)?;
-        Ok(())
+        star_core::prefs::save(path, self)
     }
 }
 
@@ -2295,6 +2229,21 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         false
+    }
+
+    #[test]
+    fn machine_prefs_format_is_stable() {
+        let p = crate::project::golden::sample_project();
+        let m = MachinePrefs { audio: p.audio, preferences: p.preferences, project_path: Some("/spectacles/gala.jinglestar".into()) };
+        crate::project::golden::check("machine-0.1.4.json", serde_json::to_value(&m).unwrap());
+        let dir = std::env::temp_dir().join(format!("jinglestar-machine-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = machine_path(&dir.join("session.json"));
+        assert_eq!(f, dir.join("machine.json"));
+        m.save(&f).unwrap();
+        let back = MachinePrefs::load(&f).unwrap();
+        crate::project::golden::check("machine-0.1.4.json", serde_json::to_value(&back).unwrap());
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

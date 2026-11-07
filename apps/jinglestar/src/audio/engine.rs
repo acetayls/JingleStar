@@ -11,7 +11,7 @@ use cpal::{BufferSize, SampleFormat, SizedSample, StreamConfig};
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 
 use super::buffer::AudioBuffer;
-use crate::i18n::tr;
+use star_core::i18n::tr;
 use super::mixer::{Command, Event, Mixer, Telemetry, MAX_BLOCK};
 
 #[derive(Debug, Clone)]

@@ -13,8 +13,12 @@ Modules : Lecteur, Diaporama, Cuelist (PowerPoint plus tard).
 - **Préférences machine** (`src/prefs.rs`) : décodage Auto/GPU/CPU, rendu Direct3D 11 /
   Vulkan / OpenGL, rendu léger, écran de sortie, calage sur la fréquence de l'écran.
   Stockées par machine, hors du spectacle.
-- **star-commun** (`crates/star-commun`) : charte et widgets partagés avec JingleStar,
-  destinés à sortir dans leur propre dépôt.
+- **Crates communes** (`crates/star-*`), partagées avec JingleStar : fichiers et session
+  (`star-core`), thème, widgets, panneau Texte et langue français / anglais (`star-ui`),
+  télécommandes MIDI / consoles et serveur OSC avec OSCQuery et mDNS (`star-remote`).
+- **OSC** (`src/osc.rs`) : adresses de CueStar (préfixe `/cuestar`, `/diaporama/…` accepté
+  aussi). En option, OSCQuery décrit les adresses et l'état courant, et `<préfixe>/subscribe`
+  abonne pendant 5 s au retour d'état (média, temps restant, cue en attente…).
 
 ## libmpv
 
@@ -25,6 +29,16 @@ sortie affiche la mire. Emplacements cherchés : à côté de l'exécutable, dan
 - Windows : `libmpv-2.dll` (build « mpv-dev » de shinchiro/mpv-winbuild-cmake).
 - macOS : `brew install mpv`.
 - Linux : paquet `libmpv2` / `mpv-libs`.
+
+### MediaInfo (facultatif)
+
+« Informations sur le fichier… » (clic droit sur un élément du Lecteur ou un cue) utilise la
+bibliothèque MediaInfo (licence BSD-2), chargée de la même façon et cherchée aux mêmes endroits
+que libmpv. Sans elle, la fenêtre affiche ce que libmpv sait du fichier.
+
+- Windows : `MediaInfo.dll` (MediaInfo « DLL » 64 bits sur mediaarea.net), à poser dans `mpv/`.
+- macOS : `brew install media-info`.
+- Linux : paquet `libmediainfo0v5` / `libmediainfo`.
 
 ## Compiler
 

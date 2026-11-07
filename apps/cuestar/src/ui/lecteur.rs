@@ -4,11 +4,12 @@
 //! et chaque élément peut tourner en boucle. À droite, l'aperçu de l'élément suivant.
 
 use crate::link::OutputLink;
-use crate::protocol::{Command, Transition, TransitionKind};
+use crate::protocol::{Clip, Command, Transition, TransitionKind};
 use crate::thumb::Thumbs;
+use star_core::i18n::tr;
 use egui::{pos2, vec2, Align, Color32, CornerRadius, Key, Layout, Rect, RichText, Sense};
-use star_commun::theme::*;
-use star_commun::widgets::{add_button, fmt_time, loop_icon, mode_chip, pressed, track_row, transport_button, TransportIcon};
+use star_ui::theme::*;
+use star_ui::widgets::{add_button, fmt_time, loop_icon, mode_chip, pressed, track_row, transport_button, TransportIcon};
 use std::path::{Path, PathBuf};
 
 const EXTENSIONS: &[&str] = &[
@@ -20,10 +21,11 @@ fn is_media(p: &Path) -> bool {
     p.extension().map(|e| EXTENSIONS.contains(&e.to_string_lossy().to_lowercase().as_str())).unwrap_or(false)
 }
 
-struct Item {
-    path: PathBuf,
-    /// Lecture en boucle de cet élément.
-    looping: bool,
+/// Un élément : son média et ses réglages d'édition (boucle comprise).
+type Item = crate::project::LecteurItem;
+
+fn new_item(path: PathBuf) -> Item {
+    Item { path, clip: Clip::default() }
 }
 
 pub struct Lecteur {
@@ -44,6 +46,14 @@ pub struct Lecteur {
     /// Aperçu SUIVANT affiché, et sa largeur en points.
     show_preview: bool,
     preview_w: f32,
+    /// Lecteur muet de l'aperçu et de l'éditeur (processus à part, lancé à la première image).
+    preview: crate::preview::Preview,
+    /// Élément ouvert dans l'éditeur (clic droit « Éditer… »).
+    editing: Option<usize>,
+    /// « Lire sur la sortie » demandé depuis l'éditeur.
+    pending_play: Option<usize>,
+    /// Fenêtres « Informations sur le fichier » ouvertes.
+    infos: Vec<super::file_info::FileInfo>,
 }
 
 impl Default for Lecteur {
@@ -63,6 +73,10 @@ impl Default for Lecteur {
             thumbs: Thumbs::default(),
             show_preview: true,
             preview_w: 420.0,
+            preview: Default::default(),
+            editing: None,
+            pending_play: None,
+            infos: Vec::new(),
         }
     }
 }
@@ -88,7 +102,7 @@ impl Lecteur {
     /// Contenu enregistré dans le projet.
     pub fn to_data(&self) -> crate::project::LecteurData {
         crate::project::LecteurData {
-            items: self.items.iter().map(|i| crate::project::LecteurItem { path: i.path.clone(), looping: i.looping }).collect(),
+            items: self.items.clone(),
             loop_all: self.loop_all,
             shuffle: self.shuffle,
             transition: self.transition,
@@ -97,7 +111,7 @@ impl Lecteur {
 
     /// Projet ouvert : la liste est remplacée.
     pub fn load_data(&mut self, d: &crate::project::LecteurData) {
-        self.items = d.items.iter().map(|i| Item { path: i.path.clone(), looping: i.looping }).collect();
+        self.items = d.items.clone();
         self.loop_all = d.loop_all;
         self.shuffle = d.shuffle;
         self.transition = d.transition;
@@ -105,11 +119,17 @@ impl Lecteur {
         self.playing = None;
         self.queued = None;
         self.confirm_clear = false;
+        self.editing = None;
     }
 
     /// Aléatoire et Tout boucler (pour les touches qui les basculent).
     pub fn flags(&self) -> (bool, bool) {
         (self.shuffle, self.loop_all)
+    }
+
+    /// État publié par OSC.
+    pub fn osc_state(&self) -> crate::osc::LecteurState {
+        crate::osc::LecteurState { items: self.items.len(), playing: self.playing.map_or(0, |i| i + 1), shuffle: self.shuffle, looping: self.loop_all }
     }
 
     /// Commande OSC « lecteur/… ».
@@ -155,9 +175,9 @@ impl Lecteur {
             if f.is_dir() {
                 let mut v = Vec::new();
                 scan(&f, &mut v);
-                self.items.extend(v.into_iter().map(|path| Item { path, looping: false }));
+                self.items.extend(v.into_iter().map(new_item));
             } else if is_media(&f) {
-                self.items.push(Item { path: f, looping: false });
+                self.items.push(new_item(f));
             }
         }
         if self.selected.is_none() && !self.items.is_empty() {
@@ -205,9 +225,9 @@ impl Lecteur {
     fn play(&mut self, i: usize, out: &mut OutputLink) {
         let Some(it) = self.items.get(i) else { return };
         // La liste s'enchaîne : la fin du média est signalée ; le dernier garde son image.
-        let (path, looping) = (it.path.to_string_lossy().into_owned(), it.looping);
+        let (path, looping, clip) = (it.path.to_string_lossy().into_owned(), it.clip.sound.looping, it.clip.clone());
         self.queued = self.next_after(i);
-        out.send(Command::Load { path, paused: false, looping, hold: self.queued.is_none(), transition: self.transition });
+        out.send(Command::Load { path, paused: false, looping, hold: self.queued.is_none(), transition: self.transition, clip });
         self.playing = Some(i);
         self.seen_end = out.state.ended;
         self.selected = self.queued.or(Some(i));
@@ -239,6 +259,10 @@ impl Lecteur {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui, out: &mut OutputLink, typing: bool) {
+        self.preview.poll();
+        self.preview.settle(ui.ctx());
+        self.editor_window(ui.ctx(), out);
+        self.infos.retain_mut(|w| w.show(ui.ctx()));
         // Fin d'un média : on enchaîne.
         if out.state.ended != self.seen_end {
             self.seen_end = out.state.ended;
@@ -354,7 +378,7 @@ impl Lecteur {
                         if paused {
                             ui.label(RichText::new("EN PAUSE").strong().small().color(ACCENT));
                         }
-                        if playing_now.and_then(|i| self.items.get(i)).is_some_and(|it| it.looping) {
+                        if playing_now.and_then(|i| self.items.get(i)).is_some_and(|it| it.clip.sound.looping) {
                             let (r, _) = ui.allocate_exact_size(vec2(18.0, 10.0), Sense::hover());
                             loop_icon(ui.painter(), r, ACCENT);
                         }
@@ -465,6 +489,7 @@ impl Lecteur {
             let row_w = (area.right() - ui.cursor().left()).max(40.0);
             let mut play = None;
             let mut remove = None;
+            let mut info: Option<usize> = None;
             egui::ScrollArea::vertical().auto_shrink([false, false]).max_width(row_w).show(ui, |ui| {
                 ui.set_max_width(row_w);
                 if self.items.is_empty() {
@@ -473,6 +498,8 @@ impl Lecteur {
                 ui.spacing_mut().item_spacing.y = 1.0;
                 for i in 0..self.items.len() {
                     let name = stem(&self.items[i].path);
+                    // Élément édité (points, fondus, volume, EQ) : repère après le nom.
+                    let name = if self.items[i].clip.is_plain() { name } else { format!("{name}  ✎") };
                     let is_cur = playing_now == Some(i);
                     let color = if !is_cur { TEXT } else if !paused { GO } else { ACCENT };
                     let sel = self.selected == Some(i) || is_cur;
@@ -480,11 +507,11 @@ impl Lecteur {
                     // Boucle de l'élément : clic sur le symbole à droite.
                     let lr = Rect::from_center_size(anchor - vec2(10.0, 0.0), vec2(20.0, 16.0));
                     let lresp = ui.interact(lr, ui.make_persistent_id(("lec-item-loop", i)), Sense::click());
-                    let on = self.items[i].looping;
+                    let on = self.items[i].clip.sound.looping;
                     let lc = if on { ACCENT } else if lresp.hovered() || resp.hovered() { TEXT_DIM } else { BORDER };
                     loop_icon(ui.painter(), Rect::from_center_size(lr.center(), vec2(16.0, 9.0)), lc);
                     if lresp.on_hover_text(if on { "En boucle : clic pour lire une seule fois" } else { "Lire cet élément en boucle" }).clicked() {
-                        self.items[i].looping = !on;
+                        self.items[i].clip.sound.looping = !on;
                     } else if resp.double_clicked() {
                         play = Some(i);
                     } else if resp.clicked() {
@@ -495,8 +522,16 @@ impl Lecteur {
                             play = Some(i);
                             ui.close();
                         }
+                        if ui.button(tr("Éditer…", "Edit…")).on_hover_text(tr("Entrée, sortie, fondus au noir, volume et égaliseur de cet élément", "In, out, fades to black, volume and equalizer of this item")).clicked() {
+                            self.editing = Some(i);
+                            ui.close();
+                        }
+                        if ui.button(tr("Informations sur le fichier…", "File information…")).on_hover_text(tr("Conteneur, pistes, codecs, couleurs… comme MediaInfo", "Container, tracks, codecs, colours… like MediaInfo")).clicked() {
+                            info = Some(i);
+                            ui.close();
+                        }
                         if ui.button(if on { "Lire une seule fois" } else { "Lire en boucle" }).clicked() {
-                            self.items[i].looping = !on;
+                            self.items[i].clip.sound.looping = !on;
                             ui.close();
                         }
                         if ui.button("Retirer").clicked() {
@@ -509,13 +544,79 @@ impl Lecteur {
             if let Some(i) = play {
                 self.play(i, out);
             }
+            if let Some(p) = info.and_then(|i| self.items.get(i)).map(|it| it.path.clone()) {
+                super::file_info::open_once(&mut self.infos, &p);
+            }
             if let Some(i) = remove {
+                self.editing = None;
                 self.items.remove(i);
                 self.selected = self.selected.filter(|s| *s < self.items.len());
                 self.playing = None;
                 self.queued = None;
             }
         });
+    }
+
+    /// Fenêtre « Éditer » d'un élément, comme celle d'un jingle de JingleStar. Les réglages
+    /// de l'élément à l'antenne (volume, EQ, fondus) s'appliquent tout de suite.
+    fn editor_window(&mut self, ctx: &egui::Context, out: &mut OutputLink) {
+        let Some(i) = self.editing else { return };
+        let Some(item) = self.items.get(i).cloned() else {
+            self.editing = None;
+            return;
+        };
+        let mut clip = item.clip.clone();
+        let (mut open, mut done, mut remove) = (true, false, false);
+        egui::Window::new(format!("{} {} — {}", tr("Élément", "Item"), i + 1, stem(&item.path)))
+            .id(egui::Id::unique("lec-editor"))
+            .open(&mut open)
+            .default_width(660.0)
+            .default_height((ctx.content_rect().height() - 80.0).max(200.0))
+            .resizable(true)
+            .collapsible(false)
+            .max_height((ctx.content_rect().height() - 60.0).max(200.0))
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().id_salt("lec-editor-scroll").auto_shrink([false, true]).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(tr("Fichier", "File")).color(TEXT_DIM));
+                        ui.add(egui::Label::new(RichText::new(item.path.display().to_string()).small().color(TEXT_DIM)).truncate());
+                    });
+                    ui.add_space(4.0);
+                    super::media_editor::clip_editor(ui, ("lec", i), &item.path, &mut clip, &mut self.preview);
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(tr("Lire sur la sortie", "Play on the output")).clicked() {
+                            self.pending_play = Some(i);
+                        }
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if ui.button(tr("✓ Terminé", "✓ Done")).clicked() {
+                                done = true;
+                            }
+                            if ui.button(RichText::new(tr("Retirer de la playlist", "Remove from the playlist")).color(STOP)).clicked() {
+                                remove = true;
+                            }
+                        });
+                    });
+                });
+            });
+        if clip != item.clip {
+            if self.playing == Some(i) && out.state.current.is_some() {
+                out.send(Command::SetClip { clip: clip.clone() });
+            }
+            self.items[i].clip = clip;
+        }
+        if let Some(p) = self.pending_play.take() {
+            self.play(p, out);
+        }
+        if remove {
+            self.items.remove(i);
+            self.selected = self.selected.filter(|s| *s < self.items.len());
+            self.playing = None;
+            self.queued = None;
+        }
+        if !open || done || remove {
+            self.editing = None;
+        }
     }
 
     /// Les modes ont changé : l'élément suivant est recalculé.
@@ -528,7 +629,7 @@ impl Lecteur {
 
     /// Aperçu de l'élément qui partira au prochain GO ou au prochain enchaînement.
     fn next_preview(&mut self, ui: &mut egui::Ui, area: Rect) {
-        let next = self.selected.and_then(|i| self.items.get(i)).map(|it| (it.path.clone(), it.looping));
+        let next = self.selected.and_then(|i| self.items.get(i)).map(|it| (it.path.clone(), it.clip.sound.looping, it.clip.clone()));
         egui::Frame::new().fill(PANEL).corner_radius(6).inner_margin(10).show(ui, |ui| {
             let w = (area.width() - 20.0).max(80.0);
             ui.set_width(w);
@@ -544,16 +645,21 @@ impl Lecteur {
             let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
             ui.painter().rect_filled(rect, 3, Color32::BLACK);
             match &next {
-                Some((p, looping)) => {
+                Some((p, looping, clip)) => {
                     let ctx = ui.ctx().clone();
-                    if let Some(t) = self.thumbs.get(&ctx, p) {
-                        let ts = t.size_vec2();
-                        let k = (size.x / ts.x).min(size.y / ts.y);
-                        let r = Rect::from_center_size(rect.center(), ts * k);
-                        ui.painter().image(t.id(), r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                    // Aperçu navigable : l'élément s'ouvre sur son point d'entrée (pas pendant l'édition).
+                    if self.editing.is_none() {
+                        self.preview.open(&ctx, p, clip.sound.start);
+                    }
+                    let thumb = self.thumbs.get(&ctx, p).cloned();
+                    if self.preview.state.missing.is_none() || thumb.is_some() {
+                        super::media_editor::preview_image(ui, &mut self.preview, p, rect, thumb.as_ref());
                     } else {
-                        let txt = if self.thumbs.failed(p) { "pas d'aperçu" } else { "…" };
+                        let txt = if self.thumbs.failed(p) { tr("pas d'aperçu", "no preview") } else { "…" };
                         ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, txt, egui::FontId::proportional(14.0), TEXT_DIM);
+                    }
+                    if self.preview.state.missing.is_none() && !super::media_editor::is_image(p) && self.editing.is_none() {
+                        super::media_editor::scrub_bar(ui, "lec-next-scrub", &mut self.preview, p, clip);
                     }
                     ui.horizontal(|ui| {
                         if *looping {

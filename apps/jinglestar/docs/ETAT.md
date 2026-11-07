@@ -43,7 +43,7 @@ Ce fichier permet de reprendre le travail après une pause. Les idées à venir 
 - Module **Texte** pour la conduite.
 - **Renommage des modules** au double-clic sur le nom.
 - **Recherche dans l'aide** (Ctrl+F), sans tenir compte des accents.
-- **Correspondances MIDI / console modifiables à la main** (bouton ✏).
+- **Assignations MIDI / console modifiables à la main** (bouton ✏).
 - **Version de build** (version, commit, date) en bas des Préférences.
 
 ## Pull requests ouvertes
@@ -52,7 +52,7 @@ Ce fichier permet de reprendre le travail après une pause. Les idées à venir 
 
 ## À vérifier sur le vrai matériel
 
-- **Console QL5** : écoute stricte (aucun octet envoyé), correspondance des touches ON, des
+- **Console QL5** : écoute stricte (aucun octet envoyé), assignation des touches ON, des
   faders et des rappels de scène.
 - **Valeur 0 dB du fader** de la console : qu'un fader à 0 dB donne bien 0 dB dans JingleStar.
 - **Rendu ASIO 24 bits** (Windows, `--features asio`) : bit-transparence à 0 dB et absence de

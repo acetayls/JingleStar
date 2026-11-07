@@ -5,7 +5,7 @@ use crate::output::warp::map_point;
 use crate::prefs::{Cadence, Decode, MachinePrefs, RenderApi, Warp};
 use crate::protocol::{Command, PatternKind};
 use egui::{pos2, vec2, Color32, Key, Pos2, Rect, RichText, Sense, Stroke};
-use star_commun::theme::*;
+use star_ui::theme::*;
 use std::time::{Duration, Instant};
 
 const CORNER_NAMES: [&str; 4] = ["Haut gauche", "Haut droit", "Bas droit", "Bas gauche"];
@@ -195,7 +195,8 @@ impl OutputView {
                 let b = egui::Button::new(RichText::new("Appliquer").color(if changed { PLAYING_INK } else { TEXT_DIM })).fill(if changed { ACCENT } else { PANEL_HI });
                 if ui.add_enabled(changed, b).clicked() {
                     let warp = prefs.warp;
-                    *prefs = d.clone();
+                    // La langue se règle ailleurs (menu du projet) : elle n'est pas dans le brouillon.
+                    *prefs = MachinePrefs { language: prefs.language, ..d.clone() };
                     prefs.warp = warp;
                     prefs.save();
                     restart = true;

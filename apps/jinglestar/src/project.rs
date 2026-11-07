@@ -3,11 +3,14 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use star_core::document::{self, Document};
 
 use crate::audio::decode::is_audio_file;
-use crate::audio::eq::EqSettings;
+use star_core::eq::EqSettings;
+pub use star_core::sound::SoundSettings;
+pub use star_remote::{ConsoleSettings, M32Settings, MidiSettings};
 use crate::audio::loudness::NormalizeSettings;
-use crate::i18n::Lang;
+use star_core::i18n::Lang;
 use crate::remote::Mapping;
 use crate::audio::mixer::{JINGLE_SLOTS, MAX_MODULES};
 
@@ -36,23 +39,6 @@ pub enum ModuleMode {
 
 /// Réglages de lecture d'un son, communs aux jingles et aux cues de la Cuelist :
 /// volume, points de début, de fin et de boucle, fondus et égaliseur.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct SoundSettings {
-    pub volume_db: f32,
-    /// Lecture en boucle entre `loop_start` et `loop_end`.
-    pub looping: bool,
-    /// Points d'édition en secondes (poignées de début et de fin, traits de boucle).
-    pub start: f64,
-    pub end: Option<f64>,
-    pub loop_start: Option<f64>,
-    pub loop_end: Option<f64>,
-    /// Fondus d'entrée et de sortie, en secondes.
-    pub fade_in: f64,
-    pub fade_out: f64,
-    pub eq: EqSettings,
-}
-
 /// Ce que fait la Cuelist à la fin d'un cue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -97,17 +83,6 @@ pub struct JingleSlot {
 impl JingleSlot {
     pub fn new(path: PathBuf, name: String, color: [u8; 3]) -> Self {
         Self { path, name, color, sound: SoundSettings::default(), hotkey: None }
-    }
-}
-
-impl SoundSettings {
-    /// Points effectifs pour un son de `duration` secondes : (début, début de boucle, fin de boucle, fin).
-    pub fn markers(&self, duration: f64) -> (f64, f64, f64, f64) {
-        let end = self.end.unwrap_or(duration).clamp(0.0, duration);
-        let start = self.start.clamp(0.0, end);
-        let ls = self.loop_start.unwrap_or(start).clamp(start, end);
-        let le = self.loop_end.unwrap_or(end).clamp(ls, end);
-        (start, ls, le, end)
     }
 }
 
@@ -182,6 +157,8 @@ pub struct ModuleConfig {
     pub eq: EqSettings,
     /// Texte du module en mode Texte (la conduite).
     pub notes: String,
+    /// Zoom du texte du module Texte (1 = 100 %), enregistré avec le projet.
+    pub notes_zoom: f32,
     /// Cues du module GO, dans l'ordre de la conduite.
     pub cues: Vec<Cue>,
     /// Part de la largeur de la fenêtre occupée par le module (1 = part égale).
@@ -205,6 +182,7 @@ impl Default for ModuleConfig {
             playlist: PlaylistConfig::default(),
             eq: EqSettings::default(),
             notes: String::new(),
+            notes_zoom: 1.0,
             cues: Vec::new(),
             width: 1.0,
         }
@@ -229,7 +207,7 @@ pub struct Preferences {
     pub midi: MidiSettings,
     pub console: ConsoleSettings,
     pub m32: M32Settings,
-    /// Correspondances des télécommandes (MIDI, console) vers les actions.
+    /// Assignations des télécommandes (MIDI, console) vers les actions.
     pub mappings: Vec<Mapping>,
     /// Échap arrête aussi les playlists (sinon seulement les jingles).
     pub escape_stops_playlist: bool,
@@ -253,46 +231,6 @@ impl Default for Preferences {
             double_go_ms: 300,
             memory_warn_mb: 4000,
         }
-    }
-}
-
-/// Entrée MIDI.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(default)]
-pub struct MidiSettings {
-    pub enabled: bool,
-    /// Nom du port ; `None` = le premier disponible.
-    pub port: Option<String>,
-}
-
-/// Écoute d'une console Yamaha sur le réseau (protocole texte, TCP 49280).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(default)]
-pub struct ConsoleSettings {
-    pub enabled: bool,
-    /// Adresse IP de la console.
-    pub host: String,
-    pub port: u16,
-}
-
-impl Default for ConsoleSettings {
-    fn default() -> Self {
-        Self { enabled: false, host: "192.168.0.128".into(), port: 49280 }
-    }
-}
-
-/// Écoute d'une console Midas M32 / Behringer X32 (OSC, UDP 10023).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(default)]
-pub struct M32Settings {
-    pub enabled: bool,
-    pub host: String,
-    pub port: u16,
-}
-
-impl Default for M32Settings {
-    fn default() -> Self {
-        Self { enabled: false, host: "192.168.0.64".into(), port: 10023 }
     }
 }
 
@@ -366,69 +304,22 @@ impl Project {
         self.module_count = self.module_count.clamp(1, MAX_MODULES);
     }
 
-    /// Lit un projet. Un fichier où des valeurs manquent (`null` écrit par une version
-    /// précédente pour un nombre invalide) est réparé : ces valeurs reprennent leur réglage
-    /// par défaut, et `repaired` le signale.
-    pub fn load(path: &Path) -> anyhow::Result<Self> {
-        Self::load_checked(path).map(|(p, _)| p)
-    }
-
+    /// Lit un projet, réparé au besoin (voir `star_core::document::load_checked`).
     pub fn load_checked(path: &Path) -> anyhow::Result<(Self, bool)> {
-        let text = std::fs::read_to_string(path)?;
-        let (mut p, repaired) = match serde_json::from_str::<Project>(&text) {
-            Ok(p) => (p, false),
-            Err(e) => {
-                let mut v: serde_json::Value = serde_json::from_str(&text)?;
-                if !strip_nulls(&mut v) {
-                    return Err(e.into());
-                }
-                (serde_json::from_value(v).map_err(|_| e)?, true)
-            }
-        };
-        p.normalize();
-        p.sanitize();
-        Ok((p, repaired))
+        document::load_checked(path)
     }
 
     /// Remet dans leurs bornes les valeurs aberrantes (NaN, infini, hors limites) : un projet
     /// modifié à la main ou abîmé ne doit ni rendre un son muet ni le faire hurler.
     pub fn sanitize(&mut self) {
-        fn num(v: &mut f32, default: f32, min: f32, max: f32) {
-            *v = if v.is_finite() { v.clamp(min, max) } else { default };
-        }
-        fn secs(v: &mut f64) {
-            *v = if v.is_finite() { v.clamp(0.0, 86_400.0) } else { 0.0 };
-        }
-        fn opt_secs(v: &mut Option<f64>) {
-            if v.is_some_and(|x| !x.is_finite() || x < 0.0) {
-                *v = None;
-            }
-        }
-        fn band(b: &mut crate::audio::eq::Band) {
-            use crate::audio::eq::{GAIN_RANGE, MAX_FREQ, MIN_FREQ};
-            num(&mut b.freq, 1000.0, MIN_FREQ, MAX_FREQ);
-            num(&mut b.gain_db, 0.0, -GAIN_RANGE, GAIN_RANGE);
-            num(&mut b.q, 1.0, 0.1, 18.0);
-        }
-        fn eq(e: &mut EqSettings) {
-            for b in [&mut e.low_cut, &mut e.low_shelf, &mut e.peak1, &mut e.peak2, &mut e.high_shelf] {
-                band(b);
-            }
-        }
+        use star_core::num::clamp_f32 as num;
         fn sound(s: &mut SoundSettings) {
-            num(&mut s.volume_db, 0.0, -60.0, crate::osc::JINGLE_DB.1);
-            secs(&mut s.start);
-            opt_secs(&mut s.end);
-            opt_secs(&mut s.loop_start);
-            opt_secs(&mut s.loop_end);
-            secs(&mut s.fade_in);
-            secs(&mut s.fade_out);
-            eq(&mut s.eq);
+            s.sanitize(crate::osc::JINGLE_DB.1);
         }
         for m in &mut self.modules {
             num(&mut m.volume_db, 0.0, -60.0, crate::osc::MODULE_DB.1);
             num(&mut m.width, 1.0, 0.05, 20.0);
-            eq(&mut m.eq);
+            m.eq.sanitize();
             for j in m.jingles.iter_mut().flatten() {
                 sound(&mut j.sound);
             }
@@ -452,255 +343,169 @@ impl Project {
         self.preferences.double_go_ms = self.preferences.double_go_ms.min(5_000);
     }
 
-    /// Enregistre sur le disque de façon sûre : fichier temporaire propre à ce nom, écrit et
-    /// forcé sur le disque (une coupure de courant ne laisse pas un fichier vide), puis renommé.
-    /// Avec `backup`, la version précédente est gardée en `.bak`.
+    /// Enregistre sur le disque de façon sûre (fichier temporaire puis renommage).
     pub fn save(&self, path: &Path) -> anyhow::Result<()> {
-        self.write_to(path, false)
+        document::save(self, path, false)
     }
 
+    /// Comme `save`, en gardant la version précédente en `.bak`.
     pub fn save_with_backup(&self, path: &Path) -> anyhow::Result<()> {
-        self.write_to(path, true)
-    }
-
-    fn write_to(&self, path: &Path, backup: bool) -> anyhow::Result<()> {
-        use std::io::Write;
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        // Jamais de `null` dans le fichier : il le rendrait illisible.
-        let mut clean = self.clone();
-        clean.sanitize();
-        let json = serde_json::to_string_pretty(&clean)?;
-        let tmp = with_suffix(path, ".tmp");
-        {
-            let mut f = std::fs::File::create(&tmp)?;
-            f.write_all(json.as_bytes())?;
-            f.sync_all()?;
-        }
-        if backup && path.exists() {
-            std::fs::rename(path, with_suffix(path, ".bak"))?;
-        }
-        std::fs::rename(tmp, path)?;
-        Ok(())
-    }
-
-    /// Chemins de tous les sons du projet (jingles, cues, morceaux, dossiers de playlist).
-    fn paths_mut(&mut self) -> impl Iterator<Item = &mut PathBuf> {
-        self.modules.iter_mut().flat_map(|m| {
-            m.jingles
-                .iter_mut()
-                .flatten()
-                .map(|j| &mut j.path)
-                .chain(m.cues.iter_mut().map(|c| &mut c.path))
-                .chain(m.playlist.tracks.iter_mut())
-                .chain(m.playlist.folder.iter_mut())
-                .collect::<Vec<_>>()
-        })
+        document::save(self, path, true)
     }
 
     /// Sons introuvables (noms de fichiers, sans doublon).
     pub fn missing_files(&mut self) -> Vec<PathBuf> {
-        let mut v: Vec<PathBuf> = self.paths_mut().filter(|p| !p.exists()).map(|p| p.clone()).collect();
-        v.sort();
-        v.dedup();
-        v
+        document::missing_files(self)
     }
 
-    /// Projet copié ailleurs (autre ordinateur, autre disque) : un son introuvable à son
-    /// ancien chemin est cherché à la même place par rapport au fichier projet
-    /// (« …/Spectacle/sons/a.wav » → « <dossier du projet>/sons/a.wav »). Renvoie le nombre corrigé.
+    /// Projet copié ailleurs : sons cherchés à la même place par rapport au fichier projet.
     pub fn resolve_moved(&mut self, project_file: &Path) -> usize {
-        let Some(base) = project_file.parent() else { return 0 };
-        let mut fixed = 0;
-        for p in self.paths_mut() {
-            if p.exists() {
-                continue;
-            }
-            let parts: Vec<_> = p.components().filter_map(|c| match c {
-                std::path::Component::Normal(s) => Some(s.to_os_string()),
-                _ => None,
-            }).collect();
-            // Le plus long morceau de chemin d'abord : le plus précis.
-            let found = (1..=parts.len().min(4)).rev().map(|k| {
-                let mut c = base.to_path_buf();
-                c.extend(&parts[parts.len() - k..]);
-                c
-            }).find(|c| c.exists());
-            if let Some(c) = found {
-                *p = c;
-                fixed += 1;
-            }
-        }
-        fixed
+        document::resolve_moved(self, project_file)
     }
 
-    /// Relocalisation : les sons introuvables sont cherchés par leur nom de fichier dans
-    /// `folder` et ses sous-dossiers. Renvoie le nombre de chemins corrigés.
+    /// Sons introuvables cherchés par leur nom dans `folder` et ses sous-dossiers.
     pub fn relocate(&mut self, folder: &Path) -> usize {
-        let mut index: std::collections::HashMap<std::ffi::OsString, PathBuf> = Default::default();
-        index_files(folder, &mut index, 0);
-        let mut fixed = 0;
-        for p in self.paths_mut() {
-            if p.exists() {
-                continue;
-            }
-            let key = p.file_name().map(|n| n.to_ascii_lowercase());
-            if let Some(found) = key.and_then(|k| index.get(&k)) {
-                *p = found.clone();
-                fixed += 1;
-            } else if p.extension().is_none() {
-                // Dossier de playlist : même nom de dossier.
-                let key = p.file_name().map(|n| n.to_ascii_lowercase());
-                if let Some(d) = key.and_then(|k| find_dir(folder, &k, 0)) {
-                    *p = d;
-                    fixed += 1;
-                }
-            }
-        }
-        fixed
+        document::relocate(self, folder)
     }
 }
 
-/// Fichiers d'un dossier et de ses sous-dossiers (8 niveaux au plus), par nom en minuscules.
-fn index_files(dir: &Path, index: &mut std::collections::HashMap<std::ffi::OsString, PathBuf>, depth: usize) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
-    for e in rd.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            if depth < 8 {
-                index_files(&p, index, depth + 1);
-            }
-        } else if let Some(n) = p.file_name() {
-            index.entry(n.to_ascii_lowercase()).or_insert(p);
-        }
+impl Document for Project {
+    fn normalize(&mut self) {
+        Project::normalize(self);
+    }
+
+    fn sanitize(&mut self) {
+        Project::sanitize(self);
+    }
+
+    /// Chemins de tous les sons du projet (jingles, cues, morceaux, dossiers de playlist).
+    fn media_paths(&mut self) -> Vec<&mut PathBuf> {
+        self.modules
+            .iter_mut()
+            .flat_map(|m| {
+                m.jingles
+                    .iter_mut()
+                    .flatten()
+                    .map(|j| &mut j.path)
+                    .chain(m.cues.iter_mut().map(|c| &mut c.path))
+                    .chain(m.playlist.tracks.iter_mut())
+                    .chain(m.playlist.folder.iter_mut())
+            })
+            .collect()
     }
 }
 
-fn find_dir(dir: &Path, name: &std::ffi::OsStr, depth: usize) -> Option<PathBuf> {
-    let rd = std::fs::read_dir(dir).ok()?;
-    for e in rd.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            if p.file_name().map(|n| n.to_ascii_lowercase()).as_deref() == Some(name) {
-                return Some(p);
-            }
-            if depth < 8 {
-                if let Some(f) = find_dir(&p, name, depth + 1) {
-                    return Some(f);
-                }
-            }
-        }
-    }
-    None
-}
+/// Session restaurée au lancement (voir `star_core::session`).
+pub type SessionLoad = star_core::session::SessionLoad<Project>;
 
-/// « session.json » → « session.json.tmp » : le suffixe s'ajoute au nom complet, deux projets
-/// de même nom (a.json, a.jinglestar) n'ont donc pas le même fichier temporaire.
-pub fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
-    let mut s = path.as_os_str().to_os_string();
-    s.push(suffix);
-    PathBuf::from(s)
-}
+pub use star_core::session::snapshot_session;
 
-/// Retire les valeurs `null` des objets JSON (le réglage par défaut les remplace).
-/// Les éléments `null` des tableaux (emplacements de jingle vides) restent. Renvoie vrai si
-/// quelque chose a été retiré.
-fn strip_nulls(v: &mut serde_json::Value) -> bool {
-    match v {
-        serde_json::Value::Object(map) => {
-            let before = map.len();
-            map.retain(|_, x| !x.is_null());
-            let mut changed = map.len() != before;
-            for x in map.values_mut() {
-                changed |= strip_nulls(x);
-            }
-            changed
-        }
-        serde_json::Value::Array(a) => a.iter_mut().fold(false, |c, x| strip_nulls(x) | c),
-        _ => false,
-    }
-}
-
-/// Résultat du chargement de la session au lancement.
-pub struct SessionLoad {
-    pub project: Project,
-    /// Message à afficher bien en vue : session réparée, illisible, copie de secours utilisée.
-    pub alert: Option<String>,
-}
-
-/// Charge la session sans jamais perdre le fichier : une session illisible est mise de côté
-/// (« session-illisible-<date>.json ») au lieu d'être écrasée, et la copie `.bak` prend le relais.
 pub fn load_session(path: &Path) -> SessionLoad {
-    use crate::i18n::tr;
-    let bak = with_suffix(path, ".bak");
-    if !path.exists() {
-        // Arrêt brutal entre les deux renommages de la sauvegarde : la copie est complète.
-        if let Ok(p) = Project::load(&bak) {
-            return SessionLoad { project: p, alert: None };
-        }
-        return SessionLoad { project: Project::default(), alert: None };
-    }
-    let aside = || {
-        let name = format!("session-illisible-{}.json", crate::log::now(true));
-        let dest = path.with_file_name(name);
-        std::fs::copy(path, &dest).ok().map(|_| dest)
-    };
-    match Project::load_checked(path) {
-        Ok((p, false)) => SessionLoad { project: p, alert: None },
-        Ok((p, true)) => {
-            let kept = aside();
-            let msg = format!(
-                "{}{}",
-                tr(
-                    "La session contenait des valeurs invalides : elles ont repris leur réglage par défaut.",
-                    "The session contained invalid values: they were reset to their defaults."
-                ),
-                kept.map(|k| format!(" {} {}", tr("Original gardé :", "Original kept:"), k.display())).unwrap_or_default()
-            );
-            crate::log::write(&msg);
-            SessionLoad { project: p, alert: Some(msg) }
-        }
-        Err(e) => {
-            let kept = aside();
-            let _ = std::fs::remove_file(path);
-            let kept = kept.map(|k| format!(" {} {}", tr("Fichier gardé :", "File kept:"), k.display())).unwrap_or_default();
-            let (project, msg) = match Project::load(&bak) {
-                Ok(p) => (p, format!("{} ({e}). {}{kept}", tr("Session illisible", "Unreadable session"), tr("La copie de secours précédente a été chargée.", "The previous backup copy was loaded."))),
-                Err(_) => (Project::default(), format!("{} ({e}). {}{kept}", tr("Session illisible", "Unreadable session"), tr("Aucune copie de secours lisible : projet vierge.", "No readable backup: blank project."))),
-            };
-            crate::log::write(&msg);
-            SessionLoad { project, alert: Some(msg) }
-        }
-    }
+    star_core::session::load_session(path)
 }
 
-/// Au lancement, garde une copie datée de la session dans « sauvegardes » (les 5 dernières).
-pub fn snapshot_session(path: &Path) {
-    let Some(dir) = path.parent().map(|d| d.join("sauvegardes")) else { return };
-    if !path.exists() || std::fs::create_dir_all(&dir).is_err() {
-        return;
-    }
-    let _ = std::fs::copy(path, dir.join(format!("session-{}.json", crate::log::now(true))));
-    let mut old: Vec<PathBuf> = std::fs::read_dir(&dir)
-        .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "json")).collect())
-        .unwrap_or_default();
-    old.sort();
-    let n = old.len().saturating_sub(5);
-    for p in &old[..n] {
-        let _ = std::fs::remove_file(p);
-    }
-}
+/// JingleStar et ses dossiers sur cette machine.
+pub const APP: star_core::app::App = star_core::app::App::new("JingleStar");
 
 /// Cache des mesures de niveau des morceaux.
 pub fn loudness_cache_path() -> Option<PathBuf> {
-    directories::ProjectDirs::from("com", "acetayls", "JingleStar").map(|d| d.cache_dir().join("loudness.json"))
+    APP.cache_file("loudness.json")
 }
 
 /// Fichier de session restauré automatiquement au lancement.
 pub fn autosave_path() -> Option<PathBuf> {
-    directories::ProjectDirs::from("com", "acetayls", "JingleStar")
-        .map(|d| d.config_dir().join("session.json"))
+    APP.session_path()
+}
+
+#[cfg(test)]
+pub(crate) mod golden {
+    //! Fichiers de référence : un projet et des préférences écrits par JingleStar 0.1.4.
+    //! Ils doivent toujours se relire et se réécrire à l'identique (format stable).
+    //! `STAR_UPDATE_FIXTURES=1 cargo test` les régénère : à ne faire que pour un changement
+    //! de format voulu.
+    use super::*;
+    use crate::remote::{ActionKind, Mapping, Trigger};
+
+    pub fn check(name: &str, value: serde_json::Value) {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name);
+        if std::env::var_os("STAR_UPDATE_FIXTURES").is_some() {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, serde_json::to_string_pretty(&value).unwrap() + "\n").unwrap();
+        }
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let expected: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value, expected, "format de {name} modifié");
+    }
+
+    /// Projet où chaque sorte de réglage a une valeur autre que celle par défaut.
+    pub fn sample_project() -> Project {
+        let mut p = Project { name: "Gala".into(), module_count: 4, ..Project::default() };
+        p.audio = AudioSettings { host: Some("ASIO".into()), device: Some("Carte".into()), buffer_size: Some(256) };
+        let m = &mut p.modules[0];
+        m.volume_db = -3.0;
+        m.output_pair = 1;
+        m.width = 1.5;
+        m.eq.low_cut.on = true;
+        m.eq.peak1.gain_db = 2.5;
+        let mut j = JingleSlot::new("/sons/applause.wav".into(), "Applaudissements".into(), DEFAULT_COLORS[2]);
+        j.hotkey = Some("F1".into());
+        j.sound = SoundSettings { volume_db: -6.0, looping: true, start: 0.5, end: Some(12.0), loop_start: Some(1.0), loop_end: Some(10.0), fade_in: 0.2, fade_out: 1.5, eq: EqSettings::default() };
+        m.jingles[3] = Some(j);
+        let m = &mut p.modules[1];
+        m.mode = ModuleMode::Playlist;
+        m.playlist.folder = Some("/musique".into());
+        m.playlist.tracks = vec!["/musique/01.mp3".into(), "/musique/02.flac".into()];
+        m.playlist.looping = true;
+        m.playlist.shuffle = true;
+        m.playlist.transition = Transition::Crossfade;
+        m.playlist.crossfade_secs = 4.0;
+        m.playlist.normalize.enabled = true;
+        m.playlist.manual_gains.insert("/musique/01.mp3".into(), -2.0);
+        let m = &mut p.modules[2];
+        m.mode = ModuleMode::Text;
+        m.notes = "**1.** Ouverture\n2. Entracte".into();
+        m.notes_zoom = 1.4;
+        let m = &mut p.modules[3];
+        m.mode = ModuleMode::Go;
+        m.cues = vec![Cue::new("/sons/top.wav".into()), Cue { follow: CueFollow::Continue, ..Cue::new("/sons/suite.wav".into()) }];
+        let pr = &mut p.preferences;
+        pr.prevent_sleep = false;
+        pr.language = Lang::En;
+        pr.osc = OscSettings { enabled: true, port: 9100, prefix: "/js".into(), oscquery: false, oscquery_port: 9101, zeroconf: false, name: "Régie".into() };
+        pr.midi = MidiSettings { enabled: true, port: Some("nanoKONTROL".into()) };
+        pr.console = ConsoleSettings { enabled: true, host: "10.0.0.2".into(), port: 49281 };
+        pr.m32 = M32Settings { enabled: true, host: "10.0.0.3".into(), port: 10024 };
+        pr.escape_stops_playlist = true;
+        pr.double_go_ms = 450;
+        pr.memory_warn_mb = 2000;
+        pr.mappings = vec![
+            Mapping { trigger: Trigger::Note { channel: 1, note: 60 }, action: ActionKind::JingleToggle, module: 0, jingle: 3 },
+            Mapping { trigger: Trigger::Cc { channel: 2, cc: 7 }, action: ActionKind::ModuleVolume, module: 1, jingle: 0 },
+            Mapping { trigger: Trigger::Program { channel: 1, program: 5 }, action: ActionKind::PlaylistTrack, module: 1, jingle: 0 },
+            Mapping { trigger: Trigger::Console { address: "MIXER:Current/InCh/Fader/On".into(), x: 3, y: 0 }, action: ActionKind::CueGo, module: 3, jingle: 0 },
+            Mapping { trigger: Trigger::Scene { number: 12 }, action: ActionKind::StopAll, module: 0, jingle: 0 },
+            Mapping::default(),
+        ];
+        p
+    }
+
+    #[test]
+    fn project_format_is_stable() {
+        let p = sample_project();
+        check("projet-0.1.4.jinglestar", serde_json::to_value(&p).unwrap());
+        // Relu par le vrai chargement (normalisation, garde-fous), puis réécrit : identique.
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/projet-0.1.4.jinglestar");
+        let back: Project = document::load(&path).unwrap();
+        check("projet-0.1.4.jinglestar", serde_json::to_value(&back).unwrap());
+    }
+
+    #[test]
+    fn config_paths_are_stable() {
+        let d = directories::ProjectDirs::from("com", "acetayls", "JingleStar").unwrap();
+        assert_eq!(autosave_path().unwrap(), d.config_dir().join("session.json"));
+        assert_eq!(loudness_cache_path().unwrap(), d.cache_dir().join("loudness.json"));
+        assert_eq!(APP.log_path().unwrap(), d.config_dir().join("jinglestar.log"));
+    }
 }
 
 #[cfg(test)]
@@ -754,7 +559,7 @@ mod tests {
         p.save(&path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(!text.contains("\"volume_db\": null"));
-        let back = Project::load(&path).unwrap();
+        let back: Project = document::load(&path).unwrap();
         assert_eq!(back.modules[0].volume_db, 0.0);
         assert_eq!(back.modules[1].jingles[0].as_ref().unwrap().sound.fade_in, 0.0);
         // Fichier écrit par la 0.1.1 avec un volume NaN : réparé au lieu d'être refusé.
@@ -775,8 +580,8 @@ mod tests {
         p.save_with_backup(&path).unwrap();
         p.modules[0].name = "Version 2".into();
         p.save_with_backup(&path).unwrap();
-        assert!(with_suffix(&path, ".bak").exists());
-        assert!(!with_suffix(&path, ".tmp").exists());
+        assert!(star_core::document::with_suffix(&path, ".bak").exists());
+        assert!(!star_core::document::with_suffix(&path, ".tmp").exists());
         // Session abîmée (fichier tronqué) : la copie précédente est chargée, rien n'est perdu.
         std::fs::write(&path, "{\"version\": 1, \"modules\": [").unwrap();
         let s = load_session(&path);

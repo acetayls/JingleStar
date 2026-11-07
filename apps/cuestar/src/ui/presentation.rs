@@ -9,8 +9,8 @@
 use crate::link::OutputLink;
 use crate::protocol::{Command, Transition, TransitionKind};
 use egui::{vec2, Color32, Key, Rect, RichText, Sense, Stroke, StrokeKind};
-use star_commun::theme::*;
-use star_commun::widgets::{pressed, transport_button, TransportIcon};
+use star_ui::theme::*;
+use star_ui::widgets::{pressed, transport_button, TransportIcon};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -295,7 +295,7 @@ impl Presentation {
     fn send(&mut self, index: usize, path: PathBuf, out: &mut OutputLink) {
         self.want = None;
         let p = path.to_string_lossy().into_owned();
-        out.send(Command::Load { path: p, paused: false, looping: false, hold: true, transition: self.transition });
+        out.send(Command::Load { path: p, paused: false, looping: false, hold: true, transition: self.transition, clip: Default::default() });
         self.shown = Some((index, path));
     }
 

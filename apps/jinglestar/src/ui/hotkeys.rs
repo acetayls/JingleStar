@@ -6,7 +6,7 @@ use egui::{Event, Key, Modifiers, RichText, Ui};
 use super::theme::*;
 use super::JingleStarApp;
 use crate::controller::Controller;
-use crate::i18n::tr;
+use star_core::i18n::tr;
 use crate::project::ModuleMode;
 
 /// Forme enregistrée d'une touche avec ses modificateurs.

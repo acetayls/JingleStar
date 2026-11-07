@@ -32,8 +32,12 @@ pub struct OutputState {
     pub duration: f64,
     pub paused: bool,
     pub hwdec: String,
+    /// Images perdues et retardées depuis la dernière remise à zéro, tous médias confondus.
     pub dropped: i64,
     pub delayed: i64,
+    /// Compteurs bruts de mpv pour le média en cours (repartent de zéro à chaque fichier).
+    pub media_dropped: i64,
+    pub media_delayed: i64,
     pub last_error: Option<String>,
     /// Diaporama en cours : (index, nombre, chemin).
     pub slide: Option<(usize, usize, String)>,
@@ -140,6 +144,12 @@ impl OutputLink {
         self.state.ready = false;
     }
 
+    /// Remet à zéro le compteur d'images perdues et retardées (la sortie n'est pas touchée).
+    pub fn reset_drops(&mut self) {
+        self.state.dropped = 0;
+        self.state.delayed = 0;
+    }
+
     pub fn send(&mut self, cmd: Command) {
         let Some(stdin) = self.stdin.as_mut() else { return };
         let mut line = serde_json::to_string(&cmd).unwrap_or_default();
@@ -179,8 +189,13 @@ impl OutputLink {
                 Event::Paused { paused } => s.paused = paused,
                 Event::Hwdec { name } => s.hwdec = name,
                 Event::Drops { dropped, delayed } => {
-                    s.dropped = dropped;
-                    s.delayed = delayed;
+                    // mpv repart de zéro à chaque fichier (et chaque lecteur a ses compteurs) :
+                    // un compteur qui baisse est un nouveau départ, sa valeur s'ajoute entière.
+                    let add = |total: &mut i64, last: i64, now: i64| *total += if now >= last { now - last } else { now.max(0) };
+                    add(&mut s.dropped, s.media_dropped, dropped);
+                    add(&mut s.delayed, s.media_delayed, delayed);
+                    s.media_dropped = dropped;
+                    s.media_delayed = delayed;
                 }
                 Event::Ended | Event::Idle => {
                     if matches!(ev, Event::Ended) {

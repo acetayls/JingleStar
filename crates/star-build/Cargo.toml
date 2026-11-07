@@ -1,0 +1,11 @@
+[package]
+name = "star-build"
+version = "0.1.0"
+description = "Script de build commun aux applis Star : icône Windows, numéro de build"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+winresource = "0.1"

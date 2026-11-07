@@ -6,7 +6,7 @@ use super::theme::*;
 use super::widgets::*;
 use super::dialogs::{Kind, Pick};
 use super::{load_status, sound_editor, DropTarget, JingleStarApp, TrackPayload};
-use crate::i18n::tr;
+use star_core::i18n::tr;
 use crate::project::CueFollow;
 
 /// Cue en cours de glisser pour changer l'ordre de la conduite.

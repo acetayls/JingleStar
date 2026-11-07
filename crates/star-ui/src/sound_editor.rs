@@ -1,0 +1,150 @@
+//! Réglages d'un son (jingle, cue, élément de playlist) : volume, lecture une fois ou en
+//! boucle, fondus, forme d'onde (ou vignettes) avec ses points, égaliseur. Repris de JingleStar.
+
+use std::fmt::Debug;
+use std::hash::Hash;
+
+use egui::{vec2, Color32, RichText, Ui};
+
+use star_core::i18n::tr;
+use star_core::sound::SoundSettings;
+
+use crate::eq_view;
+use crate::theme::*;
+use crate::widgets::*;
+
+/// Le média affiché dans l'éditeur : sa durée, le fond à dessiner sous les poignées (crêtes
+/// d'un son avec [`peaks_background`], vignettes d'une vidéo…) et la position de lecture.
+pub struct WaveSource<'a> {
+    pub duration: f64,
+    pub background: Box<dyn FnOnce(&WaveView) + 'a>,
+    /// Position de lecture en secondes, pendant l'écoute.
+    pub playhead: Option<f64>,
+}
+
+/// Bouton Écouter / Stop en haut des éditeurs, avec une icône dessinée (nette à toute taille).
+pub fn listen_button(ui: &mut Ui, id: impl std::hash::Hash + Debug, playing: bool) -> bool {
+    let (rect, _) = ui.allocate_exact_size(vec2(150.0, 32.0), egui::Sense::hover());
+    let resp = if playing {
+        transport_button(ui, rect, id, TransportIcon::Stop, Some(tr("Stop", "Stop")), STOP.gamma_multiply(0.85), Color32::WHITE)
+    } else {
+        transport_button(ui, rect, id, TransportIcon::Play, Some(tr("Écouter", "Play")), GO, Color32::from_rgb(0x0c, 0x1a, 0x0e))
+    };
+    resp.clicked()
+}
+
+/// Rangées Volume, Lecture et Fondus, à placer dans une grille à deux colonnes.
+/// Sans `allow_loop` (cues de la Cuelist), le choix une fois / en boucle n'est pas proposé.
+pub fn sound_rows(ui: &mut Ui, s: &mut SoundSettings, allow_loop: bool) {
+    ui.label("Volume");
+    ui.add(egui::Slider::new(&mut s.volume_db, -40.0..=10.0).suffix(" dB").step_by(0.5));
+    ui.end_row();
+
+    if allow_loop {
+        ui.label(tr("Lecture", "Playback"));
+        ui.horizontal(|ui| {
+            ui.radio_value(&mut s.looping, false, tr("Une fois", "Once"));
+            ui.radio_value(&mut s.looping, true, tr("En boucle", "Loop"));
+        });
+        ui.end_row();
+    }
+
+    ui.label(tr("Fondus", "Fades"));
+    ui.horizontal(|ui| {
+        ui.label(tr("entrée", "in"));
+        ui.add(egui::DragValue::new(&mut s.fade_in).range(0.0..=30.0).speed(0.05).suffix(" s").max_decimals(2));
+        ui.label(tr("sortie", "out"));
+        ui.add(egui::DragValue::new(&mut s.fade_out).range(0.0..=30.0).speed(0.05).suffix(" s").max_decimals(2));
+    });
+    ui.end_row();
+}
+
+/// Forme d'onde avec ses poignées, saisie précise des points, puis égaliseur.
+/// `status` remplace la forme d'onde tant que le son n'est pas chargé.
+/// `eq_rate` : fréquence d'échantillonnage pour tracer la courbe de l'égaliseur.
+/// Renvoie l'instant (s) où déplacer la lecture si l'on a cliqué dans la forme d'onde pendant la lecture.
+pub fn sound_waveform_and_eq(
+    ui: &mut Ui,
+    id_salt: impl Hash + Debug + Copy,
+    s: &mut SoundSettings,
+    wave: Option<WaveSource>,
+    status: Option<RichText>,
+    eq_rate: u32,
+) -> Option<f64> {
+    let mut seek_to = None;
+    if let Some(wave) = wave {
+        let dur = wave.duration;
+        let (st, ls, le, end) = s.markers(dur);
+        let mut mk = Markers { start: st, loop_start: ls, loop_end: le, end };
+        let edited = waveform_editor(ui, wave.background, dur, &mut mk, s.looping, &mut s.fade_in, &mut s.fade_out, wave.playhead, &mut seek_to);
+        if edited {
+            set_markers(s, &mk);
+        }
+        // Saisie précise des points, en secondes.
+        let before = mk;
+        ui.horizontal(|ui| {
+            let field = |ui: &mut Ui, label: &str, v: &mut f64| {
+                ui.label(RichText::new(label).color(TEXT_DIM));
+                ui.add(egui::DragValue::new(v).range(0.0..=dur).speed(0.01).max_decimals(2).suffix(" s"));
+            };
+            field(ui, tr("Début", "Start"), &mut mk.start);
+            if s.looping {
+                field(ui, tr("Boucle", "Loop"), &mut mk.loop_start);
+                field(ui, "→", &mut mk.loop_end);
+            }
+            field(ui, tr("Fin", "End"), &mut mk.end);
+        });
+        if mk != before {
+            mk.end = mk.end.max(mk.start);
+            mk.loop_start = mk.loop_start.clamp(mk.start, mk.end);
+            mk.loop_end = mk.loop_end.clamp(mk.loop_start, mk.end);
+            set_markers(s, &mk);
+        }
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(format!(
+                "{} {}  ·  {} {}  ·  {} {}",
+                tr("Début", "Start"),
+                fmt_secs(mk.start),
+                tr("Fin", "End"),
+                fmt_secs(mk.end),
+                tr("Durée", "Duration"),
+                fmt_secs(mk.end - mk.start)
+            )).monospace().color(TEXT_DIM));
+            if s.looping {
+                ui.label(RichText::new(format!("{} {} → {}", tr("Boucle", "Loop"), fmt_secs(mk.loop_start), fmt_secs(mk.loop_end))).monospace().color(ACCENT));
+            }
+            if ui.small_button(tr("Réinitialiser les points", "Reset points")).clicked() {
+                s.start = 0.0;
+                s.end = None;
+                s.loop_start = None;
+                s.loop_end = None;
+            }
+        });
+    } else if let Some(st) = status {
+        ui.label(st);
+    }
+
+    ui.add_space(6.0);
+    let eq_title = if s.eq.is_flat() {
+        RichText::new(tr("Égaliseur", "Equalizer"))
+    } else {
+        RichText::new(tr("Égaliseur (actif)", "Equalizer (on)")).color(ACCENT)
+    };
+    let open_by_default = !s.eq.is_flat();
+    egui::CollapsingHeader::new(eq_title).id_salt(("sound-eq", id_salt)).default_open(open_by_default).show(ui, |ui| {
+        eq_view::eq_editor(ui, ("sound", id_salt), &mut s.eq, eq_rate);
+    });
+    seek_to
+}
+
+fn set_markers(s: &mut SoundSettings, mk: &Markers) {
+    s.start = mk.start;
+    s.end = Some(mk.end);
+    s.loop_start = Some(mk.loop_start);
+    s.loop_end = Some(mk.loop_end);
+}
+
+fn fmt_secs(t: f64) -> String {
+    let t = t.max(0.0);
+    format!("{}:{:05.2}", (t / 60.0) as u64, t % 60.0)
+}

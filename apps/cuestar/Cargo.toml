@@ -7,7 +7,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-star-commun.workspace = true
+star-core.workspace = true
+star-ui.workspace = true
+star-remote = { workspace = true, features = ["ui"] }
 # Rendu des présentations PowerPoint du module Présentation.
 star-pptx = { path = "../../crates/star-pptx" }
 eframe.workspace = true
@@ -29,8 +31,8 @@ midir = "0.11"
 crossbeam-channel = "0.5"
 
 [build-dependencies]
-# Icône et métadonnées de l'exécutable Windows.
-winresource = "0.1"
+# Icône et métadonnées de l'exécutable Windows, version de build.
+star-build.workspace = true
 
 # Pour un paquet .app macOS avec `cargo bundle --release`.
 [package.metadata.bundle]

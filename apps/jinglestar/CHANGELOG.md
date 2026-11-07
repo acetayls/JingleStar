@@ -1,5 +1,25 @@
 # Journal des modifications
 
+## 0.1.4 — en cours
+
+### Faders
+
+- **Touches + et −** : elles montent et baissent aussi le volume du module de 1 dB quand la
+  souris est simplement sur le fader (plus besoin de cliquer dessus), avec le pavé numérique
+  comme avec le clavier principal.
+- **Repères -6, 0 et +3 plus lisibles** : valeurs plus grandes et plus claires (0 dB en blanc), le
+  fader étant légèrement décalé pour leur laisser la place.
+
+### Module Texte
+
+- Le **zoom du texte** est enregistré avec le projet, pour chaque module Texte.
+
+### Télécommandes
+
+- Les actions s'appellent **Cuelist : GO**, **Cuelist : cue suivant**, **Cuelist : cue
+  précédent** et **Cuelist : pause / reprise** (au lieu de « Conduite »), comme le module Cuelist.
+- Les « correspondances » s'appellent désormais **assignations** (onglet, aide, messages).
+
 ## 0.1.3 — 3 novembre 2026
 
 ### Téléchargements
@@ -23,7 +43,7 @@
   autre champ de saisie) : elle tape un espace.
 - **Raccourcis de fichier habituels** : Ctrl+O (ouvrir), Ctrl+Maj+S (enregistrer sous),
   Ctrl+W ou Ctrl+N (fermer le projet : projet vierge, après confirmation), en plus de Ctrl+S.
-- **Télécommandes en onglets** : OSC, MIDI, Yamaha, Midas M32 / X32, Correspondances et
+- **Télécommandes en onglets** : OSC, MIDI, Yamaha, Midas M32 / X32, Assignations et
   **Raccourcis** (la liste de toutes les touches), au lieu d'une longue page à faire défiler.
 - **Raccourci clavier par jingle** : dans l'éditeur d'un jingle, ligne « Raccourci » →
   **Choisir…** puis la touche voulue (avec Ctrl, Alt, Maj si on veut). Si la touche est déjà prise
@@ -43,8 +63,8 @@
 
 ### Télécommandes
 
-- **Correspondances plus claires** : à côté du numéro de module s'affiche son nom, ou un ⚠ si
-  la correspondance ne fera rien (module absent du projet, ou dans un autre mode que l'action,
+- **Assignations plus claires** : à côté du numéro de module s'affiche son nom, ou un ⚠ si
+  l'assignation ne fera rien (module absent du projet, ou dans un autre mode que l'action,
   par exemple un jingle visé dans un module passé en Playlist). Un jingle visé sur un
   emplacement vide est signalé aussi.
 - Le volume d'un jingle et les options aléatoire / boucle d'une playlist ne changent plus à
