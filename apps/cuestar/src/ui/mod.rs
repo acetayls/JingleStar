@@ -4,6 +4,7 @@ mod cuelist;
 mod diaporama;
 mod dialogs;
 mod lecteur;
+mod media_editor;
 mod monitor_view;
 mod notes;
 mod remote_view;

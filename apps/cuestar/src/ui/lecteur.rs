@@ -6,6 +6,7 @@
 use crate::link::OutputLink;
 use crate::protocol::{Clip, Command, Transition, TransitionKind};
 use crate::thumb::Thumbs;
+use star_core::i18n::tr;
 use egui::{pos2, vec2, Align, Color32, CornerRadius, Key, Layout, Rect, RichText, Sense};
 use star_ui::theme::*;
 use star_ui::widgets::{add_button, fmt_time, loop_icon, mode_chip, pressed, track_row, transport_button, TransportIcon};
@@ -45,6 +46,12 @@ pub struct Lecteur {
     /// Aperçu SUIVANT affiché, et sa largeur en points.
     show_preview: bool,
     preview_w: f32,
+    /// Lecteur muet de l'aperçu et de l'éditeur (processus à part, lancé à la première image).
+    preview: crate::preview::Preview,
+    /// Élément ouvert dans l'éditeur (clic droit « Éditer… »).
+    editing: Option<usize>,
+    /// « Lire sur la sortie » demandé depuis l'éditeur.
+    pending_play: Option<usize>,
 }
 
 impl Default for Lecteur {
@@ -64,6 +71,9 @@ impl Default for Lecteur {
             thumbs: Thumbs::default(),
             show_preview: true,
             preview_w: 420.0,
+            preview: Default::default(),
+            editing: None,
+            pending_play: None,
         }
     }
 }
@@ -106,6 +116,7 @@ impl Lecteur {
         self.playing = None;
         self.queued = None;
         self.confirm_clear = false;
+        self.editing = None;
     }
 
     /// Aléatoire et Tout boucler (pour les touches qui les basculent).
@@ -240,6 +251,9 @@ impl Lecteur {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui, out: &mut OutputLink, typing: bool) {
+        self.preview.poll();
+        self.preview.settle(ui.ctx());
+        self.editor_window(ui.ctx(), out);
         // Fin d'un média : on enchaîne.
         if out.state.ended != self.seen_end {
             self.seen_end = out.state.ended;
@@ -474,6 +488,8 @@ impl Lecteur {
                 ui.spacing_mut().item_spacing.y = 1.0;
                 for i in 0..self.items.len() {
                     let name = stem(&self.items[i].path);
+                    // Élément édité (points, fondus, volume, EQ) : repère après le nom.
+                    let name = if self.items[i].clip.is_plain() { name } else { format!("{name}  ✎") };
                     let is_cur = playing_now == Some(i);
                     let color = if !is_cur { TEXT } else if !paused { GO } else { ACCENT };
                     let sel = self.selected == Some(i) || is_cur;
@@ -496,6 +512,10 @@ impl Lecteur {
                             play = Some(i);
                             ui.close();
                         }
+                        if ui.button(tr("Éditer…", "Edit…")).on_hover_text(tr("Entrée, sortie, fondus au noir, volume et égaliseur de cet élément", "In, out, fades to black, volume and equalizer of this item")).clicked() {
+                            self.editing = Some(i);
+                            ui.close();
+                        }
                         if ui.button(if on { "Lire une seule fois" } else { "Lire en boucle" }).clicked() {
                             self.items[i].clip.sound.looping = !on;
                             ui.close();
@@ -511,12 +531,75 @@ impl Lecteur {
                 self.play(i, out);
             }
             if let Some(i) = remove {
+                self.editing = None;
                 self.items.remove(i);
                 self.selected = self.selected.filter(|s| *s < self.items.len());
                 self.playing = None;
                 self.queued = None;
             }
         });
+    }
+
+    /// Fenêtre « Éditer » d'un élément, comme celle d'un jingle de JingleStar. Les réglages
+    /// de l'élément à l'antenne (volume, EQ, fondus) s'appliquent tout de suite.
+    fn editor_window(&mut self, ctx: &egui::Context, out: &mut OutputLink) {
+        let Some(i) = self.editing else { return };
+        let Some(item) = self.items.get(i).cloned() else {
+            self.editing = None;
+            return;
+        };
+        let mut clip = item.clip.clone();
+        let (mut open, mut done, mut remove) = (true, false, false);
+        egui::Window::new(format!("{} {} — {}", tr("Élément", "Item"), i + 1, stem(&item.path)))
+            .id(egui::Id::unique("lec-editor"))
+            .open(&mut open)
+            .default_width(660.0)
+            .default_height((ctx.content_rect().height() - 80.0).max(200.0))
+            .resizable(true)
+            .collapsible(false)
+            .max_height((ctx.content_rect().height() - 60.0).max(200.0))
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().id_salt("lec-editor-scroll").auto_shrink([false, true]).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(tr("Fichier", "File")).color(TEXT_DIM));
+                        ui.add(egui::Label::new(RichText::new(item.path.display().to_string()).small().color(TEXT_DIM)).truncate());
+                    });
+                    ui.add_space(4.0);
+                    super::media_editor::clip_editor(ui, ("lec", i), &item.path, &mut clip, &mut self.preview);
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(tr("Lire sur la sortie", "Play on the output")).clicked() {
+                            self.pending_play = Some(i);
+                        }
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if ui.button(tr("✓ Terminé", "✓ Done")).clicked() {
+                                done = true;
+                            }
+                            if ui.button(RichText::new(tr("Retirer de la playlist", "Remove from the playlist")).color(STOP)).clicked() {
+                                remove = true;
+                            }
+                        });
+                    });
+                });
+            });
+        if clip != item.clip {
+            if self.playing == Some(i) && out.state.current.is_some() {
+                out.send(Command::SetClip { clip: clip.clone() });
+            }
+            self.items[i].clip = clip;
+        }
+        if let Some(p) = self.pending_play.take() {
+            self.play(p, out);
+        }
+        if remove {
+            self.items.remove(i);
+            self.selected = self.selected.filter(|s| *s < self.items.len());
+            self.playing = None;
+            self.queued = None;
+        }
+        if !open || done || remove {
+            self.editing = None;
+        }
     }
 
     /// Les modes ont changé : l'élément suivant est recalculé.
@@ -529,7 +612,7 @@ impl Lecteur {
 
     /// Aperçu de l'élément qui partira au prochain GO ou au prochain enchaînement.
     fn next_preview(&mut self, ui: &mut egui::Ui, area: Rect) {
-        let next = self.selected.and_then(|i| self.items.get(i)).map(|it| (it.path.clone(), it.clip.sound.looping));
+        let next = self.selected.and_then(|i| self.items.get(i)).map(|it| (it.path.clone(), it.clip.sound.looping, it.clip.clone()));
         egui::Frame::new().fill(PANEL).corner_radius(6).inner_margin(10).show(ui, |ui| {
             let w = (area.width() - 20.0).max(80.0);
             ui.set_width(w);
@@ -545,16 +628,21 @@ impl Lecteur {
             let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
             ui.painter().rect_filled(rect, 3, Color32::BLACK);
             match &next {
-                Some((p, looping)) => {
+                Some((p, looping, clip)) => {
                     let ctx = ui.ctx().clone();
-                    if let Some(t) = self.thumbs.get(&ctx, p) {
-                        let ts = t.size_vec2();
-                        let k = (size.x / ts.x).min(size.y / ts.y);
-                        let r = Rect::from_center_size(rect.center(), ts * k);
-                        ui.painter().image(t.id(), r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                    // Aperçu navigable : l'élément s'ouvre sur son point d'entrée (pas pendant l'édition).
+                    if self.editing.is_none() {
+                        self.preview.open(&ctx, p, clip.sound.start);
+                    }
+                    let thumb = self.thumbs.get(&ctx, p).cloned();
+                    if self.preview.state.missing.is_none() || thumb.is_some() {
+                        super::media_editor::preview_image(ui, &mut self.preview, p, rect, thumb.as_ref());
                     } else {
-                        let txt = if self.thumbs.failed(p) { "pas d'aperçu" } else { "…" };
+                        let txt = if self.thumbs.failed(p) { tr("pas d'aperçu", "no preview") } else { "…" };
                         ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, txt, egui::FontId::proportional(14.0), TEXT_DIM);
+                    }
+                    if self.preview.state.missing.is_none() && !super::media_editor::is_image(p) && self.editing.is_none() {
+                        super::media_editor::scrub_bar(ui, "lec-next-scrub", &mut self.preview, p, clip);
                     }
                     ui.horizontal(|ui| {
                         if *looping {
