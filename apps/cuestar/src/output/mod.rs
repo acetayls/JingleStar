@@ -24,7 +24,7 @@ mod slideshow;
 pub mod warp;
 
 use crate::prefs::{Cadence, MachinePrefs};
-use crate::protocol::{Clip, Command, Event, Fit, Monitor, TransitionKind};
+use crate::protocol::{Clip, Command, Event, Fit, Monitor, RemoteKey, TransitionKind};
 use mpv::Mpv;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slideshow::Show;
@@ -215,6 +215,8 @@ fn apply_clip(m: &Mpv, clip: Option<&Clip>, looping: bool) -> Vec<audio_filter::
 
 struct OutputApp {
     prefs: MachinePrefs,
+    /// Maj enfoncée (Maj+F5 de la télécommande).
+    shift: bool,
     // Ordre des champs = ordre de destruction : l'affichage (et ses mpv) avant les réveils
     // qu'ils référencent, et avant la fenêtre.
     out: Option<Out>,
@@ -1570,9 +1572,32 @@ impl ApplicationHandler<UserEv> for OutputApp {
                 self.paint_cpu();
             }
             WindowEvent::RedrawRequested => self.paint_cpu(),
+            WindowEvent::ModifiersChanged(m) => self.shift = m.state().shift_key(),
+            WindowEvent::KeyboardInput { event, .. } if event.state.is_pressed() => {
+                if let Some(key) = remote_key(&event.logical_key, self.shift) {
+                    emit(&Event::Key { key });
+                }
+            }
             _ => {}
         }
     }
+}
+
+/// Touche d'une télécommande de présentation : elles envoient les touches de PowerPoint.
+fn remote_key(key: &winit::keyboard::Key, shift: bool) -> Option<RemoteKey> {
+    use winit::keyboard::{Key, NamedKey};
+    Some(match key {
+        Key::Named(NamedKey::PageDown | NamedKey::ArrowRight | NamedKey::ArrowDown | NamedKey::Space | NamedKey::Enter) => RemoteKey::Next,
+        Key::Named(NamedKey::PageUp | NamedKey::ArrowLeft | NamedKey::ArrowUp | NamedKey::Backspace) => RemoteKey::Prev,
+        Key::Named(NamedKey::Home) => RemoteKey::First,
+        Key::Named(NamedKey::End) => RemoteKey::Last,
+        Key::Named(NamedKey::F5) if shift => RemoteKey::StartHere,
+        Key::Named(NamedKey::F5) => RemoteKey::StartFirst,
+        Key::Named(NamedKey::Escape) => RemoteKey::Escape,
+        Key::Character(c) if matches!(c.as_str(), "b" | "B" | "." | "w" | "W" | ",") => RemoteKey::Black,
+        Key::Character(c) if c.as_str() == " " => RemoteKey::Next,
+        _ => return None,
+    })
 }
 
 pub fn run(prefs: MachinePrefs, monitor_port: Option<u16>) {
@@ -1605,6 +1630,7 @@ pub fn run(prefs: MachinePrefs, monitor_port: Option<u16>) {
 
     let volume = prefs.volume.clamp(0.0, 100.0);
     let mut app = OutputApp {
+        shift: false,
         prefs,
         out: None,
         wakes: Vec::new(),

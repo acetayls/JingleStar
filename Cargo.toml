@@ -8,6 +8,7 @@ members = [
     "crates/star-remote",
     "crates/star-build",
     "crates/star-pptx",
+    "crates/star-pdf",
     "apps/jinglestar",
     "apps/cuestar",
 ]
@@ -28,6 +29,7 @@ star-ui = { path = "crates/star-ui" }
 star-remote = { path = "crates/star-remote" }
 star-build = { path = "crates/star-build" }
 star-pptx = { path = "crates/star-pptx" }
+star-pdf = { path = "crates/star-pdf" }
 
 # Build de développement plus rapide à l'exécution : dépendances optimisées pour toutes les
 # applications, et CueStar lui-même en opt-level 1 (lecture vidéo, vignettes, régie).

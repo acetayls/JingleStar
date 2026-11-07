@@ -1,0 +1,14 @@
+[package]
+name = "star-pdf"
+version = "0.1.0"
+description = "Rendu des pages d'un PDF en images, en Rust pur (moteur hayro)"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+hayro = "0.9"
+image = { version = "0.25", default-features = false }
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }

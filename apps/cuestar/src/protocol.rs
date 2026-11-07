@@ -310,6 +310,25 @@ pub enum Event {
     /// Sorties audio disponibles : (nom mpv, description).
     AudioDevices { list: Vec<(String, String)> },
     Error { message: String },
+    /// Touche appuyée dans la fenêtre de sortie (télécommande de présentation, clavier).
+    Key { key: RemoteKey },
+}
+
+/// Touches d'une télécommande de présentation (type télécommande PowerPoint), reçues par la
+/// fenêtre de sortie quand elle a le focus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RemoteKey {
+    Next,
+    Prev,
+    First,
+    Last,
+    /// Écran noir (B, point, W, virgule), et retour à la diapositive.
+    Black,
+    /// F5 : depuis la première diapositive.
+    StartFirst,
+    /// Maj+F5 : depuis la diapositive sélectionnée.
+    StartHere,
+    Escape,
 }
 
 #[cfg(test)]

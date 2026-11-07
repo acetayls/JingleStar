@@ -1,13 +1,17 @@
-//! Module Présentation : diffuse une présentation PowerPoint (.pptx) sur la sortie.
+//! Module Présentation : diffuse une présentation PowerPoint (.pptx) ou un PDF sur la sortie.
 //!
-//! Les diapositives sont dessinées par la crate star-pptx (Rust pur, sans LibreOffice), dans
-//! un fil d'exécution à part, à la résolution de l'écran de sortie. Chaque diapositive devient
+//! Les diapositives sont dessinées par la crate star-pptx (Rust pur, sans LibreOffice), et les
+//! pages PDF par star-pdf (hayro, Rust pur), dans un fil d'exécution à part, à la résolution de l'écran de sortie. Chaque diapositive devient
 //! une image PNG dans un dossier temporaire, envoyée à la sortie comme une photo du Lecteur
 //! (`Command::Load`) : le protocole ne change pas. La diapositive suivante est préparée
 //! d'avance, pour un passage immédiat.
+//!
+//! Télécommande de présentation : ses touches (Page suivante / précédente, B ou point pour le
+//! noir, F5) sont reconnues dans la fenêtre de CueStar quel que soit l'onglet, et dans la
+//! fenêtre de sortie quand elle a le focus.
 
 use crate::link::OutputLink;
-use crate::protocol::{Clip, Command, Transition, TransitionKind};
+use crate::protocol::{Clip, Command, RemoteKey, Transition, TransitionKind};
 use egui::{vec2, Color32, Key, Rect, RichText, Sense, Stroke, StrokeKind};
 use star_ui::theme::*;
 use star_ui::widgets::{pressed, transport_button, TransportIcon};
@@ -16,7 +20,55 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 
+/// Actions de la télécommande et des raccourcis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Action {
+    Next,
+    Prev,
+    First,
+    Last,
+    Black,
+    StartFirst,
+    StartHere,
+}
+
 const PPTX_EXT: &[&str] = &["pptx", "ppsx", "potx", "pptm", "ppsm", "potm"];
+const PDF_EXT: &[&str] = &["pdf"];
+
+fn is_deck_file(p: &Path) -> bool {
+    p.extension().map(|e| e.to_string_lossy().to_lowercase()).is_some_and(|e| PPTX_EXT.contains(&e.as_str()) || PDF_EXT.contains(&e.as_str()))
+}
+
+/// Présentation ouverte : PowerPoint ou PDF (une page = une diapositive).
+enum Deck {
+    Pptx(star_pptx::Presentation),
+    Pdf(star_pdf::Document),
+}
+
+impl Deck {
+    fn open(path: &Path) -> Result<Deck, String> {
+        let pdf = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
+        if pdf {
+            star_pdf::Document::open(path).map(Deck::Pdf).map_err(|e| e.to_string())
+        } else {
+            star_pptx::Presentation::open(path).map(Deck::Pptx).map_err(|e| e.to_string())
+        }
+    }
+
+    fn slides(&self) -> Vec<SlideInfo> {
+        match self {
+            Deck::Pptx(p) => (0..p.slide_count()).map(|i| SlideInfo { title: p.slide_title(i), hidden: p.is_hidden(i) }).collect(),
+            Deck::Pdf(d) => (0..d.page_count()).map(|_| SlideInfo { title: None, hidden: false }).collect(),
+        }
+    }
+
+    fn render(&self, index: usize, w: u32, h: u32) -> Result<image::RgbaImage, String> {
+        match self {
+            Deck::Pptx(p) => p.render_slide(index, w, h).map_err(|e| e.to_string()),
+            Deck::Pdf(d) => d.render_page(index, w, h).map_err(|e| e.to_string()),
+        }
+    }
+}
 /// Taille des vignettes de la liste.
 const THUMB: (u32, u32) = (320, 180);
 
@@ -93,7 +145,7 @@ impl Drop for Worker {
 }
 
 fn worker_loop(queue: Arc<(Mutex<Queue>, Condvar)>, tx: Sender<Done>, ctx: egui::Context) {
-    let mut deck: Option<(u64, Arc<star_pptx::Presentation>, PathBuf)> = None;
+    let mut deck: Option<(u64, Deck, PathBuf)> = None;
     loop {
         let job = {
             let (m, cv) = &*queue;
@@ -115,15 +167,15 @@ fn worker_loop(queue: Arc<(Mutex<Queue>, Condvar)>, tx: Sender<Done>, ctx: egui:
             }
         };
         let done = match job {
-            Job::Open { gen, path } => match star_pptx::Presentation::open(&path) {
-                Ok(p) => {
-                    let slides = (0..p.slide_count()).map(|i| SlideInfo { title: p.slide_title(i), hidden: p.is_hidden(i) }).collect();
-                    deck = Some((gen, Arc::new(p), cache_dir(&path)));
+            Job::Open { gen, path } => match Deck::open(&path) {
+                Ok(d) => {
+                    let slides = d.slides();
+                    deck = Some((gen, d, cache_dir(&path)));
                     Done::Opened { gen, slides }
                 }
-                Err(e) => {
+                Err(message) => {
                     deck = None;
-                    Done::Failed { gen, message: e.to_string() }
+                    Done::Failed { gen, message }
                 }
             },
             Job::Slide { gen, index, w, h } => {
@@ -141,12 +193,12 @@ fn worker_loop(queue: Arc<(Mutex<Queue>, Condvar)>, tx: Sender<Done>, ctx: egui:
                 if *g != gen {
                     continue;
                 }
-                match p.render_slide(index, THUMB.0, THUMB.1) {
+                match p.render(index, THUMB.0, THUMB.1) {
                     Ok(img) => {
                         let size = [img.width() as usize, img.height() as usize];
                         Done::Thumb { gen, index, image: egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw()) }
                     }
-                    Err(e) => Done::SlideFailed { gen, index, message: e.to_string() },
+                    Err(message) => Done::SlideFailed { gen, index, message },
                 }
             }
         };
@@ -169,12 +221,12 @@ fn cache_dir(path: &Path) -> PathBuf {
     std::env::temp_dir().join("cuestar-presentation").join(format!("{:016x}", h.finish()))
 }
 
-fn render_to_file(p: &star_pptx::Presentation, dir: &Path, index: usize, w: u32, h: u32) -> Result<PathBuf, String> {
+fn render_to_file(p: &Deck, dir: &Path, index: usize, w: u32, h: u32) -> Result<PathBuf, String> {
     let file = dir.join(format!("diapo-{:03}-{w}x{h}.png", index + 1));
     if file.is_file() {
         return Ok(file);
     }
-    let img = p.render_slide(index, w, h).map_err(|e| e.to_string())?;
+    let img = p.render(index, w, h)?;
     std::fs::create_dir_all(dir).map_err(|e| format!("dossier temporaire : {e}"))?;
     // Écrit à côté puis renomme : la sortie ne lit jamais une image à moitié écrite.
     let tmp = file.with_extension("tmp");
@@ -377,8 +429,97 @@ impl Presentation {
         }
     }
 
+    fn act(&mut self, a: Action, out: &mut OutputLink) {
+        if self.slides.is_empty() {
+            return;
+        }
+        match a {
+            Action::Next => self.next(out),
+            Action::Prev => self.prev(out),
+            Action::First | Action::StartFirst => {
+                if let Some(i) = self.next_visible(None) {
+                    self.go(i, out);
+                }
+            }
+            Action::Last => {
+                if let Some(i) = self.prev_visible(self.slides.len()) {
+                    self.go(i, out);
+                }
+            }
+            Action::StartHere => {
+                let i = self.selected;
+                self.go(i, out);
+            }
+            Action::Black => self.toggle_black(out),
+        }
+    }
+
+    /// Écran noir, ou retour à la diapositive si la sortie est déjà noire.
+    fn toggle_black(&mut self, out: &mut OutputLink) {
+        if self.on_air(out).is_some() {
+            out.send(Command::Stop);
+        } else if out.state.current.is_none() {
+            if let Some((i, _)) = self.shown.clone() {
+                self.go(i, out);
+            }
+        }
+    }
+
+    /// La présentation tient la sortie : diapositive à l'écran, ou noir après une diapositive.
+    /// Sinon (vidéo du Lecteur à l'antenne…), seules F5 et Maj+F5 la reprennent.
+    fn holds_output(&self, out: &OutputLink) -> bool {
+        self.want.is_some() || self.on_air(out).is_some() || (self.shown.is_some() && out.state.current.is_none())
+    }
+
+    /// À appeler à chaque image, quel que soit l'onglet affiché : rendus terminés, touches de
+    /// la télécommande (fenêtre de sortie, et fenêtre de CueStar hors de l'onglet).
+    pub fn tick(&mut self, ctx: &egui::Context, out: &mut OutputLink, typing: bool, tab_shown: bool) {
+        self.poll(ctx, out);
+        let keys = std::mem::take(&mut out.state.keys);
+        let mut actions: Vec<Action> = keys
+            .into_iter()
+            .filter_map(|k| match k {
+                RemoteKey::Next => Some(Action::Next),
+                RemoteKey::Prev => Some(Action::Prev),
+                RemoteKey::First => Some(Action::First),
+                RemoteKey::Last => Some(Action::Last),
+                RemoteKey::Black => Some(Action::Black),
+                RemoteKey::StartFirst => Some(Action::StartFirst),
+                RemoteKey::StartHere => Some(Action::StartHere),
+                RemoteKey::Escape => {
+                    out.send(Command::Stop);
+                    None
+                }
+            })
+            .collect();
+        // Hors de l'onglet : seules les touches propres aux télécommandes, que les autres onglets
+        // n'utilisent pas (les flèches et Espace restent au Lecteur et au Diaporama).
+        if !tab_shown && !typing {
+            ctx.input(|i| {
+                if i.key_pressed(Key::PageDown) {
+                    actions.push(Action::Next);
+                }
+                if i.key_pressed(Key::PageUp) {
+                    actions.push(Action::Prev);
+                }
+                if i.key_pressed(Key::B) || i.key_pressed(Key::Period) || i.key_pressed(Key::W) || i.key_pressed(Key::Comma) {
+                    actions.push(Action::Black);
+                }
+                if i.key_pressed(Key::F5) {
+                    actions.push(if i.modifiers.shift { Action::StartHere } else { Action::StartFirst });
+                }
+            });
+        }
+        for a in actions {
+            let start = matches!(a, Action::StartFirst | Action::StartHere);
+            if start || self.holds_output(out) {
+                self.act(a, out);
+            }
+        }
+    }
+
     fn pick_file(&mut self, ctx: &egui::Context) {
-        let mut dlg = rfd::FileDialog::new().add_filter("Présentation PowerPoint", PPTX_EXT);
+        let mut dlg = rfd::FileDialog::new().add_filter("Présentation (PowerPoint, PDF)", &[PPTX_EXT, PDF_EXT].concat()).add_filter("Présentation PowerPoint", PPTX_EXT).add_filter("PDF", PDF_EXT);
         if let Some(dir) = self.path.as_ref().and_then(|p| p.parent()) {
             dlg = dlg.set_directory(dir);
         }
@@ -389,37 +530,38 @@ impl Presentation {
 
     pub fn ui(&mut self, ui: &mut egui::Ui, out: &mut OutputLink, typing: bool) {
         let ctx = ui.ctx().clone();
-        self.poll(&ctx, out);
-        // Un fichier .pptx glissé sur l'onglet est ouvert.
-        let dropped: Option<PathBuf> = ctx.input(|i| {
-            i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).find(|p| p.extension().map(|e| PPTX_EXT.contains(&e.to_string_lossy().to_lowercase().as_str())).unwrap_or(false))
-        });
+        // Un fichier .pptx ou .pdf glissé sur l'onglet est ouvert.
+        let dropped: Option<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).find(|p| is_deck_file(p)));
         if let Some(p) = dropped {
             self.open(&ctx, p);
         }
         let on_air = self.on_air(out);
         let ready = !self.slides.is_empty();
         if !typing && ready {
-            let (next, prev, first, last) = ui.input_mut(|i| {
-                let next = i.consume_key(egui::Modifiers::NONE, Key::Space) || i.key_pressed(Key::ArrowRight) || i.key_pressed(Key::ArrowDown) || i.key_pressed(Key::PageDown) || i.key_pressed(Key::Enter);
-                let prev = i.key_pressed(Key::ArrowLeft) || i.key_pressed(Key::ArrowUp) || i.key_pressed(Key::PageUp) || i.key_pressed(Key::Backspace);
-                (next, prev, i.key_pressed(Key::Home), i.key_pressed(Key::End))
+            let actions = ui.input_mut(|i| {
+                let mut a = Vec::new();
+                if i.consume_key(egui::Modifiers::NONE, Key::Space) || i.key_pressed(Key::ArrowRight) || i.key_pressed(Key::ArrowDown) || i.key_pressed(Key::PageDown) || i.key_pressed(Key::Enter) {
+                    a.push(Action::Next);
+                }
+                if i.key_pressed(Key::ArrowLeft) || i.key_pressed(Key::ArrowUp) || i.key_pressed(Key::PageUp) || i.key_pressed(Key::Backspace) {
+                    a.push(Action::Prev);
+                }
+                if i.key_pressed(Key::Home) {
+                    a.push(Action::First);
+                }
+                if i.key_pressed(Key::End) {
+                    a.push(Action::Last);
+                }
+                if i.key_pressed(Key::B) || i.key_pressed(Key::Period) || i.key_pressed(Key::W) || i.key_pressed(Key::Comma) {
+                    a.push(Action::Black);
+                }
+                if i.key_pressed(Key::F5) {
+                    a.push(if i.modifiers.shift { Action::StartHere } else { Action::StartFirst });
+                }
+                a
             });
-            if next {
-                self.next(out);
-            }
-            if prev {
-                self.prev(out);
-            }
-            if first {
-                if let Some(i) = self.next_visible(None) {
-                    self.go(i, out);
-                }
-            }
-            if last {
-                if let Some(i) = self.prev_visible(self.slides.len()) {
-                    self.go(i, out);
-                }
+            for a in actions {
+                self.act(a, out);
             }
         }
 
@@ -478,7 +620,7 @@ impl Presentation {
                 self.go(i, out);
             }
         }
-        let stop = transport_button(ui, stop_r, "pptx-stop", TransportIcon::Stop, None, STOP.gamma_multiply(0.75), Color32::WHITE).on_hover_text("Noir (Échap) : « Lancer » réaffiche la diapositive");
+        let stop = transport_button(ui, stop_r, "pptx-stop", TransportIcon::Stop, None, STOP.gamma_multiply(0.75), Color32::WHITE).on_hover_text("Noir (Échap, B ou point) : B ou point réaffiche la diapositive");
         if pressed(ui, &stop) {
             out.send(Command::Stop);
         }
@@ -495,7 +637,7 @@ impl Presentation {
                 ui.horizontal(|ui| {
                     let txt = self.path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "aucun".into());
                     ui.add(egui::Label::new(RichText::new(txt).color(if self.path.is_some() { TEXT } else { TEXT_DIM })).truncate());
-                    if ui.button("Choisir…").on_hover_text("Ouvrir une présentation PowerPoint (.pptx), ou la glisser ici").clicked() {
+                    if ui.button("Choisir…").on_hover_text("Ouvrir une présentation PowerPoint (.pptx) ou un PDF, ou la glisser ici").clicked() {
                         self.pick_file(&ctx);
                     }
                     if self.path.is_some() && ui.button("Relire").on_hover_text("Relit le fichier (après une modification dans PowerPoint)").clicked() {
@@ -538,6 +680,7 @@ impl Presentation {
             }
             ui.add_space(4.0);
             ui.label(RichText::new("Sans animations ni transitions PowerPoint. Les diapositives masquées sont sautées par « Suivante ».").color(TEXT_DIM));
+            ui.label(RichText::new("Télécommande : Page suivante / précédente, B ou point pour le noir, F5 depuis le début, Maj+F5 depuis la sélection. Elle marche dans tous les onglets, et dans la fenêtre de sortie.").color(TEXT_DIM));
         });
 
         ui.add_space(10.0);
@@ -546,7 +689,7 @@ impl Presentation {
             ui.set_min_size(ui.available_size());
             if self.slides.is_empty() {
                 ui.centered_and_justified(|ui| {
-                    let msg = if self.loading { "Ouverture…" } else { "Choisis une présentation PowerPoint (.pptx), ou glisse-la ici" };
+                    let msg = if self.loading { "Ouverture…" } else { "Choisis une présentation PowerPoint (.pptx) ou un PDF, ou glisse-le ici" };
                     ui.label(RichText::new(msg).color(TEXT_DIM));
                 });
                 return;
@@ -671,5 +814,40 @@ mod tests {
         });
         w.push(Job::Thumb { gen: 1, index: 0 }, false);
         wait(&w, |d| matches!(d, Done::Thumb { index: 0, .. }));
+    }
+
+    #[test]
+    fn worker_opens_a_pdf_one_slide_per_page() {
+        let path = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../crates/star-pdf/tests/fixtures/demo.pdf"));
+        let w = Worker::start(egui::Context::default());
+        w.push(Job::Open { gen: 1, path }, true);
+        let mut count = 0;
+        wait(&w, |d| match d {
+            Done::Opened { slides, .. } => {
+                count = slides.len();
+                assert!(slides.iter().all(|s| !s.hidden && s.title.is_none()));
+                true
+            }
+            Done::Failed { message, .. } => panic!("{message}"),
+            _ => false,
+        });
+        assert!(count >= 8, "{count} pages");
+        w.push(Job::Slide { gen: 1, index: 1, w: 1280, h: 720 }, true);
+        wait(&w, |d| match d {
+            Done::Slide { path, .. } => {
+                let img = image::open(&path).unwrap();
+                assert!(img.height() == 720 && img.width().abs_diff(1280) <= 1, "{}x{}", img.width(), img.height());
+                true
+            }
+            Done::SlideFailed { message, .. } => panic!("{message}"),
+            _ => false,
+        });
+    }
+
+    #[test]
+    fn deck_files_are_recognised() {
+        assert!(is_deck_file(Path::new("a.PPTX")));
+        assert!(is_deck_file(Path::new("b.pdf")));
+        assert!(!is_deck_file(Path::new("c.mp4")));
     }
 }

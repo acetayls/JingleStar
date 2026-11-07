@@ -140,10 +140,10 @@ Les changements s'appliquent tout de suite, sans relancer le diaporama.
 
 ## La Présentation
 
-Diffuse une présentation PowerPoint (**.pptx**) sur la sortie, sans PowerPoint : CueStar
-dessine lui-même chaque diapositive à la résolution de la sortie.
+Diffuse une présentation PowerPoint (**.pptx**) ou un **PDF** sur la sortie, sans PowerPoint :
+CueStar dessine lui-même chaque diapositive (ou chaque page du PDF) à la résolution de la sortie.
 
-- **Choisir…** ou glissez un fichier .pptx ; **Relire** reprend le fichier après une
+- **Choisir…** ou glissez un fichier .pptx ou .pdf ; **Relire** reprend le fichier après une
   modification dans PowerPoint.
 - Les **vignettes** montrent toutes les diapositives : clic pour sélectionner, double-clic pour
   l'afficher sur la sortie. Les diapositives masquées sont sautées.
@@ -152,6 +152,13 @@ dessine lui-même chaque diapositive à la résolution de la sortie.
   préparée d'avance.
 - **Transition** : **Coupe**, **Noir** (fondu au noir puis d'ouverture) ou **Fondu enchaîné**.
 - **Échap** met au noir ; **LANCER** réaffiche la diapositive.
+- **B** ou **point** : écran noir, puis retour à la diapositive. **F5** lance depuis la première
+  diapositive, **Maj+F5** depuis la diapositive sélectionnée ; **Début** et **Fin** vont à la
+  première et à la dernière.
+
+**Télécommande de présentation** (type télécommande PowerPoint) : elle marche telle quelle, sans
+réglage. **Page suivante / précédente**, le bouton écran noir et F5 sont reconnus dans tous les
+onglets dès qu'une présentation est à l'écran, et aussi quand la fenêtre de sortie a le focus.
 
 Textes, puces, formes, images, tableaux, SmartArt et graphiques simples sont rendus ; les
 animations ne le sont pas : une vidéo intégrée apparaît comme son image d'aperçu.

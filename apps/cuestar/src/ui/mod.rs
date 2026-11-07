@@ -759,6 +759,8 @@ impl eframe::App for CueStarApp {
             self.on_picked(pick, files);
         }
         let typing = ctx.egui_wants_keyboard_input();
+        // Présentation : rendus et télécommande, quel que soit l'onglet affiché.
+        self.presentation.tick(&ctx, &mut self.out, typing, self.tab == Tab::Presentation);
         if ctx.input(|i| i.key_pressed(Key::F1)) {
             self.help.toggle();
         }

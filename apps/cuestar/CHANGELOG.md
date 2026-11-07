@@ -18,6 +18,9 @@ dans la charte de JingleStar.
   diapositives masquées sautées, transition au choix, **Relire** après une modification. Les
   diapositives sont dessinées par CueStar à la résolution de la sortie (textes, puces, formes,
   images, tableaux, SmartArt, graphiques simples) et la suivante est préparée d'avance.
+  Ouvre aussi les **PDF** (une page = une diapositive). **Télécommandes de présentation**
+  reconnues (Page suivante / précédente, écran noir B ou point, F5 et Maj+F5), dans tous les
+  onglets et depuis la fenêtre de sortie.
 - **Cuelist** façon JingleStar : GO, cue en attente, enchaîner, boucle, transition, cue Noir,
   glisser-déposer.
 - **Panneau Texte** de JingleStar à côté des modules, enregistré dans le projet.

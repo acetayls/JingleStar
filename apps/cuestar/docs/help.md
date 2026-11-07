@@ -135,10 +135,10 @@ Changes apply at once, without restarting the slideshow.
 
 ## The Presentation
 
-Shows a PowerPoint presentation (**.pptx**) on the output, without PowerPoint: CueStar draws
-each slide itself at the output resolution.
+Shows a PowerPoint presentation (**.pptx**) or a **PDF** on the output, without PowerPoint:
+CueStar draws each slide (or each PDF page) itself at the output resolution.
 
-- **Choisir…** (choose) or drop a .pptx file; **Relire** reloads the file after a change in
+- **Choisir…** (choose) or drop a .pptx or .pdf file; **Relire** reloads the file after a change in
   PowerPoint.
 - The **thumbnails** show every slide: click to select, double-click to show it on the output.
   Hidden slides are skipped.
@@ -148,6 +148,12 @@ each slide itself at the output resolution.
 - **Transition**: **Coupe** (cut), **Noir** (fade to black then up) or **Fondu enchaîné**
   (crossfade).
 - **Esc** goes to black; **LANCER** shows the slide again.
+- **B** or **period**: black screen, then back to the slide. **F5** starts from the first slide,
+  **Shift+F5** from the selected slide; **Home** and **End** go to the first and last.
+
+**Presentation remote** (PowerPoint-style clicker): works as is, no setup. **Page Down / Up**, the
+black-screen button and F5 work in every tab as soon as a presentation is on screen, and also when
+the output window has focus.
 
 Text, bullets, shapes, pictures, tables, SmartArt and simple charts are drawn; animations are not:
 an embedded video shows as its preview picture.
