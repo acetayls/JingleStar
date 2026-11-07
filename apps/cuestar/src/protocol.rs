@@ -51,6 +51,8 @@ pub enum Command {
     SlideshowSettings { photo_seconds: f64, looping: bool, shuffle: bool, video_sound: bool },
     /// Sortie audio (nom mpv `audio-device` ; None = automatique), à chaud.
     AudioDevice { name: Option<String> },
+    /// Délai de la sortie audio en millisecondes, à chaud.
+    AudioDelay { ms: f64 },
     /// Change l'ajustement des images en cours de diaporama.
     SetFit { fit: Fit },
     Next,
@@ -125,6 +127,10 @@ pub enum TransitionKind {
 pub enum PatternKind {
     Bars,
     Moving,
+    /// Mire de synchro (timecode, mouvement, images perdues, bip son / image) à 25 i/s.
+    Sync25,
+    /// Même mire à 60 i/s.
+    Sync60,
     Grid,
     White,
     Grey,
@@ -135,9 +141,11 @@ pub enum PatternKind {
 }
 
 impl PatternKind {
-    pub const ALL: [PatternKind; 9] = [
+    pub const ALL: [PatternKind; 11] = [
         PatternKind::Bars,
         PatternKind::Moving,
+        PatternKind::Sync25,
+        PatternKind::Sync60,
         PatternKind::Grid,
         PatternKind::White,
         PatternKind::Grey,
@@ -150,6 +158,8 @@ impl PatternKind {
         match self {
             PatternKind::Bars => "Barres SMPTE",
             PatternKind::Moving => "Mire animée",
+            PatternKind::Sync25 => "Synchro 25 i/s",
+            PatternKind::Sync60 => "Synchro 60 i/s",
             PatternKind::Grid => "Grille",
             PatternKind::White => "Blanc",
             PatternKind::Grey => "Gris 50 %",
@@ -165,6 +175,8 @@ impl PatternKind {
         match self {
             PatternKind::Bars => format!("av://lavfi:smptehdbars=size={w}x{h}:rate=25"),
             PatternKind::Moving => format!("av://lavfi:testsrc2=size={w}x{h}:rate=60"),
+            PatternKind::Sync25 => format!("av://lavfi:{}", sync_graph(w, h, 25)),
+            PatternKind::Sync60 => format!("av://lavfi:{}", sync_graph(w, h, 60)),
             PatternKind::Grid => format!(
                 "av://lavfi:color=c=black:size={w}x{h}:rate=25,drawgrid=w={}:h={}:t=2:c=white,drawbox=x=0:y=0:w={w}:h={h}:t=4:c=white",
                 (w / 16).max(1),
@@ -178,6 +190,69 @@ impl PatternKind {
             PatternKind::Blue => solid("blue"),
         }
     }
+}
+
+/// Mire de synchro, en graphe lavfi (image `out0`, son `out1`) :
+/// - barres de couleur, zones de sécurité 93 % et 90 %, repères au milieu des bords (recadrage),
+///   carré en bas à gauche (proportions) ;
+/// - petites barres qui vont et viennent (fluidité du mouvement) et timecode ;
+/// - carrés allumés une image sur 2, 3, 4 et 5 (images perdues ou doublées) ;
+/// - carré « bip » allumé une image par seconde, en même temps qu'un bip de 1 kHz à −18 dBFS ;
+///   le reste du temps, un son continu de 440 Hz à −20 dBFS (coupures du son).
+pub fn sync_graph(w: u32, h: u32, fps: u32) -> String {
+    let s = h as f64 / 1080.0;
+    let px = |v: f64| (v * s).round().max(1.0) as i64;
+    let (w, h) = (w as i64, h as i64);
+    let (q, fs) = (px(80.0), px(36.0));
+    let rh = px(130.0);
+    let rw = (rh as f64 * 16.0 / 9.0).round() as i64;
+    let band_y = (h as f64 * 0.20).round() as i64;
+    let band_h = (h as f64 * 0.44).round() as i64;
+    let line = px(3.0).max(2);
+    let pct = |v: i64, p: f64| (v as f64 * p).round() as i64;
+    let mut g = vec![format!("smptehdbars=size={w}x{h}:rate={fps}[b]"), format!("smptebars=size={rw}x{rh}:rate={fps}[r]")];
+    for k in 0..5 {
+        g.push(format!("color=c=white:size={q}x{q}:rate={fps}[c{k}]"));
+    }
+    let (m, t) = (px(60.0), px(12.0));
+    let sq = pct(h, 0.16);
+    g.push(format!(
+        "[b]drawbox=x=0:y={band_y}:w={w}:h={band_h}:c=black:t=fill,\
+         drawbox=x={}:y={}:w={}:h={}:c=yellow:t={line},\
+         drawbox=x={}:y={}:w={}:h={}:c=cyan:t={line},\
+         drawbox=x={}:y=0:w={t}:h={m}:c=white:t=fill,drawbox=x={}:y={}:w={t}:h={m}:c=white:t=fill,\
+         drawbox=x=0:y={}:w={m}:h={t}:c=white:t=fill,drawbox=x={}:y={}:w={m}:h={t}:c=white:t=fill,\
+         drawbox=x={}:y={}:w={sq}:h={sq}:c=white:t={}[v0]",
+        pct(w, 0.035), pct(h, 0.035), pct(w, 0.93), pct(h, 0.93),
+        pct(w, 0.05), pct(h, 0.05), pct(w, 0.9), pct(h, 0.9),
+        (w - t) / 2, (w - t) / 2, h - m,
+        (h - t) / 2, w - m, (h - t) / 2,
+        pct(h, 0.07), h - pct(h, 0.07) - sq, px(6.0).max(2),
+    ));
+    let rect_y = band_y + px(60.0);
+    g.push(format!("[v0][r]overlay=x='(W-w)*(0.5+0.45*sin(2*PI*t/4))':y={rect_y}[v1]"));
+    let gap = px(30.0);
+    let x0 = (w - (5 * q + 4 * gap)) / 2;
+    let y0 = band_y + band_h - q - px(25.0);
+    let mut last = "v1".to_string();
+    for (k, every) in [2, 3, 4, 5, fps].into_iter().enumerate() {
+        g.push(format!("[{last}][c{k}]overlay=x={}:y={y0}:enable='eq(mod(n,{every}),0)'[w{k}]", x0 + k as i64 * (q + gap)));
+        last = format!("w{k}");
+    }
+    let mut txt = format!(
+        "[{last}]drawtext=timecode='00\\:00\\:00\\:00':rate={fps}:fontsize={}:fontcolor=white:x=(w-tw)/2:y={}",
+        px(64.0),
+        rect_y + rh + px(10.0)
+    );
+    for (k, label) in ["1/2", "1/3", "1/4", "1/5", "bip"].iter().enumerate() {
+        txt += &format!(",drawtext=text='{label}':fontsize={fs}:fontcolor=white:x={}+({q}-tw)/2:y={}", x0 + k as i64 * (q + gap), y0 - fs - px(6.0));
+    }
+    txt += &format!(",drawtext=text='CueStar  {fps} i/s':fontsize={fs}:fontcolor=white:x=(w-tw)/2:y={}[out0]", band_y + px(10.0));
+    g.push(txt);
+    g.push(format!(
+        "aevalsrc='if(lt(mod(t\\,1)\\,1/{fps})\\,0.126*sin(2*PI*1000*t)\\,0.1*sin(2*PI*440*t))':s=48000:c=stereo[out1]"
+    ));
+    g.join(";")
 }
 
 /// Ajustement d'une image à l'écran.
@@ -235,4 +310,22 @@ pub enum Event {
     /// Sorties audio disponibles : (nom mpv, description).
     AudioDevices { list: Vec<(String, String)> },
     Error { message: String },
+}
+
+#[cfg(test)]
+mod tests_mire {
+    /// Le graphe de la mire de synchro passe dans ffmpeg (test sauté sans ffmpeg).
+    #[test]
+    fn sync_graph_runs() {
+        for (w, h, fps) in [(1920, 1080, 25), (1280, 720, 60)] {
+            let g = super::sync_graph(w, h, fps);
+            let Ok(out) = std::process::Command::new("ffmpeg")
+                .args(["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", &g, "-map", "0:v", "-map", "0:a", "-t", "0.2", "-f", "null", "-"])
+                .output()
+            else {
+                return;
+            };
+            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        }
+    }
 }

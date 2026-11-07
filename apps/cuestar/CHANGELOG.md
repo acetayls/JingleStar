@@ -44,9 +44,15 @@ dans la charte de JingleStar.
 - Barre du bas : temps **GO → image** du dernier chargement, mesuré par la sortie.
 - Cadence automatique : synchro audio quand l'écran tombe juste (30 i/s sur 60 Hz) et pour la
   4K, où le recalage de vitesse perdait des images (HEVC, ProRes).
-- **Préférences** (anciennement « Video output ») en onglets : **Écran et moteur** (écran,
-  décodage, cadence, interpolation, adaptation de la fréquence de l'écran), **Audio** (carte et
-  volume), **Mires de test**, **Mapping 4 coins**.
+- **Préférences** (anciennement « Video output ») en onglets : **Vidéo** (écran, décodage,
+  **FPS**, calage des images, interpolation, adaptation de la fréquence de l'écran,
+  **empêcher la mise en veille**), **Audio** (carte, volume, **délai de sortie** en ms, images
+  ou mètres), **Mires de test**, **Mapping 4 coins**.
+- **FPS** : l'écran de sortie est forcé sur la fréquence choisie (24 à 144 Hz) et la retrouve en
+  quittant, sous Windows, macOS et Linux X11 (sous Wayland, message invitant à la régler dans
+  le système).
+- **Mires de synchro 25 et 60 i/s** : timecode, mouvement, images perdues (carrés 1/2 à 1/5),
+  bip 1 kHz calé sur une image, son continu 440 Hz, zones de sécurité, recadrage, proportions.
 - **Monitoring** : fenêtre flottante avec le retour de l'image de sortie, fps, CPU et GPU.
 - Compteur d'**images perdues et retardées** cumulé sur tous les médias, avec remise à zéro
   (clic droit, bouton, OSC `output/drops/reset`).

@@ -70,6 +70,9 @@ pub struct CueStarApp {
     missing: usize,
     status: Option<String>,
     window_title: String,
+    /// Anti-veille en cours (option des Préférences) ; dernier échec, pour ne pas réessayer à chaque image.
+    keep_awake: Option<keepawake::KeepAwake>,
+    keep_awake_failed: Option<Instant>,
     // ---- commande OSC
     osc: crate::osc::OscServer,
     osc_draft: crate::osc::OscSettings,
@@ -114,6 +117,8 @@ impl CueStarApp {
             alert: None,
             missing: 0,
             status: None,
+            keep_awake: None,
+            keep_awake_failed: None,
             window_title: String::new(),
             osc: {
                 let ctx = cc.egui_ctx.clone();
@@ -264,6 +269,33 @@ impl CueStarApp {
             let _ = now.save_with_backup(p);
         }
         self.session_saved = now;
+    }
+
+    /// Empêche la mise en veille tant que CueStar est ouvert, si l'option est cochée.
+    fn update_keep_awake(&mut self) {
+        let want = self.prefs.prevent_sleep;
+        // Après un échec (pas de D-Bus…), nouvel essai au bout de 30 s seulement : la tentative est lente.
+        let may_retry = self.keep_awake_failed.is_none_or(|t| t.elapsed() > Duration::from_secs(30));
+        if want && self.keep_awake.is_none() && may_retry {
+            self.keep_awake_failed = Some(Instant::now());
+            match keepawake::Builder::default()
+                .display(true)
+                .idle(true)
+                .sleep(true)
+                .reason("Spectacle en cours")
+                .app_name("CueStar")
+                .app_reverse_domain("com.acetayls.CueStar")
+                .create()
+            {
+                Ok(k) => {
+                    self.keep_awake = Some(k);
+                    self.keep_awake_failed = None;
+                }
+                Err(e) => self.status = Some(format!("Anti-veille indisponible : {e}")),
+            }
+        } else if !want {
+            self.keep_awake = None;
+        }
     }
 
     fn update_title(&mut self, ctx: &egui::Context) {
@@ -813,6 +845,7 @@ impl eframe::App for CueStarApp {
         }
 
         self.track_changes();
+        self.update_keep_awake();
         self.update_title(&ctx);
         let busy = self.out.state.current.is_some() || self.out.state.slide.is_some();
         ctx.request_repaint_after(Duration::from_millis(if busy { 50 } else { 250 }));

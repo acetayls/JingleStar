@@ -90,6 +90,58 @@ pub enum Cadence {
     Resample,
 }
 
+/// Unité d'affichage du délai de sortie audio (il est toujours enregistré en millisecondes).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DelayUnit {
+    #[default]
+    Ms,
+    /// Images, à la cadence du FPS choisi (25 i/s en automatique).
+    Frames,
+    /// Mètres de propagation du son dans l'air (343 m/s).
+    Meters,
+}
+
+/// Vitesse du son dans l'air à 20 °C, en m/s.
+pub const SOUND_SPEED: f64 = 343.0;
+
+impl DelayUnit {
+    pub const ALL: [DelayUnit; 3] = [DelayUnit::Ms, DelayUnit::Frames, DelayUnit::Meters];
+    pub fn label(self) -> &'static str {
+        match self {
+            DelayUnit::Ms => "ms",
+            DelayUnit::Frames => "images",
+            DelayUnit::Meters => "mètres",
+        }
+    }
+    /// Millisecondes → valeur dans cette unité.
+    pub fn from_ms(self, ms: f64, fps: f64) -> f64 {
+        match self {
+            DelayUnit::Ms => ms,
+            DelayUnit::Frames => ms * fps / 1000.0,
+            DelayUnit::Meters => ms * SOUND_SPEED / 1000.0,
+        }
+    }
+    /// Valeur dans cette unité → millisecondes.
+    pub fn to_ms(self, v: f64, fps: f64) -> f64 {
+        match self {
+            DelayUnit::Ms => v,
+            DelayUnit::Frames => v * 1000.0 / fps,
+            DelayUnit::Meters => v * 1000.0 / SOUND_SPEED,
+        }
+    }
+}
+
+/// Fréquences proposées dans le choix « FPS » des Préférences (Hz, entières comme sous Windows).
+pub const FPS_CHOICES: [f64; 9] = [24.0, 25.0, 30.0, 48.0, 50.0, 60.0, 100.0, 120.0, 144.0];
+
+/// Libellé d'un choix « FPS » : None = automatique.
+pub fn fps_label(fps: Option<f64>) -> String {
+    match fps {
+        None => "Automatique (selon la vidéo)".into(),
+        Some(f) => format!("{f:.0} i/s (écran forcé à {f:.0} Hz)"),
+    }
+}
+
 impl Cadence {
     pub const ALL: [Cadence; 3] = [Cadence::Auto, Cadence::Audio, Cadence::Resample];
     pub fn label(self) -> &'static str {
@@ -114,6 +166,9 @@ pub struct MachinePrefs {
     pub windowed_if_single: bool,
     /// Calage des images sur l'écran.
     pub cadence: Cadence,
+    /// FPS choisi : l'écran de sortie est forcé sur cette fréquence à l'ouverture de la sortie
+    /// (rétablie en quittant). None = automatique.
+    pub fps: Option<f64>,
     /// Interpolation : fond deux images voisines pour lisser un rythme irrégulier (24 i/s sur 60 Hz…).
     pub interpolation: bool,
     /// Passe l'écran de sortie sur une fréquence qui tombe juste pour la vidéo, rétablie en quittant.
@@ -124,6 +179,12 @@ pub struct MachinePrefs {
     pub audio_device: Option<String>,
     /// Volume général de la sortie (0 à 100).
     pub volume: f64,
+    /// Délai de la sortie audio, en millisecondes (son retardé par rapport à l'image).
+    pub audio_delay_ms: f64,
+    /// Unité d'affichage du délai.
+    pub audio_delay_unit: DelayUnit,
+    /// Empêche la mise en veille de l'écran et du système tant que CueStar est ouvert.
+    pub prevent_sleep: bool,
     /// Langue de l'interface.
     pub language: star_core::i18n::Lang,
 }
@@ -153,7 +214,7 @@ impl Default for Warp {
 
 impl Default for MachinePrefs {
     fn default() -> Self {
-        Self { decode: Decode::Auto, render: RenderApi::Auto, light: false, screen: None, windowed_if_single: true, cadence: Cadence::Auto, interpolation: false, adapt_refresh: false, warp: Warp::default(), audio_device: None, volume: 100.0, language: star_core::i18n::Lang::Fr }
+        Self { decode: Decode::Auto, render: RenderApi::Auto, light: false, screen: None, windowed_if_single: true, cadence: Cadence::Auto, fps: None, interpolation: false, adapt_refresh: false, warp: Warp::default(), audio_device: None, volume: 100.0, audio_delay_ms: 0.0, audio_delay_unit: DelayUnit::Ms, prevent_sleep: true, language: star_core::i18n::Lang::Fr }
     }
 }
 
@@ -168,6 +229,9 @@ impl MachinePrefs {
         a.warp = o.warp;
         a.audio_device = o.audio_device.clone();
         a.volume = o.volume;
+        a.audio_delay_ms = o.audio_delay_ms;
+        a.audio_delay_unit = o.audio_delay_unit;
+        a.prevent_sleep = o.prevent_sleep;
         a == *o
     }
 
