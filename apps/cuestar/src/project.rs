@@ -274,6 +274,7 @@ mod golden {
             screen: Some("DELL U2720Q".into()),
             windowed_if_single: false,
             cadence: Cadence::Resample,
+            fps: Some(50.0),
             interpolation: true,
             adapt_refresh: true,
             warp: Warp { enabled: true, corners: [[0.1, 0.0], [0.9, 0.05], [1.0, 1.0], [0.0, 0.95]] },
@@ -281,11 +282,14 @@ mod golden {
             volume: 80.0,
             language: star_core::i18n::Lang::En,
         };
-        check("machine-0.0.2.json", serde_json::to_value(&m).unwrap());
-        assert_eq!(serde_json::from_str::<MachinePrefs>(&fixture("machine-0.0.2.json")).unwrap(), m);
+        check("machine-0.1.1.json", serde_json::to_value(&m).unwrap());
+        assert_eq!(serde_json::from_str::<MachinePrefs>(&fixture("machine-0.1.1.json")).unwrap(), m);
+        // Fichier d'avant le choix du FPS : relu à l'identique, FPS automatique.
+        let old: MachinePrefs = serde_json::from_str(&fixture("machine-0.0.2.json")).unwrap();
+        assert_eq!(old, MachinePrefs { fps: None, ..m.clone() });
         // Fichier d'avant le choix de la langue : relu à l'identique, en français.
         let old: MachinePrefs = serde_json::from_str(&fixture("machine-0.0.1.json")).unwrap();
-        assert_eq!(old, MachinePrefs { language: star_core::i18n::Lang::Fr, ..m });
+        assert_eq!(old, MachinePrefs { language: star_core::i18n::Lang::Fr, fps: None, ..m });
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 use crate::link::OutputLink;
 use crate::output::warp::map_point;
-use crate::prefs::{Cadence, Decode, MachinePrefs, RenderApi, Warp};
+use crate::prefs::{fps_label, Cadence, Decode, MachinePrefs, RenderApi, Warp, FPS_CHOICES};
 use crate::protocol::{Command, PatternKind};
 use egui::{pos2, vec2, Color32, Key, Pos2, Rect, RichText, Sense, Stroke};
 use star_ui::theme::*;
@@ -182,7 +182,18 @@ impl OutputView {
                 ui.checkbox(&mut d.light, "Rendu léger");
                 ui.end_row();
 
-                ui.label("Cadence");
+                ui.label("FPS");
+                egui::ComboBox::from_id_salt("fps").selected_text(fps_label(d.fps)).width(280.0).show_ui(ui, |ui| {
+                    ui.selectable_value(&mut d.fps, None, fps_label(None));
+                    for f in FPS_CHOICES {
+                        ui.selectable_value(&mut d.fps, Some(f), fps_label(Some(f)));
+                    }
+                })
+                .response
+                .on_hover_text("Choisir une valeur essaie de passer l'écran de sortie sur cette fréquence (Windows), rétablie en quittant. Noir un instant au changement.");
+                ui.end_row();
+
+                ui.label("Calage des images");
                 egui::ComboBox::from_id_salt("cadence").selected_text(d.cadence.label()).width(280.0).show_ui(ui, |ui| {
                     for v in Cadence::ALL {
                         ui.selectable_value(&mut d.cadence, v, v.label());
@@ -198,7 +209,8 @@ impl OutputView {
                 ui.end_row();
 
                 ui.label("");
-                ui.checkbox(&mut d.adapt_refresh, "Adapter la fréquence de l'écran à la vidéo")
+                ui.add_enabled(d.fps.is_none(), egui::Checkbox::new(&mut d.adapt_refresh, "Adapter la fréquence de l'écran à la vidéo"))
+                    .on_disabled_hover_text("Sans effet quand un FPS est choisi : l'écran reste sur cette fréquence")
                     .on_hover_text("Passe l'écran de sortie en 50, 60… Hz selon la vidéo (Windows), et rétablit sa fréquence en quittant. Noir un instant au changement.");
                 ui.end_row();
             });

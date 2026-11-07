@@ -323,6 +323,7 @@ impl OutputApp {
         self.refresh_hz = chosen.as_ref().and_then(|m| m.refresh_rate_millihertz()).map(|r| r as f64 / 1000.0).unwrap_or(60.0);
         self.device = chosen.as_ref().and_then(|m| m.name());
         self.modes = self.device.as_deref().map(refresh::modes).unwrap_or_default();
+        self.force_refresh();
 
         let mpv_version = match self.start_output(&window, chosen.as_ref()) {
             Ok(v) => Some(v),
@@ -1093,13 +1094,38 @@ impl OutputApp {
         }
     }
 
+    /// FPS choisi dans les Préférences : l'écran de sortie passe sur cette fréquence (ou un
+    /// multiple qu'il propose), avant l'ouverture des lecteurs.
+    fn force_refresh(&mut self) {
+        let (Some(fps), Some(dev)) = (self.prefs.fps, self.device.clone()) else { return };
+        if (fps - self.refresh_hz).abs() < 0.5 {
+            return;
+        }
+        // Fréquence exacte si l'écran la propose, sinon un multiple (50 Hz pour 25 i/s…).
+        let exact = self.modes.is_empty() || self.modes.iter().any(|m| (m - fps).abs() < 0.5);
+        let Some(hz) = (if exact { Some(fps) } else { refresh::best(fps, &self.modes) }) else {
+            emit(&Event::Error { message: format!("l'écran de sortie ne propose pas {fps:.0} Hz") });
+            return;
+        };
+        if (hz - self.refresh_hz).abs() < 0.5 {
+            return;
+        }
+        match refresh::set(&dev, hz) {
+            Ok(()) => {
+                self.refresh_changed = true;
+                self.refresh_hz = refresh::current(&dev).unwrap_or(hz);
+            }
+            Err(e) => emit(&Event::Error { message: format!("FPS {fps:.0} : {e}") }),
+        }
+    }
+
     /// Calage des images sur l'écran, pour le fichier qui vient d'être chargé sur `deck`.
     fn apply_cadence(&mut self, deck: usize) {
         let Some(out) = &self.out else { return };
         let m = out.deck(deck);
         let fps = m.get_property("container-fps").and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
         // Fréquence de l'écran adaptée à la vidéo (si demandé et possible).
-        if self.prefs.adapt_refresh && fps > 1.0 && deck == self.active {
+        if self.prefs.fps.is_none() && self.prefs.adapt_refresh && fps > 1.0 && deck == self.active {
             if let (Some(dev), Some(hz)) = (self.device.clone(), refresh::best(fps, &self.modes)) {
                 if (hz - self.refresh_hz).abs() > 0.5 && !refresh::fits(fps, self.refresh_hz) {
                     match refresh::set(&dev, hz) {

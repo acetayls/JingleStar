@@ -90,6 +90,17 @@ pub enum Cadence {
     Resample,
 }
 
+/// Fréquences proposées dans le choix « FPS » des Préférences (Hz, entières comme sous Windows).
+pub const FPS_CHOICES: [f64; 9] = [24.0, 25.0, 30.0, 48.0, 50.0, 60.0, 100.0, 120.0, 144.0];
+
+/// Libellé d'un choix « FPS » : None = automatique.
+pub fn fps_label(fps: Option<f64>) -> String {
+    match fps {
+        None => "Automatique (selon la vidéo)".into(),
+        Some(f) => format!("{f:.0} i/s (écran forcé à {f:.0} Hz)"),
+    }
+}
+
 impl Cadence {
     pub const ALL: [Cadence; 3] = [Cadence::Auto, Cadence::Audio, Cadence::Resample];
     pub fn label(self) -> &'static str {
@@ -114,6 +125,9 @@ pub struct MachinePrefs {
     pub windowed_if_single: bool,
     /// Calage des images sur l'écran.
     pub cadence: Cadence,
+    /// FPS choisi : l'écran de sortie est forcé sur cette fréquence à l'ouverture de la sortie
+    /// (rétablie en quittant). None = automatique.
+    pub fps: Option<f64>,
     /// Interpolation : fond deux images voisines pour lisser un rythme irrégulier (24 i/s sur 60 Hz…).
     pub interpolation: bool,
     /// Passe l'écran de sortie sur une fréquence qui tombe juste pour la vidéo, rétablie en quittant.
@@ -153,7 +167,7 @@ impl Default for Warp {
 
 impl Default for MachinePrefs {
     fn default() -> Self {
-        Self { decode: Decode::Auto, render: RenderApi::Auto, light: false, screen: None, windowed_if_single: true, cadence: Cadence::Auto, interpolation: false, adapt_refresh: false, warp: Warp::default(), audio_device: None, volume: 100.0, language: star_core::i18n::Lang::Fr }
+        Self { decode: Decode::Auto, render: RenderApi::Auto, light: false, screen: None, windowed_if_single: true, cadence: Cadence::Auto, fps: None, interpolation: false, adapt_refresh: false, warp: Warp::default(), audio_device: None, volume: 100.0, language: star_core::i18n::Lang::Fr }
     }
 }
 
