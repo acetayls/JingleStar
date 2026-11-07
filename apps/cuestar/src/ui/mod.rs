@@ -8,6 +8,7 @@ mod monitor_view;
 mod notes;
 mod remote_view;
 mod output_view;
+mod presentation;
 
 use crate::link::OutputLink;
 use crate::prefs::MachinePrefs;
@@ -25,6 +26,7 @@ use std::time::Duration;
 enum Tab {
     Lecteur,
     Diaporama,
+    Presentation,
     Cuelist,
 }
 
@@ -34,6 +36,7 @@ pub struct CueStarApp {
     out: OutputLink,
     lecteur: lecteur::Lecteur,
     diaporama: diaporama::Diaporama,
+    presentation: presentation::Presentation,
     cuelist: cuelist::Cuelist,
     output_view: output_view::OutputView,
     monitor: monitor_view::MonitorView,
@@ -81,6 +84,7 @@ impl CueStarApp {
             out: OutputLink::new(),
             lecteur: Default::default(),
             diaporama: Default::default(),
+            presentation: Default::default(),
             cuelist: Default::default(),
             output_view: Default::default(),
             monitor: Default::default(),
@@ -510,7 +514,7 @@ impl CueStarApp {
                 }
             }
             ui.add_space(14.0);
-            for (t, name) in [(Tab::Lecteur, "Lecteur"), (Tab::Diaporama, "Diaporama"), (Tab::Cuelist, "Cuelist")] {
+            for (t, name) in [(Tab::Lecteur, "Lecteur"), (Tab::Diaporama, "Diaporama"), (Tab::Presentation, "Présentation"), (Tab::Cuelist, "Cuelist")] {
                 let sel = self.tab == t;
                 let txt = RichText::new(name).size(15.0).color(if sel { PLAYING_INK } else { TEXT });
                 let b = egui::Button::new(txt).fill(if sel { ACCENT } else { PANEL_HI }).min_size(egui::vec2(96.0, 30.0));
@@ -703,6 +707,7 @@ impl eframe::App for CueStarApp {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(10)).show(ui, |ui| match self.tab {
             Tab::Lecteur => self.lecteur.ui(ui, &mut self.out, typing),
             Tab::Diaporama => self.diaporama.ui(ui, &mut self.out, typing),
+            Tab::Presentation => self.presentation.ui(ui, &mut self.out, typing),
             Tab::Cuelist => self.cuelist.ui(ui, &mut self.out, typing),
         });
 
@@ -714,7 +719,7 @@ impl eframe::App for CueStarApp {
         match self.tab {
             Tab::Lecteur => self.lecteur.handle_drops(&ctx),
             Tab::Cuelist => self.cuelist.handle_drops(&ctx),
-            Tab::Diaporama => {}
+            Tab::Diaporama | Tab::Presentation => {}
         }
 
         self.track_changes();

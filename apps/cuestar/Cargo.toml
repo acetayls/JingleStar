@@ -8,6 +8,8 @@ license.workspace = true
 
 [dependencies]
 star-commun.workspace = true
+# Rendu des présentations PowerPoint du module Présentation.
+star-pptx = { path = "../../crates/star-pptx" }
 eframe.workspace = true
 egui.workspace = true
 rfd = "0.17"

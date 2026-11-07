@@ -984,6 +984,7 @@ dependencies = [
  "serde_json",
  "softbuffer",
  "star-commun",
+ "star-pptx",
  "sysinfo",
  "windows",
  "windows-sys 0.59.0",
