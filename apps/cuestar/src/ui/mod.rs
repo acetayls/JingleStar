@@ -3,7 +3,9 @@
 mod cuelist;
 mod diaporama;
 mod dialogs;
+mod file_info;
 mod lecteur;
+mod media_editor;
 mod monitor_view;
 mod notes;
 mod remote_view;
@@ -22,6 +24,9 @@ use star_ui::theme::{self, *};
 use star_ui::widgets;
 use std::time::Duration;
 
+const AIDE_FR: &str = include_str!("../../docs/aide.md");
+const HELP_EN: &str = include_str!("../../docs/help.md");
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Lecteur,
@@ -31,6 +36,8 @@ enum Tab {
 
 pub struct CueStarApp {
     tab: Tab,
+    /// Manuel (F1).
+    help: star_ui::help::HelpWindow,
     prefs: MachinePrefs,
     out: OutputLink,
     lecteur: lecteur::Lecteur,
@@ -110,6 +117,7 @@ impl CueStarApp {
             },
             osc_draft: crate::osc::OscSettings::load(),
             osc_open: false,
+            help: star_ui::help::HelpWindow::new(AIDE_FR, HELP_EN),
             remotes: {
                 let ctx = cc.egui_ctx.clone();
                 remote_view::Remotes::new(std::sync::Arc::new(move || ctx.request_repaint()))
@@ -352,6 +360,8 @@ impl CueStarApp {
             let path = m.path.clone();
             if path == "noir" || path == "black" {
                 self.out.send(Command::Stop);
+            } else if path == "output/drops/reset" {
+                self.out.reset_drops();
             } else if let Some(cmd) = path.strip_prefix("lecteur/") {
                 self.lecteur.handle_osc(cmd, &m, &mut self.out);
             } else if let Some(cmd) = path.strip_prefix("cuelist/") {
@@ -584,6 +594,9 @@ impl CueStarApp {
                     self.out.send(Command::Stop);
                 }
                 ui.add_space(8.0);
+                if ui.selectable_label(self.help.open, tr("? Aide", "? Help")).on_hover_text("F1").clicked() {
+                    self.help.toggle();
+                }
                 if ui
                     .selectable_label(self.osc_open, "Télécommandes")
                     .on_hover_text("OSC, MIDI, consoles Yamaha et Midas, correspondances, raccourcis")
@@ -629,6 +642,7 @@ impl CueStarApp {
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         let s = &self.out.state;
+        let mut reset = false;
         ui.horizontal_centered(|ui| {
             match (&s.mpv, &s.mpv_missing) {
                 (Some(v), _) => {
@@ -645,7 +659,28 @@ impl CueStarApp {
             ui.label(RichText::new(format!("Décodage : {dec}")).color(TEXT_DIM));
             ui.separator();
             let col = if s.dropped > 0 { METER_HIGH } else { TEXT_DIM };
-            ui.label(RichText::new(format!("Images perdues : {}  retardées : {}", s.dropped, s.delayed)).color(col));
+            let (media_dropped, media_delayed) = (s.media_dropped, s.media_delayed);
+            ui.horizontal(|ui| {
+                let resp = ui
+                    .add(egui::Label::new(RichText::new(format!("{} {}  {} {}", tr("Images perdues :", "Dropped frames:"), s.dropped, tr("retardées :", "delayed:"), s.delayed)).color(col)).sense(egui::Sense::click()))
+                    .on_hover_text(format!(
+                        "{}\n{} {media_dropped}, {} {media_delayed}\n{}",
+                        tr("Depuis la dernière remise à zéro, tous médias confondus.", "Since the last reset, all media."),
+                        tr("Média en cours : perdues", "Current media: dropped"),
+                        tr("retardées", "delayed"),
+                        tr("Clic droit : remettre à zéro.", "Right-click: reset.")
+                    ));
+                resp.context_menu(|ui| {
+                    if ui.button(tr("Remettre à zéro", "Reset")).clicked() {
+                        reset = true;
+                        ui.close();
+                    }
+                });
+                if (s.dropped > 0 || s.delayed > 0) && ui.small_button("↺").on_hover_text(tr("Remettre le compteur à zéro", "Reset the counter")).clicked() {
+                    reset = true;
+                }
+            });
+
             ui.separator();
             let fps = if s.current.is_some() && s.video_fps > 0.0 { format!("{:.2} i/s", s.video_fps) } else { "— i/s".into() };
             let hz = if s.display_fps > 0.0 { format!(" (écran {:.2} Hz)", s.display_fps) } else { String::new() };
@@ -673,6 +708,9 @@ impl CueStarApp {
                 ui.label(RichText::new(format!("CueStar {}", env!("CARGO_PKG_VERSION"))).color(TEXT_DIM));
             });
         });
+        if reset {
+            self.out.reset_drops();
+        }
     }
 }
 
@@ -691,6 +729,9 @@ impl eframe::App for CueStarApp {
             self.on_picked(pick, files);
         }
         let typing = ctx.egui_wants_keyboard_input();
+        if ctx.input(|i| i.key_pressed(Key::F1)) {
+            self.help.toggle();
+        }
         if !typing && ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.out.send(Command::Stop);
         }
@@ -761,6 +802,7 @@ impl eframe::App for CueStarApp {
         });
 
         self.monitor.show(&ctx, &mut self.out);
+        self.help.show(&ctx);
         self.osc_window(&ctx);
         if let output_view::Action::Restart = self.output_view.show(&ctx, &mut self.prefs, &mut self.out, &mut self.pattern) {
             self.restart_output();
@@ -780,5 +822,17 @@ impl eframe::App for CueStarApp {
     fn on_exit(&mut self) {
         self.flush_session();
         self.out.stop();
+    }
+}
+
+#[cfg(test)]
+mod manual_tests {
+    /// Les liens internes des deux manuels mènent tous à un titre.
+    #[test]
+    fn manual_links_resolve() {
+        for src in [super::AIDE_FR, super::HELP_EN] {
+            let broken = star_ui::help::broken_links(src);
+            assert!(broken.is_empty(), "liens sans titre : {broken:?}");
+        }
     }
 }

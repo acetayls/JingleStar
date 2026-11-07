@@ -196,6 +196,7 @@ pub fn shortcuts(ui: &mut Ui) {
         ("↑ / ↓", "Lecteur, Cuelist : élément ou cue précédent / suivant en attente"),
         ("← / →", "Diaporama : média précédent / suivant"),
         ("Échap", "Noir : coupe la sortie"),
+        ("F1", "Ouvrir ou fermer l'aide"),
         ("Ctrl+S", "Enregistrer le projet"),
         ("Ctrl+Maj+S", "Enregistrer sous…"),
         ("Ctrl+O", "Ouvrir un projet"),

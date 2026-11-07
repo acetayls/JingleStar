@@ -30,6 +30,16 @@ sortie affiche la mire. Emplacements cherchés : à côté de l'exécutable, dan
 - macOS : `brew install mpv`.
 - Linux : paquet `libmpv2` / `mpv-libs`.
 
+### MediaInfo (facultatif)
+
+« Informations sur le fichier… » (clic droit sur un élément du Lecteur ou un cue) utilise la
+bibliothèque MediaInfo (licence BSD-2), chargée de la même façon et cherchée aux mêmes endroits
+que libmpv. Sans elle, la fenêtre affiche ce que libmpv sait du fichier.
+
+- Windows : `MediaInfo.dll` (MediaInfo « DLL » 64 bits sur mediaarea.net), à poser dans `mpv/`.
+- macOS : `brew install media-info`.
+- Linux : paquet `libmediainfo0v5` / `libmediainfo`.
+
 ## Compiler
 
 ```

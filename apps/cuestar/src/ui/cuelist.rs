@@ -5,6 +5,7 @@
 use crate::link::OutputLink;
 use crate::project::{CueData, CueFollow, CuelistData};
 use crate::protocol::{Command, TransitionKind};
+use star_core::i18n::tr;
 use egui::{pos2, vec2, Align2, Color32, CornerRadius, FontId, Id, Key, Rect, RichText, Sense, Stroke, StrokeKind};
 use star_ui::theme::*;
 use star_ui::widgets::{add_button, fmt_time, loop_icon, transport_button, TransportIcon};
@@ -33,6 +34,10 @@ pub struct Cuelist {
     editor: Option<usize>,
     pending_play: Option<usize>,
     pending_go: bool,
+    /// Aperçu muet de l'éditeur de cue (processus lancé à la première ouverture).
+    preview: crate::preview::Preview,
+    /// Fenêtres « Informations sur le fichier » ouvertes.
+    infos: Vec<super::file_info::FileInfo>,
 }
 
 fn stem(p: &Path) -> String {
@@ -84,6 +89,7 @@ enum CueAction {
     Follow(CueFollow),
     Loop(bool),
     Edit,
+    Info,
     Go,
 }
 
@@ -129,7 +135,8 @@ impl Cuelist {
             Some(p) => out.send(Command::Load {
                 path: p.to_string_lossy().into_owned(),
                 paused: false,
-                looping: c.looping,
+                looping: c.clip.sound.looping,
+                clip: c.clip.clone(),
                 // Un cue qui enchaîne doit signaler sa fin ; sinon sa dernière image reste.
                 hold: c.follow == CueFollow::Stop,
                 transition: c.transition,
@@ -285,7 +292,7 @@ impl Cuelist {
                         if paused {
                             ui.label(RichText::new("P ou GO pour reprendre").small().color(TEXT_DIM));
                         }
-                        if c.looping {
+                        if c.clip.sound.looping {
                             let (r, _) = ui.allocate_exact_size(vec2(18.0, 10.0), Sense::hover());
                             loop_icon(ui.painter(), r, run_col);
                         }
@@ -452,10 +459,10 @@ impl Cuelist {
                 let mut right = rect.right() - 4.0;
                 let lr = Rect::from_center_size(pos2(right - 10.0, rect.center().y), vec2(20.0, 16.0));
                 let lresp = ui.interact(lr, ui.make_persistent_id(("cl-loop", i)), Sense::click());
-                let lc = if c.looping { ACCENT } else if lresp.hovered() || resp.hovered() { TEXT_DIM } else { BORDER };
+                let lc = if c.clip.sound.looping { ACCENT } else if lresp.hovered() || resp.hovered() { TEXT_DIM } else { BORDER };
                 loop_icon(&p, Rect::from_center_size(lr.center(), vec2(16.0, 9.0)), lc);
-                if lresp.on_hover_text(if c.looping { "En boucle (clic : une seule fois)" } else { "Lire ce cue en boucle" }).clicked() {
-                    action = Some((i, CueAction::Loop(!c.looping)));
+                if lresp.on_hover_text(if c.clip.sound.looping { "En boucle (clic : une seule fois)" } else { "Lire ce cue en boucle" }).clicked() {
+                    action = Some((i, CueAction::Loop(!c.clip.sound.looping)));
                 }
                 right = lr.left() - 6.0;
                 if c.transition.kind != TransitionKind::Cut {
@@ -489,6 +496,10 @@ impl Cuelist {
                     }
                     if ui.button("Réglages…").clicked() {
                         action = Some((i, CueAction::Edit));
+                        ui.close();
+                    }
+                    if c.path.is_some() && ui.button(tr("Informations sur le fichier…", "File information…")).clicked() {
+                        action = Some((i, CueAction::Info));
                         ui.close();
                     }
                     if ui.button("Mettre en attente").clicked() {
@@ -566,8 +577,13 @@ impl Cuelist {
                 self.running = self.running.and_then(|r| if r == i { None } else if r > i { Some(r - 1) } else { Some(r) });
             }
             Some((i, CueAction::Follow(f))) => self.cues[i].follow = f,
-            Some((i, CueAction::Loop(l))) => self.cues[i].looping = l,
+            Some((i, CueAction::Loop(l))) => self.cues[i].clip.sound.looping = l,
             Some((i, CueAction::Edit)) => self.editor = Some(i),
+            Some((i, CueAction::Info)) => {
+                if let Some(p) = self.cues[i].path.clone() {
+                    super::file_info::open_once(&mut self.infos, &p);
+                }
+            }
             Some((i, CueAction::Go)) => {
                 self.standby = i;
                 self.pending_go = true;
@@ -584,14 +600,29 @@ impl Cuelist {
         if std::mem::take(&mut self.pending_go) {
             self.go(out);
         }
+        self.preview.poll();
+        self.preview.settle(ctx);
+        self.infos.retain_mut(|w| w.show(ctx));
         let Some(i) = self.editor else { return };
+        let running = self.running == Some(i) && out.state.current.is_some();
         let Some(c) = self.cues.get_mut(i) else {
             self.editor = None;
             return;
         };
+        let clip_before = c.clip.clone();
         let mut open = true;
         let mut done = false;
-        egui::Window::new(format!("Cue {}", i + 1)).id(Id::unique("cl-editor")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+        let preview = &mut self.preview;
+        egui::Window::new(format!("Cue {}", i + 1))
+            .id(Id::unique("cl-editor"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(true)
+            .default_width(660.0)
+            .default_height((ctx.content_rect().height() - 80.0).max(200.0))
+            .max_height((ctx.content_rect().height() - 60.0).max(200.0))
+            .show(ctx, |ui| {
+            egui::ScrollArea::vertical().id_salt("cl-editor-scroll").auto_shrink([false, true]).show(ui, |ui| {
             egui::Grid::new("cl-fields").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
                 ui.label("Nom");
                 ui.text_edit_singleline(&mut c.name);
@@ -606,9 +637,6 @@ impl Cuelist {
                         }
                     }
                 });
-                ui.end_row();
-                ui.label("Boucle");
-                ui.checkbox(&mut c.looping, "Lire en boucle");
                 ui.end_row();
                 ui.label("Transition");
                 ui.horizontal(|ui| {
@@ -627,13 +655,24 @@ impl Cuelist {
                 });
                 ui.end_row();
             });
+            // Réglages du média, comme un élément du Lecteur ou un jingle de JingleStar.
+            if let Some(path) = c.path.clone() {
+                ui.add_space(6.0);
+                ui.separator();
+                super::media_editor::clip_editor(ui, ("cl", i), &path, &mut c.clip, preview);
+            }
             ui.add_space(6.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("✓ Terminé").clicked() {
+                if ui.button(tr("✓ Terminé", "✓ Done")).clicked() {
                     done = true;
                 }
             });
+            });
         });
+        // Cue à l'antenne : volume, EQ et fondus suivent tout de suite.
+        if running && c.clip != clip_before {
+            out.send(Command::SetClip { clip: c.clip.clone() });
+        }
         if !open || done {
             self.editor = None;
         }

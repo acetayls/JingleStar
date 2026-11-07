@@ -1,0 +1,223 @@
+{
+  "cuelist": {
+    "cues": [
+      {
+        "end": null,
+        "eq": {
+          "enabled": true,
+          "high_shelf": {
+            "freq": 8000.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 0.7071067690849304
+          },
+          "low_cut": {
+            "freq": 80.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 0.7071067690849304
+          },
+          "low_cut_slope": "12",
+          "low_shelf": {
+            "freq": 150.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 0.7071067690849304
+          },
+          "peak1": {
+            "freq": 400.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 1.0
+          },
+          "peak2": {
+            "freq": 2500.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 1.0
+          }
+        },
+        "fade_in": 0.5,
+        "fade_out": 0.0,
+        "follow": "Continue",
+        "image_secs": null,
+        "loop_end": null,
+        "loop_start": null,
+        "looping": false,
+        "name": "Ouverture",
+        "path": "/v/ouverture.mov",
+        "start": 0.0,
+        "transition": {
+          "kind": "Crossfade",
+          "secs": 2.0
+        },
+        "volume_db": 0.0
+      },
+      {
+        "end": null,
+        "eq": {
+          "enabled": true,
+          "high_shelf": {
+            "freq": 8000.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 0.7071067690849304
+          },
+          "low_cut": {
+            "freq": 80.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 0.7071067690849304
+          },
+          "low_cut_slope": "12",
+          "low_shelf": {
+            "freq": 150.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 0.7071067690849304
+          },
+          "peak1": {
+            "freq": 400.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 1.0
+          },
+          "peak2": {
+            "freq": 2500.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 1.0
+          }
+        },
+        "fade_in": 0.0,
+        "fade_out": 0.0,
+        "follow": "Stop",
+        "image_secs": null,
+        "loop_end": null,
+        "loop_start": null,
+        "looping": true,
+        "name": "Noir",
+        "path": null,
+        "start": 0.0,
+        "transition": {
+          "kind": "Black",
+          "secs": 1.0
+        },
+        "volume_db": 0.0
+      }
+    ]
+  },
+  "diaporama": {
+    "fit": "Cover",
+    "folder": "/photos",
+    "looping": false,
+    "photo_seconds": 7.5,
+    "recursive": false,
+    "shuffle": true,
+    "video_sound": true
+  },
+  "lecteur": {
+    "items": [
+      {
+        "end": 40.0,
+        "eq": {
+          "enabled": true,
+          "high_shelf": {
+            "freq": 8000.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 0.7071067690849304
+          },
+          "low_cut": {
+            "freq": 80.0,
+            "gain_db": 0.0,
+            "on": true,
+            "q": 0.7071067690849304
+          },
+          "low_cut_slope": "12",
+          "low_shelf": {
+            "freq": 150.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 0.7071067690849304
+          },
+          "peak1": {
+            "freq": 400.0,
+            "gain_db": -3.0,
+            "on": true,
+            "q": 1.0
+          },
+          "peak2": {
+            "freq": 2500.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 1.0
+          }
+        },
+        "fade_in": 1.5,
+        "fade_out": 2.0,
+        "image_secs": null,
+        "loop_end": 30.0,
+        "loop_start": 10.0,
+        "looping": true,
+        "path": "/v/intro.mp4",
+        "start": 2.0,
+        "volume_db": -4.5
+      },
+      {
+        "end": null,
+        "eq": {
+          "enabled": true,
+          "high_shelf": {
+            "freq": 8000.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 0.7071067690849304
+          },
+          "low_cut": {
+            "freq": 80.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 0.7071067690849304
+          },
+          "low_cut_slope": "12",
+          "low_shelf": {
+            "freq": 150.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 0.7071067690849304
+          },
+          "peak1": {
+            "freq": 400.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 1.0
+          },
+          "peak2": {
+            "freq": 2500.0,
+            "gain_db": 0.0,
+            "on": false,
+            "q": 1.0
+          }
+        },
+        "fade_in": 0.0,
+        "fade_out": 1.0,
+        "image_secs": 8.0,
+        "loop_end": null,
+        "loop_start": null,
+        "looping": false,
+        "path": "/v/logo.png",
+        "start": 0.0,
+        "volume_db": 0.0
+      }
+    ],
+    "loop_all": true,
+    "shuffle": true,
+    "transition": {
+      "kind": "Crossfade",
+      "secs": 2.0
+    }
+  },
+  "name": "Gala",
+  "notes": "**Acte 1**\nTop vidéo"
+}

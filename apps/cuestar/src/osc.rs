@@ -150,6 +150,7 @@ pub fn tree(prefix: &str, snap: &Snapshot) -> Value {
     let flag = |d: &str, b: bool| leaf(bool_type(b), ACCESS_RW, d, Some(json!(b)), None);
     let read = |ty: &str, d: &str, v: Value| leaf(ty, ACCESS_READ, d, Some(v), None);
     add("noir", trigger_leaf("Écran de sortie au noir"));
+    add("output/drops/reset", trigger_leaf("Remet à zéro le compteur d'images perdues et retardées"));
     add("subscribe", leaf("i", ACCESS_WRITE, "Abonnement au retour d'état (5 s, à renouveler) ; argument : port de réponse", None, None));
     add("media", read("s", "Média à l'écran", json!(snap.media)));
     add("paused", read(bool_type(snap.paused), "En pause", json!(snap.paused)));
@@ -244,6 +245,7 @@ impl OscServer {
 /// Aide affichée dans la fenêtre OSC.
 pub const HELP: &[(&str, &str)] = &[
     ("noir", "écran de sortie au noir"),
+    ("output/drops/reset", "remet à zéro le compteur d'images perdues et retardées"),
     ("lecteur/go", "lance l'élément sélectionné (ou reprend)"),
     ("lecteur/pause | play | toggle | stop", "transport du Lecteur"),
     ("lecteur/next | prev", "élément suivant / précédent"),
