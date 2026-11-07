@@ -21,7 +21,7 @@ enum Tab {
 }
 
 const TABS: [(Tab, &str); 4] = [
-    (Tab::Engine, "Écran et moteur"),
+    (Tab::Engine, "Vidéo"),
     (Tab::Audio, "Audio"),
     (Tab::Patterns, "Mires de test"),
     (Tab::Mapping, "Mapping 4 coins"),
@@ -140,7 +140,7 @@ impl OutputView {
     fn engine(&mut self, ui: &mut egui::Ui, prefs: &mut MachinePrefs, out: &OutputLink) -> bool {
         let mut restart = false;
         let d = self.draft.get_or_insert_with(|| prefs.clone());
-        section(ui, "Écran et moteur", |ui| {
+        section(ui, "Vidéo", |ui| {
             let s = &out.state;
             if let Some(m) = &s.monitor {
                 let mode = if s.fullscreen { "plein écran" } else { "dans une fenêtre" };
@@ -190,7 +190,7 @@ impl OutputView {
                     }
                 })
                 .response
-                .on_hover_text("Choisir une valeur essaie de passer l'écran de sortie sur cette fréquence (Windows), rétablie en quittant. Noir un instant au changement.");
+                .on_hover_text("Choisir une valeur essaie de passer l'écran de sortie sur cette fréquence (Windows, macOS, Linux X11 ; pas sous Wayland), rétablie en quittant. Noir un instant au changement.");
                 ui.end_row();
 
                 ui.label("Calage des images");
@@ -211,7 +211,7 @@ impl OutputView {
                 ui.label("");
                 ui.add_enabled(d.fps.is_none(), egui::Checkbox::new(&mut d.adapt_refresh, "Adapter la fréquence de l'écran à la vidéo"))
                     .on_disabled_hover_text("Sans effet quand un FPS est choisi : l'écran reste sur cette fréquence")
-                    .on_hover_text("Passe l'écran de sortie en 50, 60… Hz selon la vidéo (Windows), et rétablit sa fréquence en quittant. Noir un instant au changement.");
+                    .on_hover_text("Passe l'écran de sortie en 50, 60… Hz selon la vidéo (Windows, macOS, Linux X11), et rétablit sa fréquence en quittant. Noir un instant au changement.");
                 ui.end_row();
             });
             let dec = if s.hwdec.is_empty() || s.hwdec == "no" { "CPU".to_string() } else { format!("GPU ({})", s.hwdec) };

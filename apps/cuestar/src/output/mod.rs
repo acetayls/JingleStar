@@ -321,7 +321,7 @@ impl OutputApp {
         }
         self.window = Some(window.clone());
         self.refresh_hz = chosen.as_ref().and_then(|m| m.refresh_rate_millihertz()).map(|r| r as f64 / 1000.0).unwrap_or(60.0);
-        self.device = chosen.as_ref().and_then(|m| m.name());
+        self.device = chosen.as_ref().and_then(refresh::device_id);
         self.modes = self.device.as_deref().map(refresh::modes).unwrap_or_default();
         self.force_refresh();
 
