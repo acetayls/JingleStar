@@ -1,6 +1,6 @@
 ; Installeur Windows de CueStar (Inno Setup 6).
 ; Lancé par package.ps1, qui passe /DVersion=… /DStage=… /DOutDir=… :
-;   Stage  : dossier préparé (cuestar.exe, libmpv-2.dll, licences\)
+;   Stage  : dossier préparé (cuestar.exe, libmpv-2.dll, MediaInfo.dll, licences\)
 ;   OutDir : dossier où écrire CueStar-<version>-windows-x64-setup.exe
 
 #ifndef Version
@@ -51,6 +51,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "{#Stage}\cuestar.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Stage}\libmpv-2.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Stage}\MediaInfo.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Stage}\licences\*"; DestDir: "{app}\licences"; Flags: ignoreversion recursesubdirs
 
 [Icons]

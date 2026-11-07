@@ -3,8 +3,9 @@
 # À lancer sur macOS, depuis n'importe où, après `cargo build --release -p cuestar --target <cible>` :
 #   apps/cuestar/packaging/macos/bundle.sh aarch64-apple-darwin dist
 #
-# libmpv vient de Homebrew (`brew install mpv dylibbundler`) : il est copié dans
-# Contents/Frameworks avec toutes ses bibliothèques, chemins réécrits en @loader_path.
+# libmpv et libmediainfo viennent de Homebrew (`brew install mpv libmediainfo dylibbundler`) :
+# ils sont copiés dans Contents/Frameworks avec toutes leurs
+# bibliothèques, chemins réécrits en @loader_path.
 #
 # Signature et notarisation, si ces variables sont définies (sinon signature ad hoc,
 # et Gatekeeper demande une confirmation au premier lancement) :
@@ -33,6 +34,8 @@ BIN="$WORKSPACE/target/$TARGET/release/cuestar"
 BREW="$(brew --prefix)"
 LIBMPV="$(brew --prefix mpv)/lib/libmpv.2.dylib"
 [ -f "$LIBMPV" ] || { echo "libmpv introuvable : $LIBMPV (brew install mpv)"; exit 1; }
+LIBMI="$(brew --prefix libmediainfo)/lib/libmediainfo.0.dylib"
+[ -f "$LIBMI" ] || { echo "libmediainfo introuvable : $LIBMI (brew install libmediainfo)"; exit 1; }
 command -v dylibbundler >/dev/null || { echo "dylibbundler absent (brew install dylibbundler)"; exit 1; }
 
 # L'architecture de libmpv doit être celle de CueStar (Homebrew ne fournit que celle de la machine).
@@ -51,13 +54,17 @@ printf 'APPL????' > "$APP/Contents/PkgInfo"
 mkdir -p "$APP/Contents/Resources/licences"
 cp "$HERE/../licences/"* "$APP/Contents/Resources/licences/"
 
-# libmpv et ses dépendances dans Contents/Frameworks
+# libmpv, libmediainfo et leurs dépendances dans Contents/Frameworks
 FW="$APP/Contents/Frameworks"
-cp "$LIBMPV" "$FW/libmpv.2.dylib"
-chmod u+w "$FW/libmpv.2.dylib"
-install_name_tool -id "@rpath/libmpv.2.dylib" "$FW/libmpv.2.dylib"
+for f in "$LIBMPV" "$LIBMI"; do
+  n="$(basename "$f")"
+  cp "$f" "$FW/$n"
+  chmod u+w "$FW/$n"
+  install_name_tool -id "@rpath/$n" "$FW/$n"
+done
 dylibbundler --overwrite-files --bundle-deps --no-codesign \
   --fix-file "$FW/libmpv.2.dylib" \
+  --fix-file "$FW/libmediainfo.0.dylib" \
   --dest-dir "$FW" --install-path "@loader_path/" \
   --search-path "$BREW/lib"
 # Aucune dépendance ne doit encore pointer vers Homebrew.

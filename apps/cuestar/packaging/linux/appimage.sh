@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Construit CueStar-<version>-linux-x86_64.AppImage, avec libmpv et ses dépendances.
+# Construit CueStar-<version>-linux-x86_64.AppImage, avec libmpv, libmediainfo et leurs dépendances.
 # À lancer sur Linux après `cargo build --release -p cuestar` :
 #   apps/cuestar/packaging/linux/appimage.sh dist
-# Il faut libmpv installé (paquet libmpv-dev ou libmpv2) ; linuxdeploy est téléchargé s'il manque.
+# Il faut libmpv et libmediainfo installés (paquets libmpv-dev, libmediainfo0v5) ; linuxdeploy est téléchargé s'il manque.
 # Construire sur une distribution ancienne (Ubuntu 22.04) pour que l'AppImage tourne partout.
 set -euo pipefail
 
@@ -18,6 +18,9 @@ BIN="$WORKSPACE/target/release/cuestar"
 LIBMPV="$(ldconfig -p | awk '/libmpv\.so\.[12] /{print $NF; exit}')"
 [ -n "$LIBMPV" ] || { echo "libmpv introuvable (apt install libmpv-dev)"; exit 1; }
 echo "libmpv : $LIBMPV"
+LIBMI="$(ldconfig -p | awk '/libmediainfo\.so\.0 /{print $NF; exit}')"
+[ -n "$LIBMI" ] || { echo "libmediainfo introuvable (apt install libmediainfo0v5)"; exit 1; }
+echo "libmediainfo : $LIBMI"
 
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
@@ -45,6 +48,7 @@ LINUXDEPLOY_OUTPUT_VERSION="$VERSION" \
 "$LINUXDEPLOY" --appdir "$APPDIR" \
   --executable "$BIN" \
   --library "$LIBMPV" \
+  --library "$LIBMI" \
   --desktop-file "$HERE/cuestar.desktop" \
   --icon-file "$ROOT/assets/icons/cuestar-256.png" \
   --icon-filename cuestar \

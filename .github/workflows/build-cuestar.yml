@@ -2,10 +2,11 @@ name: Build CueStar
 
 # Comme pour JingleStar, ce workflow ne part qu'à la demande
 # (onglet Actions → Build CueStar → Run workflow).
-# Chaque paquet embarque libmpv : l'utilisateur n'a rien d'autre à installer.
+# Chaque paquet embarque libmpv et MediaInfo : l'utilisateur n'a rien d'autre à installer.
 #   Windows : installeur (Inno Setup) et zip portable, avec libmpv-2.dll (build shinchiro)
-#   macOS   : .dmg avec CueStar.app (libmpv Homebrew dans Contents/Frameworks)
-#   Linux   : AppImage (libmpv d'Ubuntu 22.04 et ses dépendances)
+#             et MediaInfo.dll (mediaarea.net)
+#   macOS   : .dmg avec CueStar.app (libmpv et libmediainfo Homebrew dans Contents/Frameworks)
+#   Linux   : AppImage (libmpv et libmediainfo d'Ubuntu 22.04, avec leurs dépendances)
 # Les scripts sont dans apps/cuestar/packaging et se lancent aussi à la main.
 on:
   workflow_dispatch:
@@ -25,6 +26,10 @@ on:
         default: ""
       mpv_windows:
         description: "Tag du build shinchiro/mpv-winbuild-cmake pour Windows (ex. 20251102) ; vide = le dernier"
+        required: false
+        default: ""
+      mediainfo_windows:
+        description: "Version de MediaInfo DLL pour Windows (ex. 26.10) ; vide = la dernière"
         required: false
         default: ""
 
@@ -58,18 +63,46 @@ jobs:
           mv _mpv/libmpv-2.dll mpv/
           basename "$ARCHIVE" > mpv/mpv-build.txt
           echo "libmpv : $(cat mpv/mpv-build.txt)"
+      - name: Récupérer MediaInfo.dll (mediaarea.net, Windows x64)
+        shell: bash
+        env:
+          MI_VERSION: ${{ inputs.mediainfo_windows }}
+        run: |
+          if [ -n "$MI_VERSION" ]; then
+            VERSIONS="$MI_VERSION"
+          else
+            # Les dernières versions publiées (tags vAA.MM de MediaInfoLib), la plus récente d'abord :
+            # le binaire d'un tag tout juste posé peut ne pas être encore en ligne.
+            VERSIONS="$(git ls-remote --tags https://github.com/MediaArea/MediaInfoLib 'v*' \
+              | sed -n 's|.*refs/tags/v\([0-9][0-9.]*\)$|\1|p' | sort -V | tail -3 | sort -rV)"
+          fi
+          mkdir -p _mi
+          MI_VERSION=""
+          for v in $VERSIONS; do
+            if curl -fsSL -o _mi/mi.zip \
+              "https://mediaarea.net/download/binary/libmediainfo0/$v/MediaInfo_DLL_${v}_Windows_x64_WithoutInstaller.zip"; then
+              MI_VERSION="$v"; break
+            fi
+            echo "MediaInfo $v indisponible, version précédente"
+          done
+          [ -n "$MI_VERSION" ] || { echo "Aucune MediaInfo DLL téléchargée (essayé : $VERSIONS)"; exit 1; }
+          echo "MediaInfo : $MI_VERSION"
+          7z e -y -o_mi _mi/mi.zip MediaInfo.dll -r
+          mv _mi/MediaInfo.dll mpv/
+          echo "MediaInfo DLL $MI_VERSION (Windows x64, mediaarea.net)" > mpv/mediainfo-version.txt
       - name: Inno Setup
         shell: pwsh
         run: |
           if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
       - name: Installeur et zip portable
         shell: pwsh
-        run: apps\cuestar\packaging\windows\package.ps1 -Mpv mpv\libmpv-2.dll -Out dist
-      - name: Vérifier que la sortie trouve libmpv
+        run: apps\cuestar\packaging\windows\package.ps1 -Mpv mpv\libmpv-2.dll -MediaInfo mpv\MediaInfo.dll -Out dist
+      - name: Vérifier le contenu du paquet
         shell: bash
         run: |
-          # Version portable décompressée : libmpv-2.dll doit être chargée depuis le dossier de l'appli.
+          # Les bibliothèques sont posées à côté de cuestar.exe, où CueStar les cherche en premier.
           test -f dist/stage-windows/libmpv-2.dll
+          test -f dist/stage-windows/MediaInfo.dll
           test -f dist/stage-windows/licences/TIERS.txt
       - uses: actions/upload-artifact@v4
         with:
@@ -118,8 +151,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - name: libmpv et dylibbundler (Homebrew)
-        run: brew install mpv dylibbundler
+      - name: libmpv, libmediainfo et dylibbundler (Homebrew)
+        run: brew install mpv libmediainfo dylibbundler
       - name: Tests
         run: cargo test -p cuestar -p star-commun
       - name: Build release
@@ -141,6 +174,7 @@ jobs:
         run: |
           APP=dist/CueStar.app
           test -f "$APP/Contents/Frameworks/libmpv.2.dylib"
+          test -f "$APP/Contents/Frameworks/libmediainfo.0.dylib"
           lipo -info "$APP/Contents/MacOS/cuestar"
           # Plus aucune référence à Homebrew dans les bibliothèques embarquées.
           ! otool -L "$APP"/Contents/Frameworks/*.dylib | grep -E '/opt/homebrew|/usr/local/(opt|Cellar)'
@@ -166,7 +200,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Dépendances Linux
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libxkbcommon-dev libgtk-3-dev libmpv-dev
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libxkbcommon-dev libgtk-3-dev libmpv-dev libmediainfo0v5
       - name: Tests
         run: cargo test -p cuestar -p star-commun
       - name: Build release
@@ -176,6 +210,7 @@ jobs:
       - name: Vérifier le paquet
         run: |
           ls dist/CueStar.AppDir/usr/lib/ | grep -E '^libmpv\.so'
+          ls dist/CueStar.AppDir/usr/lib/ | grep -E '^libmediainfo\.so'
           test -f dist/CueStar.AppDir/usr/share/doc/cuestar/licences/TIERS.txt
       - uses: actions/upload-artifact@v4
         with:

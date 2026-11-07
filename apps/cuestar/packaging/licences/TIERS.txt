@@ -2,8 +2,8 @@ Composants tiers livrés avec CueStar
 ====================================
 
 CueStar lui-même est sous licence MIT (LICENCE-CueStar.txt). Il n'est pas lié à
-libmpv à la compilation : la bibliothèque est chargée au démarrage, depuis le
-dossier de l'application.
+libmpv ni à MediaInfo à la compilation : ces bibliothèques sont chargées au
+démarrage, depuis le dossier de l'application.
 
 libmpv (lecteur vidéo mpv) et ses dépendances
 ---------------------------------------------
@@ -35,6 +35,17 @@ Sur simple demande à l'auteur de CueStar (via
 https://github.com/acetayls/mediastar/issues), une copie du code source
 correspondant à ces bibliothèques est fournie, pendant au moins trois ans
 après la distribution de cette version.
+
+MediaInfo (informations sur les fichiers)
+----------------------------------------
+Site : https://mediaarea.net/MediaInfo
+Sources : https://github.com/MediaArea/MediaInfoLib et
+https://github.com/MediaArea/ZenLib
+Licence : BSD 2 clauses pour MediaInfoLib (MediaInfo-LICENSE.txt), licence
+de type zlib pour ZenLib (ZenLib-License.txt). Copyright MediaArea.net SARL.
+Provenance : MediaInfo « DLL » Windows x64 de mediaarea.net (version dans
+mediainfo-version.txt quand il est présent), formule Homebrew
+« libmediainfo » sur macOS, paquet libmediainfo d'Ubuntu sur Linux.
 
 Bibliothèques Rust
 ------------------
