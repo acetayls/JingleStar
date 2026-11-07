@@ -182,6 +182,8 @@ pub struct ModuleConfig {
     pub eq: EqSettings,
     /// Texte du module en mode Texte (la conduite).
     pub notes: String,
+    /// Zoom du texte du module Texte (1 = 100 %), enregistré avec le projet.
+    pub notes_zoom: f32,
     /// Cues du module GO, dans l'ordre de la conduite.
     pub cues: Vec<Cue>,
     /// Part de la largeur de la fenêtre occupée par le module (1 = part égale).
@@ -205,6 +207,7 @@ impl Default for ModuleConfig {
             playlist: PlaylistConfig::default(),
             eq: EqSettings::default(),
             notes: String::new(),
+            notes_zoom: 1.0,
             cues: Vec::new(),
             width: 1.0,
         }
@@ -229,7 +232,7 @@ pub struct Preferences {
     pub midi: MidiSettings,
     pub console: ConsoleSettings,
     pub m32: M32Settings,
-    /// Correspondances des télécommandes (MIDI, console) vers les actions.
+    /// Assignations des télécommandes (MIDI, console) vers les actions.
     pub mappings: Vec<Mapping>,
     /// Échap arrête aussi les playlists (sinon seulement les jingles).
     pub escape_stops_playlist: bool,

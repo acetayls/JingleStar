@@ -1,4 +1,4 @@
-//! Fenêtre des télécommandes : OSC, entrée MIDI, consoles Yamaha et Midas, et correspondances vers les actions.
+//! Fenêtre des télécommandes : OSC, entrée MIDI, consoles Yamaha et Midas, et assignations vers les actions.
 
 use egui::{RichText, Ui};
 
@@ -9,7 +9,7 @@ use crate::i18n::tr;
 use crate::project::{ConsoleSettings, M32Settings, OscSettings};
 use crate::remote::{ActionKind, Mapping, Trigger};
 
-/// Onglets de la fenêtre : un par protocole, puis les correspondances et les raccourcis clavier.
+/// Onglets de la fenêtre : un par protocole, puis les assignations et les raccourcis clavier.
 #[derive(Default, Clone, Copy, PartialEq)]
 enum Tab {
     #[default]
@@ -60,7 +60,7 @@ impl RemoteWindow {
                         (Tab::Midi, "MIDI"),
                         (Tab::Yamaha, "Yamaha"),
                         (Tab::M32, "Midas M32 / X32"),
-                        (Tab::Mappings, tr("Correspondances", "Mappings")),
+                        (Tab::Mappings, tr("Assignations", "Mappings")),
                         (Tab::Keyboard, tr("Raccourcis", "Shortcuts")),
                     ] {
                         ui.selectable_value(&mut self.tab, tab, label);
@@ -333,9 +333,9 @@ fn trigger_editor(ui: &mut Ui, t: &mut Trigger) {
     }
 }
 
-/// Tableau des correspondances, modifié en direct.
+/// Tableau des assignations, modifié en direct.
 fn mappings(ui: &mut Ui, ctrl: &mut Controller) {
-    ui.heading(tr("Correspondances", "Mappings"));
+    ui.heading(tr("Assignations", "Mappings"));
     ui.label(RichText::new(tr(
         "Cliquez sur « Apprendre » puis appuyez sur la touche ou bougez le contrôle à affecter.",
         "Click “Learn”, then press the key or move the control to assign.",
@@ -379,7 +379,7 @@ fn mappings(ui: &mut Ui, ctrl: &mut Controller) {
                         let mut n = m.module + 1;
                         ui.add(egui::DragValue::new(&mut n).range(1..=MAX_MODULES));
                         m.module = n - 1;
-                        // Dit tout de suite si la correspondance ne fera rien : module absent
+                        // Dit tout de suite si l'assignation ne fera rien : module absent
                         // ou dans un autre mode que celui de l'action.
                         let p = &ctrl.project;
                         let (txt, warn) = if m.module >= p.module_count {
@@ -398,7 +398,7 @@ fn mappings(ui: &mut Ui, ctrl: &mut Controller) {
                         let resp = ui.label(RichText::new(txt).small().color(if warn { ACCENT } else { TEXT_DIM }));
                         if warn {
                             resp.on_hover_text(tr(
-                                "Cette correspondance n'agit que sur un module présent et dans le mode de l'action (Jingles, Playlist ou Cuelist).",
+                                "Cette assignation n'agit que sur un module présent et dans le mode de l'action (Jingles, Playlist ou Cuelist).",
                                 "This mapping only acts on a module that exists and is in the action's mode (Jingles, Playlist or Cuelist).",
                             ));
                         }
@@ -433,7 +433,7 @@ fn mappings(ui: &mut Ui, ctrl: &mut Controller) {
         ctrl.remove_mapping(i);
     }
     if count == 0 {
-        ui.label(RichText::new(tr("Aucune correspondance.", "No mapping yet.")).color(TEXT_DIM));
+        ui.label(RichText::new(tr("Aucune assignation.", "No mapping yet.")).color(TEXT_DIM));
     }
     ui.add_space(4.0);
     if ui.button(tr("＋ Ajouter et apprendre", "＋ Add and learn")).clicked() {

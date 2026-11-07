@@ -241,7 +241,7 @@ impl JingleStarApp {
                 }
                 if ui
                     .selectable_label(self.remote.open, tr("Télécommandes", "Remote"))
-                    .on_hover_text(tr("Pilotage MIDI et console Yamaha : correspondances et mode apprendre", "MIDI and Yamaha console control: mappings and learn mode"))
+                    .on_hover_text(tr("Pilotage MIDI et console Yamaha : assignations et mode apprendre", "MIDI and Yamaha console control: mappings and learn mode"))
                     .clicked()
                 {
                     self.remote.toggle();
@@ -690,7 +690,8 @@ impl JingleStarApp {
         let meter_rect = Rect::from_min_max(egui::pos2(fader_area.right() - 12.0, fader_area.top() + 6.0), egui::pos2(fader_area.right(), fader_area.bottom() - 6.0));
         meter(ui, meter_rect, self.meters[m]);
 
-        let slider_rect = Rect::from_min_max(fader_area.min, egui::pos2(meter_rect.left() - 2.0, fader_area.bottom()));
+        // Le curseur est décalé vers la droite pour laisser la place aux valeurs des repères.
+        let slider_rect = Rect::from_min_max(egui::pos2(fader_area.left() + 10.0, fader_area.top()), egui::pos2(meter_rect.left() - 2.0, fader_area.bottom()));
         let mut db = self.ctrl.project.modules[m].volume_db;
         ui.spacing_mut().slider_width = slider_rect.height() - 8.0;
         let resp = ui.put(
@@ -702,6 +703,22 @@ impl JingleStarApp {
         db_marks(ui, resp.rect, true, &(-60.0..=10.0), true);
         if resp.double_clicked() {
             db = 0.0;
+        }
+        // + / - avec la souris sur le fader : 1 dB par appui (le fader sélectionné, lui, est
+        // géré par `fader_keys`). Pas pendant la saisie d'un texte ailleurs.
+        if resp.hovered() && !resp.has_focus() && !ui.ctx().egui_wants_keyboard_input() {
+            let step = ui.input(|i| {
+                i.events.iter().fold(0.0f32, |acc, e| match e {
+                    egui::Event::Key { key: Key::Plus | Key::Equals, pressed: true, modifiers, .. } if !modifiers.command => acc + 1.0,
+                    egui::Event::Key { key: Key::Minus, pressed: true, modifiers, .. } if !modifiers.command => acc - 1.0,
+                    _ => acc,
+                })
+            });
+            if step != 0.0 {
+                // Depuis -∞, + remonte à -59 dB ; sinon on se cale sur le dB entier suivant.
+                let base = if step > 0.0 { db.floor() } else { db.ceil() };
+                db = (base + step).clamp(-60.0, 10.0);
+            }
         }
         if db != self.ctrl.project.modules[m].volume_db {
             self.ctrl.set_module_volume(m, db);

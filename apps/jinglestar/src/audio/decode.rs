@@ -321,6 +321,38 @@ mod tests {
 }
 
 #[cfg(test)]
+mod gapless_check {
+    /// Silence d'encodage des fichiers d'un dossier, sans et avec découpage :
+    /// `JS_GAPLESS_DIR=dossier cargo test gapless_report -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn gapless_report() {
+        let dir = std::env::var("JS_GAPLESS_DIR").expect("JS_GAPLESS_DIR");
+        let first_sound = |p: &super::Planar| p.left.iter().zip(&p.right).position(|(l, r)| l.abs().max(r.abs()) > 1e-4);
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = e.path();
+            if !super::is_audio_file(&path) {
+                continue;
+            }
+            let raw = super::decode_planar_with(&path, false).unwrap();
+            let cut = super::decode_planar(&path).unwrap();
+            let ms = |f: usize| f as f64 * 1000.0 / raw.rate as f64;
+            println!(
+                "{:<26} {} Hz | sans : {} images, 1er son à {:.1} ms | avec : {} images (−{:.1} ms), 1er son à {:.1} ms, découpage format {}",
+                path.file_name().unwrap().to_string_lossy(),
+                raw.rate,
+                raw.left.len(),
+                first_sound(&raw).map_or(f64::NAN, ms),
+                cut.left.len(),
+                ms(raw.left.len().saturating_sub(cut.left.len())),
+                first_sound(&cut).map_or(f64::NAN, ms),
+                cut.trimmed
+            );
+        }
+    }
+}
+
+#[cfg(test)]
 mod bench {
     /// Temps de décodage d'un long fichier : `JS_BENCH=fichier cargo test --release bench_decode -- --ignored --nocapture`.
     #[test]
