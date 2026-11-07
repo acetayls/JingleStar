@@ -36,6 +36,8 @@ pub struct Cuelist {
     pending_go: bool,
     /// Aperçu muet de l'éditeur de cue (processus lancé à la première ouverture).
     preview: crate::preview::Preview,
+    /// Fenêtres « Informations sur le fichier » ouvertes.
+    infos: Vec<super::file_info::FileInfo>,
 }
 
 fn stem(p: &Path) -> String {
@@ -87,6 +89,7 @@ enum CueAction {
     Follow(CueFollow),
     Loop(bool),
     Edit,
+    Info,
     Go,
 }
 
@@ -495,6 +498,10 @@ impl Cuelist {
                         action = Some((i, CueAction::Edit));
                         ui.close();
                     }
+                    if c.path.is_some() && ui.button(tr("Informations sur le fichier…", "File information…")).clicked() {
+                        action = Some((i, CueAction::Info));
+                        ui.close();
+                    }
                     if ui.button("Mettre en attente").clicked() {
                         action = Some((i, CueAction::Standby));
                         ui.close();
@@ -572,6 +579,11 @@ impl Cuelist {
             Some((i, CueAction::Follow(f))) => self.cues[i].follow = f,
             Some((i, CueAction::Loop(l))) => self.cues[i].clip.sound.looping = l,
             Some((i, CueAction::Edit)) => self.editor = Some(i),
+            Some((i, CueAction::Info)) => {
+                if let Some(p) = self.cues[i].path.clone() {
+                    super::file_info::open_once(&mut self.infos, &p);
+                }
+            }
             Some((i, CueAction::Go)) => {
                 self.standby = i;
                 self.pending_go = true;
@@ -590,6 +602,7 @@ impl Cuelist {
         }
         self.preview.poll();
         self.preview.settle(ctx);
+        self.infos.retain_mut(|w| w.show(ctx));
         let Some(i) = self.editor else { return };
         let running = self.running == Some(i) && out.state.current.is_some();
         let Some(c) = self.cues.get_mut(i) else {

@@ -161,6 +161,11 @@ fn candidates() -> Vec<PathBuf> {
     } else {
         &["libmpv.so.2", "libmpv.so.1", "libmpv.so"]
     };
+    library_candidates(names)
+}
+
+/// Emplacements essayés pour une bibliothèque livrée avec libmpv (même ordre que libmpv).
+pub fn library_candidates(names: &[&str]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())) {
         for n in names {

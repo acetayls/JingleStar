@@ -3,6 +3,7 @@
 mod cuelist;
 mod diaporama;
 mod dialogs;
+mod file_info;
 mod lecteur;
 mod media_editor;
 mod monitor_view;
