@@ -11,6 +11,7 @@
 mod audio_filter;
 mod embed;
 mod monitor;
+mod on_top;
 pub mod mpv;
 mod pattern;
 mod refresh;
@@ -310,13 +311,20 @@ impl OutputApp {
         let fullscreen = !(single && self.prefs.windowed_if_single);
 
         let mut attrs = Window::default_attributes().with_title("CueStar — Sortie");
+        // Premier plan imposé seulement s'il reste un écran pour la régie.
+        let on_top = fullscreen && !single;
+        if on_top {
+            attrs = on_top::attributes(attrs);
+        }
         if fullscreen {
             attrs = attrs.with_fullscreen(Some(Fullscreen::Borderless(chosen.clone())));
         } else {
             attrs = attrs.with_inner_size(winit::dpi::LogicalSize::new(960.0, 540.0));
         }
         let window = Arc::new(el.create_window(attrs).map_err(|e| format!("fenêtre de sortie : {e}"))?);
-        if fullscreen {
+        if on_top {
+            on_top::install(&window);
+        } else if fullscreen {
             window.set_cursor_visible(false);
         }
         self.window = Some(window.clone());
@@ -1516,6 +1524,13 @@ impl ApplicationHandler<UserEv> for OutputApp {
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => el.exit(),
+            // Échap n'arrive ici que si on a cliqué sur la sortie (focus clavier) : elle se ferme.
+            // Partout ailleurs, Échap reste à la régie (noir).
+            WindowEvent::KeyboardInput { event, .. }
+                if event.state.is_pressed() && event.logical_key == winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape) =>
+            {
+                el.exit()
+            }
             WindowEvent::Resized(s) => {
                 if let Some(Out::Composite(scr)) = &self.out {
                     scr.resize(s.width, s.height);
