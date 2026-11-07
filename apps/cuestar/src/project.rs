@@ -2,7 +2,7 @@
 //! enregistrement sûr (fichier temporaire forcé sur le disque puis renommé), session
 //! restaurée au lancement avec copie de secours, copies datées, projet déplacé retrouvé.
 
-use crate::protocol::Fit;
+use crate::protocol::{Clip, Fit};
 use serde::{Deserialize, Serialize};
 use star_core::document::{self, Document};
 use std::path::{Path, PathBuf};
@@ -37,7 +37,9 @@ pub enum CueFollow {
 pub struct CueData {
     pub name: String,
     pub path: Option<PathBuf>,
-    pub looping: bool,
+    /// Boucle (`looping`), points, fondus, volume, EQ et durée d'image : clic droit « Éditer… ».
+    #[serde(flatten)]
+    pub clip: Clip,
     pub transition: crate::protocol::Transition,
     pub follow: CueFollow,
 }
@@ -52,12 +54,14 @@ pub struct CuelistData {
 #[serde(default)]
 pub struct LecteurItem {
     pub path: PathBuf,
-    pub looping: bool,
+    /// Boucle (`looping`), points, fondus, volume, EQ et durée d'image : clic droit « Éditer… ».
+    #[serde(flatten)]
+    pub clip: Clip,
 }
 
 impl Default for LecteurItem {
     fn default() -> Self {
-        Self { path: PathBuf::new(), looping: false }
+        Self { path: PathBuf::new(), clip: Clip::default() }
     }
 }
 
@@ -102,6 +106,9 @@ impl Project {
     pub fn sanitize(&mut self) {
         let d = &mut self.diaporama;
         d.photo_seconds = if d.photo_seconds.is_finite() { d.photo_seconds.clamp(0.5, 3600.0) } else { 5.0 };
+        for c in self.lecteur.items.iter_mut().map(|i| &mut i.clip).chain(self.cuelist.cues.iter_mut().map(|c| &mut c.clip)) {
+            c.sanitize();
+        }
     }
 
     /// Enregistre sur le disque de façon sûre (fichier temporaire puis renommage).
@@ -202,13 +209,17 @@ mod golden {
         std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)).unwrap()
     }
 
-    #[test]
-    fn project_format_is_stable() {
+    fn looped(on: bool) -> Clip {
+        Clip { sound: star_core::sound::SoundSettings { looping: on, ..Default::default() }, image_secs: None }
+    }
+
+    /// Projet de la 0.0.1, d'avant l'éditeur d'élément.
+    fn project_0_0_1() -> Project {
         let fade = Transition { kind: TransitionKind::Crossfade, secs: 2.0 };
-        let p = Project {
+        Project {
             name: "Gala".into(),
             lecteur: LecteurData {
-                items: vec![LecteurItem { path: "/v/intro.mp4".into(), looping: true }, LecteurItem { path: "/v/logo.png".into(), looping: false }],
+                items: vec![LecteurItem { path: "/v/intro.mp4".into(), clip: looped(true) }, LecteurItem { path: "/v/logo.png".into(), clip: looped(false) }],
                 loop_all: true,
                 shuffle: true,
                 transition: fade,
@@ -216,14 +227,40 @@ mod golden {
             diaporama: DiaporamaData { folder: Some("/photos".into()), recursive: false, shuffle: true, looping: false, photo_seconds: 7.5, fit: Fit::Cover, video_sound: true },
             cuelist: CuelistData {
                 cues: vec![
-                    CueData { name: "Ouverture".into(), path: Some("/v/ouverture.mov".into()), looping: false, transition: fade, follow: CueFollow::Continue },
-                    CueData { name: "Noir".into(), path: None, looping: true, transition: Transition { kind: TransitionKind::Black, secs: 1.0 }, follow: CueFollow::Stop },
+                    CueData { name: "Ouverture".into(), path: Some("/v/ouverture.mov".into()), clip: looped(false), transition: fade, follow: CueFollow::Continue },
+                    CueData { name: "Noir".into(), path: None, clip: looped(true), transition: Transition { kind: TransitionKind::Black, secs: 1.0 }, follow: CueFollow::Stop },
                 ],
             },
             notes: "**Acte 1**\nTop vidéo".into(),
-        };
-        check("projet-0.0.1.cuestar", serde_json::to_value(&p).unwrap());
+        }
+    }
+
+    #[test]
+    fn old_project_still_loads() {
         let back = Project::load(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/projet-0.0.1.cuestar")).unwrap();
+        assert_eq!(back, project_0_0_1());
+    }
+
+    #[test]
+    fn project_format_is_stable() {
+        let mut p = project_0_0_1();
+        // Élément édité : points, boucle, fondus au noir, volume, EQ ; image à durée réglée.
+        let s = &mut p.lecteur.items[0].clip.sound;
+        s.volume_db = -4.5;
+        s.start = 2.0;
+        s.end = Some(40.0);
+        s.loop_start = Some(10.0);
+        s.loop_end = Some(30.0);
+        s.fade_in = 1.5;
+        s.fade_out = 2.0;
+        s.eq.low_cut.on = true;
+        s.eq.peak1.on = true;
+        s.eq.peak1.gain_db = -3.0;
+        p.lecteur.items[1].clip.image_secs = Some(8.0);
+        p.lecteur.items[1].clip.sound.fade_out = 1.0;
+        p.cuelist.cues[0].clip.sound.fade_in = 0.5;
+        check("projet-0.0.2.cuestar", serde_json::to_value(&p).unwrap());
+        let back = Project::load(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/projet-0.0.2.cuestar")).unwrap();
         assert_eq!(back, p);
     }
 
@@ -296,7 +333,7 @@ mod tests {
         let f = dir.join("p.cuestar");
         let mut p = Project::default();
         p.name = "Spectacle".into();
-        p.lecteur.items.push(LecteurItem { path: "/v/a.mp4".into(), looping: true });
+        p.lecteur.items.push(LecteurItem { path: "/v/a.mp4".into(), clip: Clip { sound: star_core::sound::SoundSettings { looping: true, ..Default::default() }, image_secs: None } });
         p.lecteur.shuffle = true;
         p.save_with_backup(&f).unwrap();
         p.save_with_backup(&f).unwrap();

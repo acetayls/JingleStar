@@ -129,7 +129,8 @@ impl Cuelist {
             Some(p) => out.send(Command::Load {
                 path: p.to_string_lossy().into_owned(),
                 paused: false,
-                looping: c.looping,
+                looping: c.clip.sound.looping,
+                clip: c.clip.clone(),
                 // Un cue qui enchaîne doit signaler sa fin ; sinon sa dernière image reste.
                 hold: c.follow == CueFollow::Stop,
                 transition: c.transition,
@@ -285,7 +286,7 @@ impl Cuelist {
                         if paused {
                             ui.label(RichText::new("P ou GO pour reprendre").small().color(TEXT_DIM));
                         }
-                        if c.looping {
+                        if c.clip.sound.looping {
                             let (r, _) = ui.allocate_exact_size(vec2(18.0, 10.0), Sense::hover());
                             loop_icon(ui.painter(), r, run_col);
                         }
@@ -452,10 +453,10 @@ impl Cuelist {
                 let mut right = rect.right() - 4.0;
                 let lr = Rect::from_center_size(pos2(right - 10.0, rect.center().y), vec2(20.0, 16.0));
                 let lresp = ui.interact(lr, ui.make_persistent_id(("cl-loop", i)), Sense::click());
-                let lc = if c.looping { ACCENT } else if lresp.hovered() || resp.hovered() { TEXT_DIM } else { BORDER };
+                let lc = if c.clip.sound.looping { ACCENT } else if lresp.hovered() || resp.hovered() { TEXT_DIM } else { BORDER };
                 loop_icon(&p, Rect::from_center_size(lr.center(), vec2(16.0, 9.0)), lc);
-                if lresp.on_hover_text(if c.looping { "En boucle (clic : une seule fois)" } else { "Lire ce cue en boucle" }).clicked() {
-                    action = Some((i, CueAction::Loop(!c.looping)));
+                if lresp.on_hover_text(if c.clip.sound.looping { "En boucle (clic : une seule fois)" } else { "Lire ce cue en boucle" }).clicked() {
+                    action = Some((i, CueAction::Loop(!c.clip.sound.looping)));
                 }
                 right = lr.left() - 6.0;
                 if c.transition.kind != TransitionKind::Cut {
@@ -566,7 +567,7 @@ impl Cuelist {
                 self.running = self.running.and_then(|r| if r == i { None } else if r > i { Some(r - 1) } else { Some(r) });
             }
             Some((i, CueAction::Follow(f))) => self.cues[i].follow = f,
-            Some((i, CueAction::Loop(l))) => self.cues[i].looping = l,
+            Some((i, CueAction::Loop(l))) => self.cues[i].clip.sound.looping = l,
             Some((i, CueAction::Edit)) => self.editor = Some(i),
             Some((i, CueAction::Go)) => {
                 self.standby = i;
@@ -608,7 +609,7 @@ impl Cuelist {
                 });
                 ui.end_row();
                 ui.label("Boucle");
-                ui.checkbox(&mut c.looping, "Lire en boucle");
+                ui.checkbox(&mut c.clip.sound.looping, "Lire en boucle");
                 ui.end_row();
                 ui.label("Transition");
                 ui.horizontal(|ui| {

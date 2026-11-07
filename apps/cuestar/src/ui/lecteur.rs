@@ -4,7 +4,7 @@
 //! et chaque élément peut tourner en boucle. À droite, l'aperçu de l'élément suivant.
 
 use crate::link::OutputLink;
-use crate::protocol::{Command, Transition, TransitionKind};
+use crate::protocol::{Clip, Command, Transition, TransitionKind};
 use crate::thumb::Thumbs;
 use egui::{pos2, vec2, Align, Color32, CornerRadius, Key, Layout, Rect, RichText, Sense};
 use star_ui::theme::*;
@@ -20,10 +20,11 @@ fn is_media(p: &Path) -> bool {
     p.extension().map(|e| EXTENSIONS.contains(&e.to_string_lossy().to_lowercase().as_str())).unwrap_or(false)
 }
 
-struct Item {
-    path: PathBuf,
-    /// Lecture en boucle de cet élément.
-    looping: bool,
+/// Un élément : son média et ses réglages d'édition (boucle comprise).
+type Item = crate::project::LecteurItem;
+
+fn new_item(path: PathBuf) -> Item {
+    Item { path, clip: Clip::default() }
 }
 
 pub struct Lecteur {
@@ -88,7 +89,7 @@ impl Lecteur {
     /// Contenu enregistré dans le projet.
     pub fn to_data(&self) -> crate::project::LecteurData {
         crate::project::LecteurData {
-            items: self.items.iter().map(|i| crate::project::LecteurItem { path: i.path.clone(), looping: i.looping }).collect(),
+            items: self.items.clone(),
             loop_all: self.loop_all,
             shuffle: self.shuffle,
             transition: self.transition,
@@ -97,7 +98,7 @@ impl Lecteur {
 
     /// Projet ouvert : la liste est remplacée.
     pub fn load_data(&mut self, d: &crate::project::LecteurData) {
-        self.items = d.items.iter().map(|i| Item { path: i.path.clone(), looping: i.looping }).collect();
+        self.items = d.items.clone();
         self.loop_all = d.loop_all;
         self.shuffle = d.shuffle;
         self.transition = d.transition;
@@ -160,9 +161,9 @@ impl Lecteur {
             if f.is_dir() {
                 let mut v = Vec::new();
                 scan(&f, &mut v);
-                self.items.extend(v.into_iter().map(|path| Item { path, looping: false }));
+                self.items.extend(v.into_iter().map(new_item));
             } else if is_media(&f) {
-                self.items.push(Item { path: f, looping: false });
+                self.items.push(new_item(f));
             }
         }
         if self.selected.is_none() && !self.items.is_empty() {
@@ -210,9 +211,9 @@ impl Lecteur {
     fn play(&mut self, i: usize, out: &mut OutputLink) {
         let Some(it) = self.items.get(i) else { return };
         // La liste s'enchaîne : la fin du média est signalée ; le dernier garde son image.
-        let (path, looping) = (it.path.to_string_lossy().into_owned(), it.looping);
+        let (path, looping, clip) = (it.path.to_string_lossy().into_owned(), it.clip.sound.looping, it.clip.clone());
         self.queued = self.next_after(i);
-        out.send(Command::Load { path, paused: false, looping, hold: self.queued.is_none(), transition: self.transition });
+        out.send(Command::Load { path, paused: false, looping, hold: self.queued.is_none(), transition: self.transition, clip });
         self.playing = Some(i);
         self.seen_end = out.state.ended;
         self.selected = self.queued.or(Some(i));
@@ -359,7 +360,7 @@ impl Lecteur {
                         if paused {
                             ui.label(RichText::new("EN PAUSE").strong().small().color(ACCENT));
                         }
-                        if playing_now.and_then(|i| self.items.get(i)).is_some_and(|it| it.looping) {
+                        if playing_now.and_then(|i| self.items.get(i)).is_some_and(|it| it.clip.sound.looping) {
                             let (r, _) = ui.allocate_exact_size(vec2(18.0, 10.0), Sense::hover());
                             loop_icon(ui.painter(), r, ACCENT);
                         }
@@ -485,11 +486,11 @@ impl Lecteur {
                     // Boucle de l'élément : clic sur le symbole à droite.
                     let lr = Rect::from_center_size(anchor - vec2(10.0, 0.0), vec2(20.0, 16.0));
                     let lresp = ui.interact(lr, ui.make_persistent_id(("lec-item-loop", i)), Sense::click());
-                    let on = self.items[i].looping;
+                    let on = self.items[i].clip.sound.looping;
                     let lc = if on { ACCENT } else if lresp.hovered() || resp.hovered() { TEXT_DIM } else { BORDER };
                     loop_icon(ui.painter(), Rect::from_center_size(lr.center(), vec2(16.0, 9.0)), lc);
                     if lresp.on_hover_text(if on { "En boucle : clic pour lire une seule fois" } else { "Lire cet élément en boucle" }).clicked() {
-                        self.items[i].looping = !on;
+                        self.items[i].clip.sound.looping = !on;
                     } else if resp.double_clicked() {
                         play = Some(i);
                     } else if resp.clicked() {
@@ -501,7 +502,7 @@ impl Lecteur {
                             ui.close();
                         }
                         if ui.button(if on { "Lire une seule fois" } else { "Lire en boucle" }).clicked() {
-                            self.items[i].looping = !on;
+                            self.items[i].clip.sound.looping = !on;
                             ui.close();
                         }
                         if ui.button("Retirer").clicked() {
@@ -533,7 +534,7 @@ impl Lecteur {
 
     /// Aperçu de l'élément qui partira au prochain GO ou au prochain enchaînement.
     fn next_preview(&mut self, ui: &mut egui::Ui, area: Rect) {
-        let next = self.selected.and_then(|i| self.items.get(i)).map(|it| (it.path.clone(), it.looping));
+        let next = self.selected.and_then(|i| self.items.get(i)).map(|it| (it.path.clone(), it.clip.sound.looping));
         egui::Frame::new().fill(PANEL).corner_radius(6).inner_margin(10).show(ui, |ui| {
             let w = (area.width() - 20.0).max(80.0);
             ui.set_width(w);

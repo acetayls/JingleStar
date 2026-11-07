@@ -14,7 +14,13 @@ pub enum Command {
         hold: bool,
         #[serde(default)]
         transition: Transition,
+        /// Réglages d'édition du média : points, boucle, fondus au noir, volume, EQ.
+        #[serde(default)]
+        clip: Clip,
     },
+    /// Réglages d'édition du média en cours, modifiés pendant la lecture : volume, EQ et
+    /// fondus s'appliquent tout de suite ; les points au prochain chargement.
+    SetClip { clip: Clip },
     Play,
     Pause,
     /// Arrête la lecture : écran noir.
@@ -41,6 +47,38 @@ pub enum Command {
     /// Retour image vers la régie, à la cadence de la vidéo.
     Monitor { on: bool },
     Quit,
+}
+
+/// Réglages d'édition d'un élément du Lecteur ou d'un cue, comme ceux d'un jingle de
+/// JingleStar : volume, points d'entrée et de sortie, boucle, fondus (au noir pour l'image)
+/// et égaliseur de la bande son. Enregistré tel quel dans le projet.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Clip {
+    #[serde(flatten)]
+    pub sound: star_core::sound::SoundSettings,
+    /// Durée d'affichage d'une image fixe en secondes (None : jusqu'au média suivant).
+    pub image_secs: Option<f64>,
+}
+
+impl Clip {
+    /// Vrai si l'élément est lu tel quel (aucun réglage d'édition).
+    pub fn is_plain(&self) -> bool {
+        let s = &self.sound;
+        s.volume_db == 0.0
+            && s.start <= 0.0
+            && s.end.is_none()
+            && s.fade_in <= 0.0
+            && s.fade_out <= 0.0
+            && s.eq.is_flat()
+            && self.image_secs.is_none()
+    }
+
+    /// Remet dans leurs bornes les valeurs aberrantes.
+    pub fn sanitize(&mut self) {
+        self.sound.sanitize(10.0);
+        self.image_secs = self.image_secs.filter(|v| v.is_finite() && *v > 0.0).map(|v| v.clamp(0.1, 86_400.0));
+    }
 }
 
 /// Passage d'un média au suivant.
